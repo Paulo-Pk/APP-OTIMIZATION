@@ -438,7 +438,7 @@
                                             <TextBlock Grid.Column="1" Text="{Binding MeasuredAt, StringFormat={}{0:HH:mm:ss} UTC}" Foreground="#94A3B8" FontSize="11"/>
                                             <TextBlock Grid.Column="2" Text="{Binding AverageMs, StringFormat={}{0:F1} ms}" Foreground="#22C55E" FontFamily="Consolas" FontSize="11"/>
                                             <TextBlock Grid.Column="3" Text="{Binding JitterMs, StringFormat={}{0:F1} ms jitter}" Foreground="#C084FC" FontFamily="Consolas" FontSize="11"/>
-                                            <TextBlock Grid.Column="4" Text="{Binding PacketLossPercent, StringFormat={}{0:F1}% fail}" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding ConnectionFailurePercent, StringFormat={}{0:F1}% falhas}" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11"/>
                                             <TextBlock Grid.Column="5" Text="{Binding Status}" Foreground="#94A3B8" FontSize="11"/>
                                         </Grid>
                                     </Border>
