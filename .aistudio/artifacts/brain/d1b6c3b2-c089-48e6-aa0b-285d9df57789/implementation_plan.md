@@ -1,119 +1,114 @@
-# PC Control Ultimate — Fundação Segura, Navegação Modular WPF e Integrações Reais
+# Plano de Execução — Correção Crítica, Segurança e Estabilização (PC Control Ultimate)
 
-Entrega da consolidação de segurança, arquitetura desktop nativa WPF (.NET 10) e verificação de integridade para o **PC Control Ultimate**, eliminando qualquer bypass do catálogo de Registro, endurecendo a autenticação do Agente Privilegiado e implementando navegação modular real com internacionalização completa PT-BR / EN-US.
+## Diagnóstico Técnico do Repositório Atual
 
-## User Review & Critical Decisions
+A análise integral dos arquivos do repositório identificou a causa raiz exata de cada um dos bloqueios apontados na auditoria:
 
-> [!IMPORTANT]
-> As decisões abaixo foram confirmadas na etapa de esclarecimento e governam a execução técnica em ordem estrita de prioridade (Segurança → Aplicação Desktop → Integrações → Validação).
+1. **Etapa 1 — Vite, WebSocket e HMR no Google AI Studio (`vite.config.ts`, `server.ts`, `src/main.tsx`):**
+   - No container Cloud Run do Google AI Studio (`K_SERVICE=ais-dev-...`, `GOOGLE_RUNTIME=nodejs22`, `APP_URL=https://...`), a variável `DISABLE_HMR` não está definida no ambiente padrão, fazendo com que `process.env.DISABLE_HMR !== 'true'` mantenha o cliente WebSocket de HMR ativo dentro do proxy que bloqueia conexões WebSocket de HMR (`[vite] failed to connect to websocket`, `WebSocket closed without opened`, `Unhandled Rejection`).
+   - Além disso, `server.ts` instancia `createViteServer({ server: { middlewareMode: true } })` sem propagar a desativação do HMR/watch quando em ambiente de preview AI Studio.
 
-- **Confirmed Decision 1 — Restauração Estritamente Vinculada ao Catálogo e Snapshots Validados**: Toda aplicação e reversão de ajustes no Registro opera exclusivamente por `TweakId` pertencente ao catálogo fechado do backend ou por entradas validadas de um snapshot íntegro. Fica eliminado qualquer caminho público ou rota HTTP que aceite `keyPath`, `valueName`, `valueKind` ou `targetValue` arbitrários enviados pelo cliente.
-- **Confirmed Decision 2 — Política de Origem e Anti-Replay para Clientes Locais Legítimos**: Chamadas de navegadores exigem cabeçalho `Origin` estrito na lista autorizada (sem wildcard CORS). Chamadas locais legítimas do cliente desktop WPF (que não enviam `Origin`) devem apresentar obrigatoriamente o cabeçalho `X-PCControl-Client: WPF-Native-v2.4`, timestamp recente (`X-PCControl-Timestamp` dentro de janela de 60 segundos) e nonce único (`X-PCControl-Nonce`) validado contra cache anti-replay no servidor.
-- **Confirmed Decision 3 — Integração Contínua (CI) Windows x64**: Criação de workflow automatizado do GitHub Actions em `windows-latest` executando `dotnet restore`, `dotnet build -c Release` e `dotnet test -c Release` com empacotamento x64.
+2. **Etapa 2 — Vulnerabilidade no Fluxo de Restauração do Registro (`RegistryOptimizer.cs`, `PrivilegedAgentServer.cs`, `RegistrySnapshotEngine.cs`):**
+   - A rota `POST /api/tweaks/restore` e o método `RegistryOptimizer.RestoreCatalogTweak` ainda aceitam `originalValue`, `valueKind`, `wasInitiallyAbsent` e `keyCreatedByApp` vindos do corpo da requisição HTTP do cliente.
+   - Isso permite que um cliente autenticado escolha qualquer valor (ou force a exclusão da chave com `wasInitiallyAbsent: true`) em vez de restaurar o estado real anterior.
 
----
+3. **Etapa 3 — Compilação e Contrato do `IHardwareMonitorService` (`PCControlUltimate.Core`, `PCControlUltimate.Hardware`):**
+   - O contrato `IHardwareMonitorService` e `SensorDataPoint` precisam diferenciar explicitamente três estados técnicos: `SupportedAndAvailable` (leitura válida), `SensorNotSupported` (hardware não expõe o sensor) e `CommunicationFailure` (falha de leitura/permissão UAC), garantindo descarte determinístico (`IDisposable`) e injeção de dependência limpa sem acoplamento nos ViewModels.
 
-## 1. Overview & Core Concept
+4. **Etapa 4 — Vulnerabilidade em `SQLitePCLRaw.lib.e_sqlite3` (`PCControlUltimate.Infrastructure.csproj`):**
+   - O pacote `Microsoft.EntityFrameworkCore.Sqlite` (`9.0.2`) traz transitivamente `SQLitePCLRaw.lib.e_sqlite3` `2.1.10`, afetado por advisory de alta severidade.
 
-- **What It Does**: Software desktop nativo Windows 10/11 (`.NET 10` WPF) apoiado por Agente Local Privilegiado (`127.0.0.1:52194`) para telemetria física (`LibreHardwareMonitor`), análise real de quadros (`Intel PresentMon`), otimização auditada do Registro por catálogo fechado, backup/restauração verificada com rollback, limpeza segura de caches com proteção anti-symlink, diagnóstico de rede e inventário de drivers assinados. O projeto React existente é mantido sincronizado como referência visual e funcional sem contradizer as regras de segurança do backend.
-- **Target Audience / Persona**: Entusiastas de hardware, jogadores competitivos e engenheiros de suporte Windows que exigem diagnósticos transparentes, reversibilidade comprovada por releitura e zero telemetria fictícia.
-- **Key Value**: Nenhuma operação de sistema é simulada ou aceita parâmetros arbitrários não catalogados; cada mutação registra auditoria completa (usuário Windows, horário UTC, `TweakId`, valor anterior, valor solicitado, confirmação pós-leitura) e pode ser revertida com segurança.
+5. **Etapa 5 — Navegação WPF (`MainWindow.xaml`, `MainViewModel.cs`):**
+   - Atualmente toda a interface está concentrada em `MainWindow.xaml` alternando visibilidade de `StackPanel`s por `CurrentTab`, e possui erro de binding (`HardwareCategory` em vez de `HardwareType`). É necessário estruturar navegação real via `INavigationService`, `ContentControl`, `DataTemplate`s, `UserControl`s dedicados em `src/PCControlUltimate.App/Views/` e ViewModels específicos por módulo em `src/PCControlUltimate.App/ViewModels/`, registradas no container de DI (`App.xaml.cs`).
 
----
+6. **Etapa 6 — Internacionalização WPF (`LocalizationService.cs`, XAML e ViewModels):**
+   - Existem strings fixas em XAML (ex.: `"LIBREHARDWAREMONITOR — SENSORES FÍSICOS DETECTADOS"`, `"ITENS CAPTURADOS NO BACKUP SELECIONADO"`, `"Restaurar Item"`) e mensagens de status nos ViewModels que precisam ser movidas para o `LocalizationService` (`pt-BR` e `en-US`) com atualização imediata em tempo de execução.
 
-## 2. User Experience & Visual Design
+7. **Etapa 7 — Restore Center e Backup (`RegistrySnapshotEngine.cs`, `RestoreCenterView.xaml`, `RestoreCenterViewModel.cs`):**
+   - O Restore Center precisa exibir tipo de snapshot, tamanho em bytes (`FileSizeBytes`), status de verificação de integridade prévia obrigatória, hash SHA-256, escopo completo de itens antes da restauração, progresso real, exigência de confirmação explícita e resultado individual por item.
 
-- **Key User Flows**:
-  1. **Inicialização e Verificação de Segurança**: Ao abrir o aplicativo WPF, o `PrivilegedAgentServer` valida a proteção DPAPI e ACL NTFS do token de sessão. Se DPAPI ou ACL falharem, o status reporta explicitamente a falha de proteção em vez de declarar segurança.
-  2. **Navegação Modular Real no WPF**: Clicar em cada um dos 9 módulos da barra lateral (`Dashboard`, `Hardware Monitor`, `Registry Optimizer`, `Restore Center`, `Debloat/Cleaner`, `Network Lab`, `Gaming/PresentMon`, `Diagnostics`, `Driver Center`) alterna o `ContentControl` central para a tela específica do módulo com seu respectivo estado e comandos.
-  3. **Troca Instantânea de Idioma (PT-BR / EN-US)**: O seletor no cabeçalho alterna imediatamente todos os textos de navegação, cabeçalhos, botões, tooltips, alertas e relatórios entre Português Brasileiro (padrão) e Inglês Americano, persistindo a preferência do usuário em disco.
-  4. **Fluxo de Backup, Inspecão e Restauração**: No `Restore Center`, o usuário visualiza todos os backups existentes com data/hora, cobertura de itens capturados vs. falhas de leitura, status de verificação SHA-256 (explicado claramente como verificação de integridade contra corrupção, e não assinatura digital criptográfica), inspeciona os valores antes de restaurar e executa restauração completa ou individual com rollback em caso de inconsistência.
-- **Visual Identity & Theme**:
-  - *Aesthetic Direction*: Console de engenharia de sistemas de alta precisão em tema escuro (`#07090E` canvas principal, `#0F121B` superfícies estruturais, `#131722` cartões de dados com borda de `1px` `#1E2333`).
-  - *Color Palette & Mood*: Distribuição 60-30-10 com acento violeta/roxo (`#A855F7` / `#C084FC`) para ações primárias e estados ativos, verde esmeralda (`#16A34A`) para leituras verificadas, âmbar (`#D97706`) para alertas ou sensores indisponíveis (`N/D`) e vermelho (`#DC2626`) para bloqueios de segurança.
-  - *Typography & Hierarchy*: Tipografia limpa sem serifa para títulos e rótulos combinada com fonte monoespaçada tabular (`Consolas` / `JetBrains Mono`) para leituras de sensores, hashes SHA-256, latências e contadores de quadros.
+8. **Etapa 8 — Assinatura Criptográfica HMAC-SHA256 e Endurecimento do Agente Privilegiado (`PrivilegedAgentServer.cs`, `AgentClientService.cs`, `IntegrityVerifier.cs`):**
+   - Conforme definido, além do Bearer token protegido por DPAPI + ACL NTFS (validando ACL tanto do arquivo quanto do diretório de segredos) e validação de `Timestamp` + `Nonce`, implementaremos assinatura criptográfica **HMAC-SHA256 por requisição** (`X-PCControl-Signature`) calculada sobre `HTTPMethod + "|" + PathAndQuery + "|" + Timestamp + "|" + Nonce + "|" + Sha256Hex(Body)` usando a chave de sessão protegida por DPAPI.
 
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1 — Catálogo Estrito por `TweakId` e Par `(Hive, SubKeyPath, ValueName)`**:
-  - *Chosen Approach*: Tornar privados os métodos de escrita de baixo nível no `RegistryOptimizer` e expor publicamente apenas operações que validam o `TweakId` contra `RegistryOptimizer.Catalog` (para aplicação) ou que validam o trio exato `(Hive, SubKeyPath, ValueName)` e `RegistryValueKind` contra o catálogo fechado (para restauração).
-  - *Why*: Impede que uma subchave autorizada (como `SystemProfile`) seja usada para modificar outros valores não previstos dentro da mesma chave ou em subchaves filhas.
-  - *Alternatives Considered*: Validar apenas o prefixo da chave (`StartsWith`), o que foi descartado por permitir escrita em subchaves ou valores não auditados.
-- **Decision 2 — Proteção DPAPI + ACL Estrita e Anti-Replay no Agente**:
-  - *Chosen Approach*: Retornar objeto estruturado `TokenProtectionResult(bool Success, bool DpapiApplied, bool AclApplied, string? ErrorMessage)` ao salvar o token. Exigir cabeçalho `Origin` válido para navegadores ou o conjunto `X-PCControl-Client` + `X-PCControl-Timestamp` + `X-PCControl-Nonce` para o cliente WPF.
-  - *Why*: Garante que falhas de criptografia ou permissão de arquivo nunca sejam mascaradas como sucesso e protege o agente local contra ataques de replay e CSRF.
-- **Decision 3 — Rollback Transacional em Restauração de Snapshot**:
-  - *Chosen Approach*: Antes de aplicar a restauração de um snapshot no `RegistrySnapshotEngine`, capturar em memória o estado atual das chaves que serão alteradas; caso uma falha crítica interrompa a restauração e o usuário opte por reverter ou a política de consistência exija, restaurar o estado pré-operação e registrar o resultado item a item.
-  - *Why*: Evita deixar o Registro do Windows em estado híbrido não documentado quando ocorre falha de permissão no meio de um lote.
+9. **Etapa 9 — GitHub Actions Windows x64 (`.github/workflows/windows-ci.yml`):**
+   - Atualizar o workflow para compilar, testar e publicar explicitamente na arquitetura `x64` (`-p:Platform=x64` / `-r win-x64`), verificando pacotes vulneráveis (`dotnet list package --vulnerable --include-transitive`) e gerando o artefato somente após aprovação integral do build e dos testes.
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+## Plano de Execução por Etapas
 
-### Architecture & Component Diagram
+### Etapa 1 — Corrigir Vite, WebSocket e HMR no Google AI Studio
+- **`vite.config.ts` e `server.ts`:**
+  - Detectar de forma determinística o ambiente de preview gerenciado (`process.env.DISABLE_HMR === 'true' || Boolean(process.env.K_SERVICE) || Boolean(process.env.APP_URL) || Boolean(process.env.GOOGLE_RUNTIME)`).
+  - Desabilitar `server.hmr` e `server.watch` apenas quando em ambiente de preview AI Studio ou quando `DISABLE_HMR === 'true'`, preservando o HMR ativo no desenvolvimento local padrão.
+- **`src/main.tsx`:**
+  - Adicionar proteção contra `unhandledrejection` especificamente para falhas transitórias de transporte WebSocket do cliente Vite em iframes de preview, sem mascarar erros reais da aplicação.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                   PC CONTROL ULTIMATE — DESKTOP WPF (.NET 10 x64)                   │
-│                                                                                     │
-│  ┌──────────────────────┐    ┌───────────────────────────────────────────────────┐  │
-│  │  LocalizationService │───▶│             MainWindow + MainViewModel            │  │
-│  │   (PT-BR / EN-US +   │    │  • Navegação Modular (ContentControl / 9 Views)   │  │
-│  │   JSON Persistence)  │    │  • Seletores de Idioma, Elevação UAC & Status     │  │
-│  └──────────────────────┘    └─────────────────────────┬─────────────────────────┘  │
-│                                                        │                            │
-│       ┌────────────────────────┬───────────────────────┼───────────────────────┐    │
-│       ▼                        ▼                       ▼                       ▼    │
-│  ┌──────────────┐      ┌───────────────┐      ┌─────────────────┐     ┌───────────┐ │
-│  │ Dashboard /  │      │   Registry    │      │ Restore Center  │     │ Gaming /  │ │
-│  │  Hardware /  │      │   Optimizer   │      │  (Lista, Diff,  │     │ Network / │ │
-│  │ GPU Health / │      │ (Catálogo por │      │  Item/Full +    │     │ Debloat / │ │
-│  │ Diagnostics  │      │   TweakId)    │      │   Rollback)     │     │  Drivers  │ │
-│  └──────┬───────┘      └───────┬───────┘      └────────┬────────┘     └─────┬─────┘ │
-└─────────┼──────────────────────┼───────────────────────┼────────────────────┼───────┘
-          │                      │                       │                    │
-          ▼                      ▼                       ▼                    ▼
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│          AgentClientService (Bearer Token DPAPI + Nonce + Timestamp Headers)        │
-└──────────────────────────────────────────┬──────────────────────────────────────────┘
-                                           │ Loopback HTTP (127.0.0.1:52194)
-                                           ▼
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                         PrivilegedAgentServer (Windows Service/Host)                │
-│  • Loopback & Host Check  • Strict Origin / Client Header Policy  • Nonce Cache     │
-│  • 64KB Payload Cap       • SemaphoreSlim Concurrency Lock        • Audit Logger    │
-├──────────────────┬──────────────────┬───────────────────┬───────────────────────────┤
-│ RegistryOptimizer│ RegistrySnapshot │ PresentMonSession │ LibreHardwareMonitor      │
-│ (Closed Catalog  │ Engine (SHA-256  │ Parser (Argument  │ Wrapper + DiskCleaner +   │
-│  Only + Re-read) │ + Rollback)      │ List + Timeout)   │ NetworkDiag + DriverScan  │
-└──────────────────┴──────────────────┴───────────────────┴───────────────────────────┘
-```
+### Etapa 2 — Correção Crítica do Restore do Registro (Ledger Backend DPAPI + HMAC-SHA256)
+- **`src/PCControlUltimate.Windows/Services/RegistryStateLedger.cs` (Novo serviço backend):**
+  - Persistir em `%LOCALAPPDATA%\PCControlUltimate\StateLedger\tweak_state_ledger.dat` (protegido por DPAPI `DataProtectionScope.CurrentUser`, ACL NTFS restrita ao SID atual e autenticado com HMAC-SHA256 interno) cada operação aplicada pelo `RegistryOptimizer.ApplyCatalogTweak`.
+  - Cada registro conterá: `OperationId` (GUID único), `TweakId`, `Hive`, `SubKeyPath`, `ValueName`, `OriginalValueKind`, `OriginalRawValue`, `WasInitiallyAbsent`, `KeyCreatedByApp`, `AppliedValue`, `AppliedAtUtc`, `IsRestored` e `EntryHmacSha256`.
+- **`src/PCControlUltimate.Windows/Services/RegistryOptimizer.cs` e `PrivilegedAgentServer.cs`:**
+  - Remover da rota `/api/tweaks/restore` e de `RestoreCatalogTweak` a aceitação de `originalValue`, `valueKind`, `wasInitiallyAbsent` e `keyCreatedByApp` enviados livremente pelo cliente.
+  - Exigir que a restauração ocorra **exclusivamente**:
+    1. A partir de uma entrada autêntica e não reutilizada do `RegistryStateLedger` (por `operationId` ou pelo último estado confiável registrado para o `tweakId`); ou
+    2. A partir de um arquivo de snapshot validado pelo `RegistrySnapshotEngine` (verificando existência, proveniência, hash SHA-256 canônico, correspondência do `TweakId`, tipo `RegistryValueKind` compatível com o catálogo e valor dentro de `AllowedValues` ou ausência original comprovada).
+  - Rejeitar e registrar em auditoria qualquer tentativa de enviar payload adulterado, tipo incompatível, valor fora de `AllowedValues`, snapshot com hash inválido ou ajuste sem histórico confiável no backend.
 
-### Interactive Component & State Mapping
+### Etapa 3 — Corrigir e Expandir `IHardwareMonitorService` e `LibreHardwareMonitorWrapper`
+- **`src/PCControlUltimate.Core/Models/HardwareSnapshot.cs` e `src/PCControlUltimate.Core/Interfaces/IHardwareMonitorService.cs`:**
+  - Adicionar o enum `SensorReadingStatus { Available, SensorNotSupported, ReadingUnavailable, CommunicationFailure }` em `PCControlUltimate.Core.Models`.
+  - Atualizar `SensorDataPoint` e `HardwareSnapshot` para expor o status explícito de cada leitura e diagnósticos de comunicação, mantendo compatibilidade de propriedades para todos os projetos consumidores.
+- **`src/PCControlUltimate.Hardware/LibreHardwareMonitorWrapper.cs`:**
+  - Implementar `IHardwareMonitorService` diferenciando hardware sem suporte ao sensor (`SensorNotSupported`), leitura nula/indisponível (`ReadingUnavailable`) e falha de abertura/acesso Ring0/WMI (`CommunicationFailure`), além de `Dispose()` seguro liberando o `Timer` e fechando `Computer`.
 
-1. **Prioridade 1 — Segurança do Registro e Agente (`RegistryOptimizer`, `PrivilegedAgentServer`, `IntegrityVerifier`, `RegistrySnapshotEngine`)**:
-   - Remoção completa do fallback que aceitava `keyPath`/`valueName`/`valueKind` genéricos em `/api/tweaks/apply` e no `AgentClientService`.
-   - Validação estrita por `(Hive, SubKeyPath, ValueName)` exato (sem `StartsWith` permissivo que abra subchaves filhas não listadas).
-   - Registro detalhado de auditoria por operação: usuário Windows (`Environment.UserDomainName\Environment.UserName`), timestamp UTC, `TweakId`, valor anterior, valor solicitado, valor relido pós-gravação e erro (se houver).
-   - Proteção DPAPI e ACL verificada com retorno explícito de status; política explícita para requisições sem `Origin` exigindo `X-PCControl-Client`, `X-PCControl-Timestamp` e `X-PCControl-Nonce`.
-   - Snapshot v2.1 registrando itens capturados, falhas de leitura individuais (`UnreadableKeys`), verificação de integridade pós-gravação imediata, listagem de backups existentes, visualização prévia dos itens, restauração individual ou completa e rollback seguro.
+### Etapa 4 — Corrigir a Vulnerabilidade do SQLite
+- **`src/PCControlUltimate.Infrastructure/PCControlUltimate.Infrastructure.csproj`:**
+  - Identificar a cadeia transitiva de `Microsoft.EntityFrameworkCore.Sqlite` e atualizar para versão corrigida compatível, além de referenciar explicitamente `SQLitePCLRaw.bundle_e_sqlite3` e `SQLitePCLRaw.lib.e_sqlite3` na versão segura `2.1.11` para eliminar a versão vulnerável `2.1.10`.
+- **Verificação automatizada no CI:**
+  - Adicionar etapa no `.github/workflows/windows-ci.yml` executando `dotnet list PCControlUltimate.sln package --vulnerable --include-transitive` para comprovar a ausência de pacotes vulneráveis no restore.
 
-2. **Prioridade 2 — Navegação Modular e Internacionalização WPF (`LocalizationService`, `MainWindow.xaml`, `MainViewModel.cs`)**:
-   - Criação do `LocalizationService` centralizado com dicionários completos `pt-BR` (padrão) e `en-US`, notificação reativa (`INotifyPropertyChanged`) e persistência em `%LOCALAPPDATA%\PCControlUltimate\user_preferences.json`.
-   - Implementação de navegação real em `MainWindow.xaml` com 9 visões dedicadas renderizadas dinamicamente conforme `CurrentTab`:
-     1. `dashboard`: Visão geral de saúde, resumo de sensores reais, estado do agente/UAC e atalhos rápidos.
-     2. `hardware`: Monitoramento detalhado de CPU, GPU (incluindo Hotspot e VRAM), RAM, armazenamento e ventoinhas com indicação explícita de `N/D` / `Sensor indisponível` quando o hardware não expuser o sensor, além do diagnóstico contextualizado do GPU Health Lab.
-     3. `tweaks`: Catálogo fechado de otimizações do Registro com filtro, nível de risco, valor recomendado, estado atual verificado e botões individuais de Aplicar e Restaurar.
-     4. `restore`: Listagem de backups existentes em disco, contagem de itens capturados e falhas de leitura, verificação SHA-256, inspeção detalhada das entradas do backup selecionado e restauração individual ou completa com confirmação explícita.
-     5. `debloat`: Categorias autorizadas de limpeza (`cache-dx-shaders`, `temp-windows`, `temp-user`, `update-cache`), simulação prévia (`Dry-Run` / Estimativa), confirmação explícita antes da exclusão, medição real de bytes liberados, contagem de arquivos bloqueados/symlinks ignorados e log de itens afetados.
-     6. `network`: Diagnóstico separado em ICMP Echo, TCP Handshake, Consulta DNS, Latência para destinos configurados e Throughput externo real (`speed.cloudflare.com`), com histórico de medições.
-     7. `gaming`: Verificação do executável Intel PresentMon, listagem de processos ativos no Windows, seleção de processo, duração configurável, início/cancelamento de captura com `ArgumentList` seguro, leitura de `stdout`/`stderr`, código de saída e exibição de FPS médio, 1% Low, gráfico de frametimes e histórico de sessões.
-     8. `diagnostics`: Diagnóstico de integridade do sistema, status de elevação UAC, estado de proteção DPAPI/ACL e visualizador da trilha de auditoria real.
-     9. `drivers`: Inventário somente-leitura de drivers assinados (`Win32_PnPSignedDriver`) exibindo dispositivo, fabricante, versão, data e status de assinatura, deixando explícito que se trata de inventário/verificação e nunca baixando ou instalando drivers automaticamente.
+### Etapa 5 — Completar a Navegação WPF com Arquitetura MVVM Real
+- **`src/PCControlUltimate.App/Services/NavigationService.cs`:**
+  - Implementar `INavigationService` centralizado com resolução de ViewModels via `IServiceProvider`.
+- **`src/PCControlUltimate.App/ViewModels/Modules/` e `src/PCControlUltimate.App/Views/`:**
+  - Criar ViewModels dedicados (`DashboardViewModel`, `HardwareMonitorViewModel`, `RegistryOptimizerViewModel`, `RestoreCenterViewModel`, `DebloatCleanerViewModel`, `NetworkLabViewModel`, `GamingPresentMonViewModel`, `DiagnosticsViewModel`, `DriverCenterViewModel`) e seus respectivos `UserControl`s XAML.
+  - Configurar `DataTemplate`s no `App.xaml` / `MainWindow.xaml` associados a um `ContentControl` principal (`Content="{Binding Navigation.CurrentViewModel}"`), eliminando a simulação por ocultação de `StackPanel`s e corrigindo todos os bindings (como `HardwareType` e `Status` dos sensores).
 
-3. **Prioridade 3 & 4 — Testes Automatizados, CI Windows e Documentação**:
-   - Expansão da suíte `tests/PCControlUltimate.Tests` cobrindo rejeição de IDs fora do catálogo, rejeição de valores não permitidos, bloqueio de subchaves filhas não autorizadas, preservação de todos os 6 tipos do Registro, cobertura e falhas de leitura de backup, restauração parcial/completa com rollback, validação de nonce anti-replay e cabeçalhos do agente, tratamento de sensores ausentes, validação segura de nome de processo no PresentMon e proteção contra reparse points no limpador.
-   - Adição de `.github/workflows/windows-ci.yml` para compilação e execução automática de testes em `windows-latest` (x64 Release).
-   - Atualização completa do `README.md` documentando arquitetura, requisitos, comandos de build/execução, matriz de permissões UAC, geração de instalador Windows x64 e limitações conhecidas.
+### Etapa 6 — Internacionalização Completa (`pt-BR` e `en-US`)
+- **`src/PCControlUltimate.App/Services/LocalizationService.cs`:**
+  - Mapear 100% dos textos de navegação, cabeçalhos, botões, confirmações, alertas de segurança, estados de sensores (`Sensor não suportado`, `Leitura indisponível`, `Falha de comunicação`), Restore Center e mensagens de progresso nos dicionários `pt-BR` e `en-US`, atualizando todos os `UserControl`s e ViewModels via binding reativo `{Binding Loc[...]}` sem necessidade de reinicialização.
+
+### Etapa 7 — Completar o Restore Center e Backup
+- **`src/PCControlUltimate.Windows/Services/RegistrySnapshotEngine.cs` e `RestoreCenterView.xaml`:**
+  - Incluir `SnapshotType`, `FileSizeBytes` e status de verificação prévia em `SnapshotSummaryItem` e `RegistrySnapshotFile`.
+  - Exibir na interface do Restore Center: lista de snapshots, data/hora UTC, tipo de snapshot, integridade verificada, hash SHA-256, tamanho do arquivo, pré-visualização completa dos itens e valores que serão restaurados, exigência de confirmação explícita antes da restauração, verificação de elevação UAC quando houver chaves `HKLM`, barra/indicador de progresso real e relatório individual por item restaurado.
+
+### Etapa 8 — Revisar e Endurecer o Agente Privilegiado com Assinatura HMAC-SHA256
+- **`src/PCControlUltimate.Security/IntegrityVerifier.cs`:**
+  - Adicionar verificação de ACL NTFS tanto para o diretório `%LOCALAPPDATA%\PCControlUltimate` quanto para os arquivos de segredo (`agent_session.dpapi` e `tweak_state_ledger.dat`).
+  - Implementar `ComputeRequestHmacSha256(string sessionKey, string method, string pathAndQuery, string timestamp, string nonce, string bodyContent)` e verificação em tempo constante (`CryptographicOperations.FixedTimeEquals`).
+- **`src/PCControlUltimate.Windows/Services/PrivilegedAgentServer.cs` e `src/PCControlUltimate.Infrastructure/Services/AgentClientService.cs`:**
+  - Exigir e validar `X-PCControl-Signature` (HMAC-SHA256) nas chamadas do cliente WPF, além de Bearer token, `Host`, `Origin`/`X-PCControl-Client`, `Timestamp` e `Nonce` anti-replay, sanitizando logs para nunca expor tokens ou segredos e documentando claramente as garantias e ameaças residuais.
+
+### Etapa 9 — Testes de Segurança xUnit e GitHub Actions Windows x64
+- **`tests/PCControlUltimate.Tests/`:**
+  - Expandir `RegistryOptimizerTests.cs`, `RegistrySnapshotTests.cs` e `OptimizationSafetyTests.cs` com todos os testes negativos obrigatórios:
+    - Rejeição de valor restaurado fora de `AllowedValues`.
+    - Rejeição de `RegistryValueKind` incompatível.
+    - Rejeição de payload adulterado ou tentativa do frontend de enviar valor original arbitrário.
+    - Rejeição de snapshot com hash incorreto ou de outra operação.
+    - Bloqueio de restauração de ajuste sem histórico confiável no `RegistryStateLedger`.
+    - Restauração exata de registro originalmente inexistente (`WasInitiallyAbsent = true`).
+    - Preservação de `String`, `DWord`, `QWord`, `Binary` e `MultiString`.
+    - Relatório fiel de falha parcial (nunca reportando restauração completa quando um item falha).
+    - Validação de assinatura HMAC-SHA256 por requisição e bloqueio de adulteração de corpo/timestamp/nonce.
+- **`.github/workflows/windows-ci.yml`:**
+  - Executar em `windows-latest` na ordem estrita:
+    1. Checkout (`actions/checkout@v4`)
+    2. Setup .NET 10 SDK (`x64`)
+    3. Restore (`dotnet restore PCControlUltimate.sln`) + Verificação de vulnerabilidades NuGet (`dotnet list PCControlUltimate.sln package --vulnerable --include-transitive`)
+    4. Build Release x64 (`dotnet build PCControlUltimate.sln -c Release -p:Platform=x64 --no-restore`)
+    5. Testes Release x64 (`dotnet test PCControlUltimate.sln -c Release -p:Platform=x64 --no-build --verbosity normal`)
+    6. Publicação Windows x64 (`dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained false -o artifacts/publish/win-x64`)
+    7. Empacotamento e Upload do artefato (`if: success()`).

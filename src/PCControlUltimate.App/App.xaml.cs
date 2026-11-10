@@ -3,7 +3,9 @@ using System.IO;
 using System.Threading;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
+using PCControlUltimate.App.Services;
 using PCControlUltimate.App.ViewModels;
+using PCControlUltimate.App.Views;
 using PCControlUltimate.Core.Interfaces;
 using PCControlUltimate.Hardware;
 using PCControlUltimate.Infrastructure.Services;
@@ -37,7 +39,7 @@ public partial class App : Application
             .WriteTo.File(Path.Combine(logDir, "wpf_app.log"), rollingInterval: RollingInterval.Day)
             .CreateLogger();
 
-        Log.Information("PC Control Ultimate v2.4.0 starting up...");
+        Log.Information("PC Control Ultimate v2.5.0 starting up...");
 
         try
         {
@@ -45,7 +47,7 @@ public partial class App : Application
             await _hardwareMonitor.InitializeAsync();
 
             // Single-instance check for the local Privileged Agent
-            _agentMutex = new Mutex(true, @"Local\PCControlUltimate_PrivilegedAgent_Mutex_v24", out _ownsAgentMutex);
+            _agentMutex = new Mutex(true, @"Local\PCControlUltimate_PrivilegedAgent_Mutex_v25", out _ownsAgentMutex);
 
             string? inMemoryToken = null;
             if (_ownsAgentMutex)
@@ -70,9 +72,34 @@ public partial class App : Application
             _agentClient = new AgentClientService(inMemoryToken);
 
             var services = new ServiceCollection();
+            services.AddSingleton<LocalizationService>();
             services.AddSingleton<IHardwareMonitorService>(_hardwareMonitor);
             services.AddSingleton<AgentClientService>(_agentClient);
             services.AddSingleton<MainViewModel>();
+            services.AddSingleton<INavigationService>(sp => sp.GetRequiredService<MainViewModel>().Navigation);
+
+            // Register Module ViewModels
+            services.AddTransient<DashboardViewModel>();
+            services.AddTransient<HardwareMonitorViewModel>();
+            services.AddTransient<RegistryOptimizerViewModel>();
+            services.AddTransient<RestoreCenterViewModel>();
+            services.AddTransient<DebloatCleanerViewModel>();
+            services.AddTransient<NetworkLabViewModel>();
+            services.AddTransient<GamingPresentMonViewModel>();
+            services.AddTransient<DiagnosticsViewModel>();
+            services.AddTransient<DriverCenterViewModel>();
+
+            // Register Module UserControl Views
+            services.AddTransient<DashboardView>();
+            services.AddTransient<HardwareMonitorView>();
+            services.AddTransient<RegistryOptimizerView>();
+            services.AddTransient<RestoreCenterView>();
+            services.AddTransient<DebloatCleanerView>();
+            services.AddTransient<NetworkLabView>();
+            services.AddTransient<GamingPresentMonView>();
+            services.AddTransient<DiagnosticsView>();
+            services.AddTransient<DriverCenterView>();
+
             services.AddSingleton<MainWindow>();
 
             _serviceProvider = services.BuildServiceProvider();

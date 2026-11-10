@@ -37,7 +37,6 @@ public class RegistryOptimizerTests
     [InlineData(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games\EvilSubkey")]
     public void IsSubkeyAllowed_ChildSubkeysNotExplicitlyCataloged_MustBeRejected(string childSubkey)
     {
-        // Regression test: StartsWith prefix matching was removed; only exact catalog subkeys are allowed
         Assert.False(RegistryOptimizer.IsSubkeyAllowed(childSubkey));
     }
 
@@ -70,7 +69,6 @@ public class RegistryOptimizerTests
     [Fact]
     public void ApplyCatalogTweak_WithUnauthorizedTargetValue_MustBeRejected()
     {
-        // "perf-game-dvr" only allows "0" or "1"
         var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "999999");
 
         Assert.False(result.Success);
@@ -80,7 +78,6 @@ public class RegistryOptimizerTests
     [Fact]
     public void TryApplyTypedValue_UncatalogedValueNameInsideAllowedSubkey_MustBeRejected()
     {
-        // Subkey is in AllowedSubkeys, but "ArbitraryUncatalogedValue" is NOT in Catalog
         var result = RegistryOptimizer.TryApplyTypedValue(
             RegistryHive.CurrentUser,
             @"System\GameConfigStore",
@@ -184,5 +181,133 @@ public class RegistryOptimizerTests
         Assert.False(result.Success);
         Assert.Contains("catálogo fechado", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
-}
 
+    [Fact]
+    public void ValidateRestoreParametersAgainstCatalog_RestoredValueOutsideAllowedValues_MustBeRejected()
+    {
+        // "perf-game-dvr" only allows "0" or "1"
+        var (isValid, errorReason) = RegistryOptimizer.ValidateRestoreParametersAgainstCatalog(
+            "perf-game-dvr",
+            originalRawValue: "999999",
+            originalKind: RegistryValueKind.DWord,
+            wasInitiallyAbsent: false
+        );
+
+        Assert.False(isValid);
+        Assert.Contains("RESTORE_VALUE_NOT_ALLOWED", errorReason);
+    }
+
+    [Fact]
+    public void ValidateRestoreParametersAgainstCatalog_IncompatibleValueKind_MustBeRejected()
+    {
+        // "perf-game-dvr" expects DWord, passing String must be rejected
+        var (isValid, errorReason) = RegistryOptimizer.ValidateRestoreParametersAgainstCatalog(
+            "perf-game-dvr",
+            originalRawValue: "1",
+            originalKind: RegistryValueKind.String,
+            wasInitiallyAbsent: false
+        );
+
+        Assert.False(isValid);
+        Assert.Contains("INCOMPATIBLE_VALUE_KIND", errorReason);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_RestoreWithoutTrustedHistory_MustBeBlocked()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+
+        var validation = RegistryStateLedger.ResolveAndValidateRestore("perf-game-dvr");
+        Assert.False(validation.IsValid);
+        Assert.Contains("NO_TRUSTED_BACKEND_HISTORY", validation.ErrorReason);
+
+        var restoreResult = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr");
+        Assert.False(restoreResult.Success);
+        Assert.Contains("NO_TRUSTED_BACKEND_HISTORY", restoreResult.ErrorMessage ?? string.Empty);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_CrossTweakOperationIdMismatch_MustBeRejected()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+
+        var recorded = RegistryStateLedger.RecordBeforeModification(
+            def,
+            originalKind: RegistryValueKind.DWord,
+            originalRawValue: "1",
+            wasInitiallyAbsent: false,
+            keyCreatedByApp: false,
+            appliedValue: "0"
+        );
+
+        // Attempting to use perf-game-dvr's operationId to restore a different tweak ("perf-fso-flags") must fail
+        var mismatchValidation = RegistryStateLedger.ResolveAndValidateRestore("perf-fso-flags", recorded.OperationId);
+        Assert.False(mismatchValidation.IsValid);
+        Assert.Contains("OPERATION_TWEAK_MISMATCH", mismatchValidation.ErrorReason);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_TamperedEntryHmac_MustBeRejected()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var recorded = RegistryStateLedger.RecordBeforeModification(
+            def,
+            originalKind: RegistryValueKind.DWord,
+            originalRawValue: "1",
+            wasInitiallyAbsent: false,
+            keyCreatedByApp: false,
+            appliedValue: "0"
+        );
+
+        // Tamper with OriginalRawValue while keeping the old HMAC
+        var tamperedEntry = recorded with { OriginalRawValue = "999999" };
+        Assert.False(RegistryStateLedger.VerifyEntryHmac(tamperedEntry));
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_ClientCannotChooseArbitraryOriginalValue_BackendUsesLedgerInstead()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+
+        // Apply tweak to HKCU\System\GameConfigStore\GameDVR_Enabled
+        var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applyResult.Success);
+        Assert.NotNull(applyResult.OperationId);
+
+        // Even if caller passes a malicious/arbitrary originalRawValue ("999999") to the legacy method,
+        // the backend ignores the caller-supplied value and restores strictly from the DPAPI+HMAC ledger!
+        var restoreResult = RegistryOptimizer.RestoreCatalogTweak(
+            "perf-game-dvr",
+            wasInitiallyAbsent: false,
+            originalRawValue: "999999",
+            originalKind: RegistryValueKind.String,
+            keyCreatedByApp: false
+        );
+
+        Assert.True(restoreResult.Success);
+        Assert.NotEqual("999999", restoreResult.VerifiedCurrentValue);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweakFromTrustedSource_WhenValueWasInitiallyAbsent_RemovesValueAndVerifiesAbsence()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        var def = RegistryOptimizer.Catalog["perf-fso-flags"];
+
+        // Ensure value is absent before recording
+        using (var baseKey = RegistryKey.OpenBaseKey(def.Hive, RegistryView.Registry64))
+        using (var subKey = baseKey.OpenSubKey(def.SubKeyPath, writable: true))
+        {
+            subKey?.DeleteValue(def.ValueName, throwOnMissingValue: false);
+        }
+
+        var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-fso-flags", "2");
+        Assert.True(applyResult.Success);
+        Assert.True(applyResult.WasInitiallyAbsent);
+
+        var restoreResult = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-fso-flags", applyResult.OperationId);
+        Assert.True(restoreResult.Success);
+        Assert.Equal("REMOVED_ABSENT_VALUE", restoreResult.VerifiedCurrentValue);
+    }
+}

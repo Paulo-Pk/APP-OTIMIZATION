@@ -217,6 +217,7 @@ export interface DebloatCategory {
 export interface RestoreItem {
   id: string;
   tweakId?: string;
+  operationId?: string;
   registryKey?: string;
   valueName?: string;
   valueKind?: string;

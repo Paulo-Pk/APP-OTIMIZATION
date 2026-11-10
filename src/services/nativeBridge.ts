@@ -140,6 +140,7 @@ class NativeBridgeService {
     valueKind: string = 'DWord'
   ): Promise<{
     success: boolean;
+    operationId?: string;
     previousValue: string;
     verifiedValue: string;
     valueKind?: string;
@@ -169,6 +170,7 @@ class NativeBridgeService {
       const data = await res.json();
       return {
         success: !!data.success,
+        operationId: data.operationId,
         previousValue: data.previousValue ?? '',
         verifiedValue: data.verifiedValue ?? '',
         valueKind: data.valueKind ?? valueKind,
@@ -187,13 +189,9 @@ class NativeBridgeService {
   }
 
   public async restoreRegistryTweak(
-    keyPath: string,
-    valueName: string,
-    originalValue: string | number | null,
-    valueKind: string = 'DWord',
-    wasInitiallyAbsent: boolean = false,
-    keyCreatedByApp: boolean = false,
-    tweakId?: string
+    tweakId: string,
+    operationId?: string,
+    snapshotId?: string
   ): Promise<{ success: boolean; verified: boolean; error?: string }> {
     if (!this.agentStatus.isConnected) {
       return {
@@ -204,24 +202,22 @@ class NativeBridgeService {
     }
 
     try {
+      // Security Policy (Etapa 2): Never send originalValue, valueKind, wasInitiallyAbsent, or keyCreatedByApp from frontend.
+      // Backend restores exclusively from its DPAPI+HMAC state ledger or a verified snapshot.
       const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/restore`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
           tweakId,
-          keyPath,
-          valueName,
-          originalValue: originalValue !== null ? String(originalValue) : null,
-          valueKind,
-          wasInitiallyAbsent,
-          keyCreatedByApp,
+          operationId,
+          snapshotId,
         }),
       });
       const data = await res.json();
       return {
         success: !!data.success,
         verified: !!data.verified,
-        error: data.error,
+        error: data.error || data.message,
       };
     } catch (err: any) {
       return {

@@ -42,10 +42,7 @@ public class TweakItemViewModel : INotifyPropertyChanged
 {
     private bool _isApplied;
     private string _verificationState = "Não verificado";
-    private string? _previousRawValue;
-    private string _previousValueKind = "DWord";
-    private bool _wasInitiallyAbsent;
-    private bool _keyCreatedByApp;
+    private string? _lastOperationId;
 
     public string TweakId { get; init; } = string.Empty;
     public string NamePt { get; init; } = string.Empty;
@@ -76,28 +73,10 @@ public class TweakItemViewModel : INotifyPropertyChanged
         set { _verificationState = value; OnPropertyChanged(); }
     }
 
-    public string? PreviousRawValue
+    public string? LastOperationId
     {
-        get => _previousRawValue;
-        set { _previousRawValue = value; OnPropertyChanged(); }
-    }
-
-    public string PreviousValueKind
-    {
-        get => _previousValueKind;
-        set { _previousValueKind = value; OnPropertyChanged(); }
-    }
-
-    public bool WasInitiallyAbsent
-    {
-        get => _wasInitiallyAbsent;
-        set { _wasInitiallyAbsent = value; OnPropertyChanged(); }
-    }
-
-    public bool KeyCreatedByApp
-    {
-        get => _keyCreatedByApp;
-        set { _keyCreatedByApp = value; OnPropertyChanged(); }
+        get => _lastOperationId;
+        set { _lastOperationId = value; OnPropertyChanged(); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -146,7 +125,8 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private CancellationTokenSource? _presentMonCts;
 
-    public LocalizationService Loc { get; } = new();
+    public LocalizationService Loc { get; }
+    public INavigationService Navigation { get; }
 
     private string _currentTab = "dashboard";
     private bool _isAgentConnected;
@@ -154,6 +134,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _statusMessage = "Verificando comunicação com o Agente...";
 
     // Hardware & GPU Health properties
+    private string _hardwareSubsystemStatusText = "Sensor indisponível (N/D)";
     private string _cpuModel = "Sensor indisponível (N/D)";
     private string _cpuTemp = "N/D";
     private string _cpuLoad = "N/D";
@@ -174,9 +155,13 @@ public class MainViewModel : INotifyPropertyChanged
     // Restore Center properties
     private string _lastBackupStatus = "Nenhum backup verificado na sessão";
     private SnapshotSummaryItem? _selectedBackup;
+    private bool _confirmRestoreExecution;
     private bool _confirmIncompleteRestore;
     private bool _rollbackOnPartialFailure = true;
-    private string _restoreOperationReport = "Selecione um backup para inspecionar ou restaurar.";
+    private string _restoreOperationReport = "Selecione um snapshot para inspecionar ou restaurar.";
+    private string _restoreUacStatusMessage = string.Empty;
+    private int _restoreProgressPercent;
+    private string _restoreProgressStatus = string.Empty;
 
     // Debloat properties
     private bool _confirmCleanerDeletion;
@@ -195,7 +180,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _presentMonMetricsSummary = "Nenhuma sessão capturada.";
 
     // Diagnostics & Security properties
-    private string _securityPostureText = "Verificando DPAPI, ACL NTFS e privilégios UAC...";
+    private string _securityPostureText = "Verificando DPAPI, ACL NTFS, HMAC-SHA256 e privilégios UAC...";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -204,6 +189,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<SnapshotSummaryItem> ExistingBackups { get; } = new();
     public ObservableCollection<RegistryValueEntry> SelectedBackupEntries { get; } = new();
     public ObservableCollection<RegistryReadFailure> SelectedBackupFailures { get; } = new();
+    public ObservableCollection<string> RestoreItemResults { get; } = new();
     public ObservableCollection<CleanerCategoryViewModel> CleanerCategories { get; } = new();
     public ObservableCollection<string> CleanerAffectedFilesLog { get; } = new();
     public ObservableCollection<NetworkEndpointTestResult> NetworkEndpoints { get; } = new();
@@ -224,20 +210,24 @@ public class MainViewModel : INotifyPropertyChanged
             UpdateLocalizedCollections();
             OnPropertyChanged();
             OnPropertyChanged(nameof(HeaderTitle));
+            OnPropertyChanged(nameof(ActiveModuleDisplayTitle));
         }
     }
 
     public string HeaderTitle => Loc["HeaderSubtitle"];
+    public string ActiveModuleDisplayTitle => Navigation.CurrentViewModel?.ModuleTitle ?? Loc["NavDashboard"];
 
     public string CurrentTab
     {
         get => _currentTab;
         set
         {
-            if (_currentTab != value)
+            if (!string.Equals(_currentTab, value, StringComparison.OrdinalIgnoreCase))
             {
                 _currentTab = value;
+                Navigation.NavigateTo(value);
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(ActiveModuleDisplayTitle));
                 OnPropertyChanged(nameof(IsDashboardVisible));
                 OnPropertyChanged(nameof(IsHardwareVisible));
                 OnPropertyChanged(nameof(IsTweaksVisible));
@@ -279,6 +269,12 @@ public class MainViewModel : INotifyPropertyChanged
         set { _statusMessage = value; OnPropertyChanged(); }
     }
 
+    public string HardwareSubsystemStatusText
+    {
+        get => _hardwareSubsystemStatusText;
+        set { _hardwareSubsystemStatusText = value; OnPropertyChanged(); }
+    }
+
     public string CpuModel { get => _cpuModel; set { _cpuModel = value; OnPropertyChanged(); } }
     public string CpuTemp { get => _cpuTemp; set { _cpuTemp = value; OnPropertyChanged(); } }
     public string CpuLoad { get => _cpuLoad; set { _cpuLoad = value; OnPropertyChanged(); } }
@@ -310,6 +306,12 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool ConfirmRestoreExecution
+    {
+        get => _confirmRestoreExecution;
+        set { _confirmRestoreExecution = value; OnPropertyChanged(); }
+    }
+
     public bool ConfirmIncompleteRestore
     {
         get => _confirmIncompleteRestore;
@@ -326,6 +328,24 @@ public class MainViewModel : INotifyPropertyChanged
     {
         get => _restoreOperationReport;
         set { _restoreOperationReport = value; OnPropertyChanged(); }
+    }
+
+    public string RestoreUacStatusMessage
+    {
+        get => _restoreUacStatusMessage;
+        set { _restoreUacStatusMessage = value; OnPropertyChanged(); }
+    }
+
+    public int RestoreProgressPercent
+    {
+        get => _restoreProgressPercent;
+        set { _restoreProgressPercent = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+    }
+
+    public string RestoreProgressStatus
+    {
+        get => _restoreProgressStatus;
+        set { _restoreProgressStatus = value; OnPropertyChanged(); }
     }
 
     public bool ConfirmCleanerDeletion
@@ -425,14 +445,16 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RefreshAuditLogsCommand { get; }
     public ICommand RequestElevationCommand { get; }
 
-    public MainViewModel() : this(new AgentClientService(), null)
+    public MainViewModel() : this(new AgentClientService(), null, new LocalizationService())
     {
     }
 
-    public MainViewModel(AgentClientService agentClient, IHardwareMonitorService? hardwareMonitor)
+    public MainViewModel(AgentClientService agentClient, IHardwareMonitorService? hardwareMonitor, LocalizationService? localizationService = null)
     {
         _agentClient = agentClient;
         _hardwareMonitor = hardwareMonitor;
+        Loc = localizationService ?? new LocalizationService();
+        _restoreProgressStatus = Loc["RestoreProgressIdle"];
 
         foreach (var def in RegistryOptimizer.Catalog.Values)
         {
@@ -471,10 +493,6 @@ public class MainViewModel : INotifyPropertyChanged
             if (tab is string tabName && !string.IsNullOrWhiteSpace(tabName))
             {
                 CurrentTab = tabName;
-                if (tabName == "restore") RefreshBackupsList();
-                if (tabName == "diagnostics") RefreshAuditLogs();
-                if (tabName == "drivers" && InstalledDrivers.Count == 0) RefreshDriversList();
-                if (tabName == "gaming" && AvailableProcesses.Count == 0) RefreshRunningProcesses();
             }
         });
 
@@ -484,6 +502,7 @@ public class MainViewModel : INotifyPropertyChanged
             UpdateLocalizedCollections();
             OnPropertyChanged(nameof(Language));
             OnPropertyChanged(nameof(HeaderTitle));
+            OnPropertyChanged(nameof(ActiveModuleDisplayTitle));
             StatusMessage = Loc.CurrentCulture == "pt-BR"
                 ? "Idioma alterado imediatamente para Português Brasileiro (PT-BR)."
                 : "Language immediately switched to American English (EN-US).";
@@ -492,8 +511,8 @@ public class MainViewModel : INotifyPropertyChanged
         CreateSnapshotCommand = new RelayCommand(async _ =>
         {
             StatusMessage = Loc.CurrentCulture == "pt-BR"
-                ? "Capturando e verificando backup SHA-256 dos ajustes suportados..."
-                : "Capturing and verifying SHA-256 backup of supported settings...";
+                ? "Capturando e verificando snapshot SHA-256 dos ajustes suportados..."
+                : "Capturing and verifying SHA-256 snapshot of supported settings...";
             var (success, details) = await _agentClient.CreateSnapshotAsync();
             RefreshBackupsList();
             RefreshAuditLogs();
@@ -501,12 +520,12 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 LastBackupStatus = $"SHA-256 OK ({DateTime.Now:HH:mm:ss})";
                 StatusMessage = Loc.CurrentCulture == "pt-BR"
-                    ? "Backup criado e verificado no disco com sucesso."
-                    : "Backup created and verified on disk successfully.";
+                    ? "Snapshot criado e verificado no disco com sucesso."
+                    : "Snapshot created and verified on disk successfully.";
             }
             else
             {
-                StatusMessage = $"Falha / Backup incompleto: {details}";
+                StatusMessage = $"Falha / Snapshot incompleto: {details}";
             }
         });
 
@@ -526,16 +545,16 @@ public class MainViewModel : INotifyPropertyChanged
                     try
                     {
                         using var doc = JsonDocument.Parse(details);
-                        tweak.PreviousRawValue = doc.RootElement.TryGetProperty("previousValue", out var pv) ? pv.GetString() : null;
-                        tweak.PreviousValueKind = doc.RootElement.TryGetProperty("valueKind", out var vk) ? (vk.GetString() ?? tweak.ValueKind) : tweak.ValueKind;
-                        tweak.WasInitiallyAbsent = doc.RootElement.TryGetProperty("wasInitiallyAbsent", out var wa) && wa.GetBoolean();
-                        tweak.KeyCreatedByApp = doc.RootElement.TryGetProperty("keyCreatedByApp", out var kc) && kc.GetBoolean();
+                        if (doc.RootElement.TryGetProperty("operationId", out var opId))
+                        {
+                            tweak.LastOperationId = opId.GetString();
+                        }
                     }
                     catch { }
 
                     tweak.IsApplied = true;
                     tweak.VerificationState = $"Verificado ({tweak.RecommendedValue})";
-                    StatusMessage = $"Ajuste '{tweak.TweakId}' aplicado e confirmado por releitura.";
+                    StatusMessage = $"Ajuste '{tweak.TweakId}' aplicado, gravado no Ledger DPAPI e confirmado por releitura.";
                 }
                 else
                 {
@@ -549,19 +568,18 @@ public class MainViewModel : INotifyPropertyChanged
         {
             if (param is TweakItemViewModel tweak)
             {
+                // Secure backend-only restoration via DPAPI+HMAC ledger or verified snapshot
                 var (ok, details) = await _agentClient.RestoreCatalogTweakAsync(
                     tweak.TweakId,
-                    tweak.PreviousRawValue,
-                    tweak.PreviousValueKind,
-                    tweak.WasInitiallyAbsent,
-                    tweak.KeyCreatedByApp
+                    tweak.LastOperationId,
+                    SelectedBackup?.SnapshotId
                 );
                 RefreshAuditLogs();
                 if (ok)
                 {
                     tweak.IsApplied = false;
-                    tweak.VerificationState = "Restaurado e Verificado";
-                    StatusMessage = $"Ajuste '{tweak.TweakId}' revertido ao estado original.";
+                    tweak.VerificationState = "Restaurado (Ledger Seguro)";
+                    StatusMessage = $"Ajuste '{tweak.TweakId}' revertido ao estado original autêntico do backend.";
                 }
                 else
                 {
@@ -577,25 +595,52 @@ public class MainViewModel : INotifyPropertyChanged
             if (SelectedBackup == null) return;
             var (isValid, checksum, err) = RegistrySnapshotEngine.VerifyBackupIntegrity(SelectedBackup.FilePath);
             RestoreOperationReport = isValid
-                ? $"Integridade SHA-256 confirmada ({checksum}). Todas as entradas pertencem à whitelist."
-                : $"Falha de integridade no backup: {err}";
+                ? $"Integridade SHA-256 confirmada ({checksum}). Todas as entradas pertencem ao catálogo fechado."
+                : $"Falha de integridade no snapshot: {err}";
         });
 
         RestoreSelectedBackupCommand = new RelayCommand(_ =>
         {
             if (SelectedBackup == null)
             {
-                RestoreOperationReport = "Selecione um backup na lista antes de restaurar.";
+                RestoreOperationReport = "Selecione um snapshot na lista antes de restaurar.";
                 return;
             }
 
+            if (!ConfirmRestoreExecution)
+            {
+                RestoreOperationReport = Loc["RestoreConfirmRequiredMsg"];
+                return;
+            }
+
+            var (isIntegrityValid, _, integrityErr) = RegistrySnapshotEngine.VerifyBackupIntegrity(SelectedBackup.FilePath);
+            if (!isIntegrityValid)
+            {
+                RestoreOperationReport = $"{Loc["RestoreIntegrityBlockedMsg"]} ({integrityErr})";
+                RestoreProgressPercent = 0;
+                return;
+            }
+
+            RestoreProgressPercent = 20;
+            RestoreProgressStatus = Loc["RestoreProgressRunning"];
+            RestoreItemResults.Clear();
+
             var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(
                 SelectedBackup.FilePath,
-                ConfirmIncompleteRestore,
+                confirmIncompleteBackup: ConfirmIncompleteRestore,
                 singleTweakId: null,
                 rollbackOnPartialFailure: RollbackOnPartialFailure
             );
+
             RefreshAuditLogs();
+            RestoreProgressPercent = 100;
+            RestoreProgressStatus = Loc["RestoreProgressDone"];
+
+            foreach (var itemReport in report.ItemReports)
+            {
+                string statusTag = itemReport.RestoredAndVerified ? "[OK - VERIFICADO]" : "[FALHA]";
+                RestoreItemResults.Add($"{statusTag} {itemReport.TweakId} ({itemReport.KeyPath}\\{itemReport.ValueName}) -> {itemReport.Message}");
+            }
 
             if (report.Success)
             {
@@ -607,16 +652,25 @@ public class MainViewModel : INotifyPropertyChanged
             }
             else
             {
-                RestoreOperationReport = $"Resultado: {report.RestoredCount} restaurados, {report.FailedCount} falhas. Detalhe: {report.ErrorMessage}";
+                RestoreOperationReport = $"Resultado parcial/falha: {report.RestoredCount} restaurados, {report.FailedCount} falhas. Detalhe: {report.ErrorMessage}";
             }
         });
 
         RestoreSingleBackupEntryCommand = new RelayCommand(param =>
         {
             if (SelectedBackup == null || param is not RegistryValueEntry entry) return;
+            if (!ConfirmRestoreExecution)
+            {
+                RestoreOperationReport = Loc["RestoreConfirmRequiredMsg"];
+                return;
+            }
+
             string targetId = !string.IsNullOrWhiteSpace(entry.TweakId)
                 ? entry.TweakId
                 : (RegistryOptimizer.FindAuthorizedCatalogEntry(entry.KeyPath, entry.ValueName)?.TweakId ?? "");
+
+            RestoreProgressPercent = 35;
+            RestoreProgressStatus = Loc["RestoreProgressRunning"];
 
             var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(
                 SelectedBackup.FilePath,
@@ -625,6 +679,16 @@ public class MainViewModel : INotifyPropertyChanged
                 rollbackOnPartialFailure: false
             );
             RefreshAuditLogs();
+
+            RestoreProgressPercent = 100;
+            RestoreProgressStatus = Loc["RestoreProgressDone"];
+
+            RestoreItemResults.Clear();
+            foreach (var itemReport in report.ItemReports)
+            {
+                string statusTag = itemReport.RestoredAndVerified ? "[OK - VERIFICADO]" : "[FALHA]";
+                RestoreItemResults.Add($"{statusTag} {itemReport.TweakId} ({itemReport.KeyPath}\\{itemReport.ValueName}) -> {itemReport.Message}");
+            }
 
             RestoreOperationReport = report.Success
                 ? $"Item '{targetId}' ({entry.ValueName}) restaurado e verificado com sucesso."
@@ -823,6 +887,7 @@ public class MainViewModel : INotifyPropertyChanged
             }
         });
 
+        Navigation = new NavigationService(this);
         RefreshBackupsList();
         RefreshAuditLogs();
         _ = RefreshTelemetryAndStatusAsync();
@@ -839,6 +904,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             cat.DisplayName = isPt ? cat.NamePt : cat.NameEn;
         }
+        UpdateRestoreUacWarning();
     }
 
     private void RefreshBackupsList()
@@ -858,7 +924,11 @@ public class MainViewModel : INotifyPropertyChanged
     {
         SelectedBackupEntries.Clear();
         SelectedBackupFailures.Clear();
-        if (SelectedBackup == null) return;
+        if (SelectedBackup == null)
+        {
+            RestoreUacStatusMessage = string.Empty;
+            return;
+        }
 
         var manifest = RegistrySnapshotEngine.InspectBackup(SelectedBackup.FilePath);
         if (manifest == null) return;
@@ -871,6 +941,19 @@ public class MainViewModel : INotifyPropertyChanged
         {
             SelectedBackupFailures.Add(f);
         }
+
+        UpdateRestoreUacWarning();
+    }
+
+    private void UpdateRestoreUacWarning()
+    {
+        bool hasHklm = SelectedBackupEntries.Any(e =>
+            e.KeyPath.StartsWith("HKEY_LOCAL_MACHINE", StringComparison.OrdinalIgnoreCase) ||
+            e.KeyPath.StartsWith("HKLM", StringComparison.OrdinalIgnoreCase));
+
+        RestoreUacStatusMessage = (hasHklm && !IsAdmin)
+            ? Loc["RestoreUacWarning"]
+            : Loc["RestoreUacOk"];
     }
 
     private void RefreshRunningProcesses()
@@ -906,6 +989,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         IsAgentConnected = await _agentClient.CheckConnectionAsync();
         IsAdmin = _agentClient.IsElevated;
+        UpdateRestoreUacWarning();
 
         StatusMessage = IsAgentConnected
             ? (IsAdmin ? Loc["AgentConnectedAdmin"] : Loc["AgentConnectedStandard"])
@@ -913,7 +997,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         SecurityPostureText =
             $"Agente Autenticado: {IsAgentConnected} | DPAPI Aplicado: {_agentClient.IsTokenDpapiProtected} | " +
-            $"ACL NTFS Restrita ao Usuário: {_agentClient.IsTokenAclRestricted} | Administrador (UAC): {IsAdmin}";
+            $"ACL NTFS Restrita ao Usuário: {_agentClient.IsTokenAclRestricted} | Assinatura HMAC-SHA256: Ativa | Administrador (UAC): {IsAdmin}";
 
         // Update Display Settings via real Win32 P/Invoke
         var dispObj = DisplaySettingsService.GetPrimaryDisplayInfo();
@@ -936,74 +1020,89 @@ public class MainViewModel : INotifyPropertyChanged
 
         // Update Hardware Sensors from real LibreHardwareMonitor (Zero Fake Fallbacks)
         AllHardwareSensors.Clear();
-        if (_hardwareMonitor != null && _hardwareMonitor.IsAvailable)
+        if (_hardwareMonitor != null)
         {
             var snap = await _hardwareMonitor.CaptureSnapshotAsync();
-            foreach (var s in snap.AllSensors)
+            HardwareSubsystemStatusText = snap.Status switch
             {
-                AllHardwareSensors.Add(s);
-            }
+                SensorReadingStatus.Available => Loc["SensorStatusAvailable"],
+                SensorReadingStatus.SensorNotSupported => Loc["SensorStatusNotSupported"],
+                SensorReadingStatus.CommunicationFailure => $"{Loc["SensorStatusCommFailure"]} ({snap.DiagnosticReason})",
+                _ => $"{Loc["SensorStatusUnavailable"]} ({snap.DiagnosticReason})"
+            };
 
-            CpuModel = !string.IsNullOrWhiteSpace(snap.CpuModelName) ? snap.CpuModelName : unavailable;
-            CpuTemp = snap.CpuPackageTemp.HasValue ? $"{snap.CpuPackageTemp.Value:F1} °C" : unavailable;
-            CpuLoad = snap.CpuTotalLoad.HasValue ? $"{snap.CpuTotalLoad.Value:F0} %" : unavailable;
-            CpuClock = snap.CpuClockMhz.HasValue ? $"{snap.CpuClockMhz.Value:F0} MHz" : unavailable;
-            CpuPower = snap.CpuPowerWatts.HasValue ? $"{snap.CpuPowerWatts.Value:F1} W" : unavailable;
+            if (snap.IsHardwareMonitorAvailable)
+            {
+                foreach (var s in snap.Sensors)
+                {
+                    AllHardwareSensors.Add(s);
+                }
 
-            GpuModel = !string.IsNullOrWhiteSpace(snap.GpuModelName) ? snap.GpuModelName : unavailable;
-            GpuTemp = snap.GpuCoreTemp.HasValue ? $"{snap.GpuCoreTemp.Value:F1} °C" : unavailable;
-            GpuHotspot = snap.GpuHotspotTemp.HasValue ? $"{snap.GpuHotspotTemp.Value:F1} °C" : unavailable;
-            GpuLoad = snap.GpuLoadPercent.HasValue ? $"{snap.GpuLoadPercent.Value:F0} %" : unavailable;
-            GpuClock = snap.GpuClockMhz.HasValue ? $"{snap.GpuClockMhz.Value:F0} MHz" : unavailable;
-            GpuPower = snap.GpuPowerWatts.HasValue ? $"{snap.GpuPowerWatts.Value:F1} W" : unavailable;
-            GpuFanRpm = snap.GpuFanRpm.HasValue ? $"{snap.GpuFanRpm.Value:F0} RPM" : unavailable;
+                string notSupported = Loc["SensorStatusNotSupported"];
+                CpuModel = !string.IsNullOrWhiteSpace(snap.CpuModelName) ? snap.CpuModelName : unavailable;
+                CpuTemp = snap.CpuPackageTemp.HasValue ? $"{snap.CpuPackageTemp.Value:F1} °C" : notSupported;
+                CpuLoad = snap.CpuTotalLoad.HasValue ? $"{snap.CpuTotalLoad.Value:F0} %" : notSupported;
+                CpuClock = snap.CpuClockMhz.HasValue ? $"{snap.CpuClockMhz.Value:F0} MHz" : notSupported;
+                CpuPower = snap.CpuPowerWatts.HasValue ? $"{snap.CpuPowerWatts.Value:F1} W" : notSupported;
 
-            if (snap.GpuVramUsedMb.HasValue && snap.GpuVramTotalMb.HasValue && snap.GpuVramTotalMb.Value > 0)
-            {
-                GpuVram = $"{snap.GpuVramUsedMb.Value:F0} MB / {snap.GpuVramTotalMb.Value:F0} MB";
-            }
-            else
-            {
-                GpuVram = unavailable;
-            }
+                GpuModel = !string.IsNullOrWhiteSpace(snap.GpuModelName) ? snap.GpuModelName : unavailable;
+                GpuTemp = snap.GpuCoreTemp.HasValue ? $"{snap.GpuCoreTemp.Value:F1} °C" : notSupported;
+                GpuHotspot = snap.GpuHotspotTemp.HasValue ? $"{snap.GpuHotspotTemp.Value:F1} °C" : notSupported;
+                GpuLoad = snap.GpuLoadPercent.HasValue ? $"{snap.GpuLoadPercent.Value:F0} %" : notSupported;
+                GpuClock = snap.GpuClockMhz.HasValue ? $"{snap.GpuClockMhz.Value:F0} MHz" : notSupported;
+                GpuPower = snap.GpuPowerWatts.HasValue ? $"{snap.GpuPowerWatts.Value:F1} W" : notSupported;
+                GpuFanRpm = snap.GpuFanRpm.HasValue ? $"{snap.GpuFanRpm.Value:F0} RPM" : notSupported;
 
-            if (snap.GpuCoreTemp.HasValue && snap.GpuHotspotTemp.HasValue)
-            {
-                var thermalEval = GpuThermalAuditor.EvaluateThermalState(snap.GpuCoreTemp.Value, snap.GpuHotspotTemp.Value);
-                GpuThermalDiagnosisText = $"Status: {thermalEval.Status} (Delta Core/Hotspot: +{thermalEval.Delta:F1} °C) — {thermalEval.Recommendation}";
-            }
-            else
-            {
-                GpuThermalDiagnosisText = unavailable;
-            }
+                if (snap.GpuVramUsedMb.HasValue && snap.GpuVramTotalMb.HasValue && snap.GpuVramTotalMb.Value > 0)
+                {
+                    GpuVram = $"{snap.GpuVramUsedMb.Value:F0} MB / {snap.GpuVramTotalMb.Value:F0} MB";
+                }
+                else
+                {
+                    GpuVram = notSupported;
+                }
 
-            if (snap.RamUsedGb.HasValue && snap.RamTotalGb.HasValue && snap.RamTotalGb.Value > 0)
-            {
-                RamUsage = $"{snap.RamUsedGb.Value:F1} GB / {snap.RamTotalGb.Value:F1} GB";
-            }
-            else
-            {
-                RamUsage = unavailable;
+                if (snap.GpuCoreTemp.HasValue && snap.GpuHotspotTemp.HasValue)
+                {
+                    var thermalEval = GpuThermalAuditor.EvaluateThermalState(snap.GpuCoreTemp.Value, snap.GpuHotspotTemp.Value);
+                    GpuThermalDiagnosisText = $"Status: {thermalEval.Status} (Delta Core/Hotspot: +{thermalEval.Delta:F1} °C) — {thermalEval.Message}";
+                }
+                else
+                {
+                    GpuThermalDiagnosisText = notSupported;
+                }
+
+                if (snap.RamUsedGb.HasValue && snap.RamTotalGb.HasValue && snap.RamTotalGb.Value > 0)
+                {
+                    RamUsage = $"{snap.RamUsedGb.Value:F1} GB / {snap.RamTotalGb.Value:F1} GB";
+                }
+                else
+                {
+                    RamUsage = notSupported;
+                }
+                return;
             }
         }
         else
         {
-            CpuModel = unavailable;
-            CpuTemp = unavailable;
-            CpuLoad = unavailable;
-            CpuClock = unavailable;
-            CpuPower = unavailable;
-            GpuModel = unavailable;
-            GpuTemp = unavailable;
-            GpuHotspot = unavailable;
-            GpuLoad = unavailable;
-            GpuClock = unavailable;
-            GpuPower = unavailable;
-            GpuFanRpm = unavailable;
-            GpuVram = unavailable;
-            GpuThermalDiagnosisText = unavailable;
-            RamUsage = unavailable;
+            HardwareSubsystemStatusText = Loc["SensorStatusUnavailable"];
         }
+
+        CpuModel = unavailable;
+        CpuTemp = unavailable;
+        CpuLoad = unavailable;
+        CpuClock = unavailable;
+        CpuPower = unavailable;
+        GpuModel = unavailable;
+        GpuTemp = unavailable;
+        GpuHotspot = unavailable;
+        GpuLoad = unavailable;
+        GpuClock = unavailable;
+        GpuPower = unavailable;
+        GpuFanRpm = unavailable;
+        GpuVram = unavailable;
+        GpuThermalDiagnosisText = unavailable;
+        RamUsage = unavailable;
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? name = null)

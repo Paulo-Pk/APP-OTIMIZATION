@@ -72,10 +72,19 @@ public record RegistryReadFailure(
     string Reason
 );
 
+public record RegistrySnapshotReadFailure(
+    string TweakId,
+    string Hive,
+    string SubKeyPath,
+    string ValueName,
+    string Reason
+) : RegistryReadFailure(TweakId, $"{Hive}\\{SubKeyPath}", ValueName, Reason);
+
 public class RegistrySnapshotFile
 {
     public string FormatVersion { get; set; } = RegistrySnapshotEngine.CurrentFormatVersion;
     public string SnapshotId { get; set; } = string.Empty;
+    public string SnapshotType { get; set; } = "CatalogRegistrySnapshot";
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public string CreatedUtcIso
     {
@@ -88,8 +97,10 @@ public class RegistrySnapshotFile
     }
     public string Description { get; set; } = "Backup dos Ajustes Suportados pelo Aplicativo";
     public string ScopeNotice { get; set; } = "Backup dos Ajustes Suportados pelo Aplicativo (Checksum SHA-256 detecta corrupção de arquivo, não substitui assinatura digital).";
+    public string IntegrityVerificationNotice => ScopeNotice;
     public int TotalKeysCaptured { get; set; }
     public int ReadFailuresCount { get; set; }
+    public long FileSizeBytes { get; set; }
     public bool IsComplete => ReadFailuresCount == 0;
     public List<RegistryValueEntry> Entries { get; set; } = new();
     public List<RegistryReadFailure> UnreadableItems { get; set; } = new();
@@ -106,8 +117,15 @@ public record SnapshotSummaryItem(
     bool IsComplete,
     bool IntegrityVerified,
     string ChecksumSha256,
-    IReadOnlyList<string> IncludedTweakIds
-);
+    IReadOnlyList<string> IncludedTweakIds,
+    string SnapshotType = "CatalogRegistrySnapshot",
+    long FileSizeBytes = 0
+)
+{
+    public string SizeFormatted => FileSizeBytes >= 1024
+        ? $"{(FileSizeBytes / 1024.0):F1} KB ({FileSizeBytes} B)"
+        : $"{FileSizeBytes} B";
+}
 
 public record SnapshotItemRestoreReport(
     string TweakId,
@@ -126,7 +144,15 @@ public record SnapshotRestoreResult(
     int FailedCount,
     string? ErrorMessage,
     IReadOnlyList<SnapshotItemRestoreReport>? ItemReports = null
-);
+)
+{
+    public IReadOnlyList<string> Errors =>
+        !string.IsNullOrWhiteSpace(ErrorMessage)
+            ? new[] { ErrorMessage! }
+            : (ItemReports?.Where(r => !r.Success && !string.IsNullOrWhiteSpace(r.ErrorMessage)).Select(r => r.ErrorMessage!).ToList()
+               ?? (IReadOnlyList<string>)Array.Empty<string>());
+}
+
 
 public static class RegistrySnapshotEngine
 {
@@ -380,6 +406,7 @@ public static class RegistrySnapshotEngine
                         continue;
 
                     var (isValid, _, _) = VerifyBackupIntegrity(file);
+                    var fInfo = new FileInfo(file);
                     var tweakIds = manifest.Entries
                         .Select(e => !string.IsNullOrWhiteSpace(e.TweakId)
                             ? e.TweakId
@@ -397,7 +424,9 @@ public static class RegistrySnapshotEngine
                         IsComplete: manifest.ReadFailuresCount == 0 && manifest.Entries.Count > 0,
                         IntegrityVerified: isValid,
                         ChecksumSha256: manifest.ChecksumSha256,
-                        IncludedTweakIds: tweakIds
+                        IncludedTweakIds: tweakIds,
+                        SnapshotType: string.IsNullOrWhiteSpace(manifest.SnapshotType) ? "CatalogRegistrySnapshot" : manifest.SnapshotType,
+                        FileSizeBytes: fInfo.Exists ? fInfo.Length : 0
                     ));
                 }
                 catch { }
@@ -417,7 +446,13 @@ public static class RegistrySnapshotEngine
         try
         {
             string json = File.ReadAllText(resolved, Encoding.UTF8);
-            return JsonSerializer.Deserialize<RegistrySnapshotFile>(json);
+            var manifest = JsonSerializer.Deserialize<RegistrySnapshotFile>(json);
+            if (manifest != null)
+            {
+                var fInfo = new FileInfo(resolved);
+                manifest.FileSizeBytes = fInfo.Exists ? fInfo.Length : 0;
+            }
+            return manifest;
         }
         catch
         {
@@ -497,8 +532,10 @@ public static class RegistrySnapshotEngine
         string filePathOrId,
         bool confirmIncompleteBackup = false,
         string? singleTweakId = null,
-        bool rollbackOnPartialFailure = false)
+        bool rollbackOnPartialFailure = false,
+        bool? allowIncompleteBackup = null)
     {
+        bool allowIncomplete = allowIncompleteBackup ?? confirmIncompleteBackup;
         try
         {
             string? resolvedPath = ResolveBackupFilePath(filePathOrId) ?? filePathOrId;
@@ -516,7 +553,7 @@ public static class RegistrySnapshotEngine
                 return new SnapshotRestoreResult(false, false, false, 0, 0, "Nenhuma entrada encontrada no arquivo de backup.");
             }
 
-            if (manifest.ReadFailuresCount > 0 && !confirmIncompleteBackup)
+            if (manifest.ReadFailuresCount > 0 && !allowIncomplete)
             {
                 return new SnapshotRestoreResult(
                     false, false, false, 0, 0,
@@ -550,11 +587,13 @@ public static class RegistrySnapshotEngine
 
             foreach (var entry in targetEntries)
             {
-                var def = !string.IsNullOrWhiteSpace(entry.TweakId) && RegistryOptimizer.Catalog.TryGetValue(entry.TweakId, out var d)
+                // Verify that the entry's TweakId (if specified) matches the catalog definition for its KeyPath + ValueName
+                var defByPath = RegistryOptimizer.FindAuthorizedCatalogEntry(entry.KeyPath, entry.ValueName);
+                var defById = !string.IsNullOrWhiteSpace(entry.TweakId) && RegistryOptimizer.Catalog.TryGetValue(entry.TweakId, out var d)
                     ? d
-                    : RegistryOptimizer.FindAuthorizedCatalogEntry(entry.KeyPath, entry.ValueName);
+                    : null;
 
-                if (def == null)
+                if (defByPath == null || (defById != null && !string.Equals(defByPath.TweakId, defById.TweakId, StringComparison.OrdinalIgnoreCase)))
                 {
                     failed++;
                     itemReports.Add(new SnapshotItemRestoreReport(
@@ -563,18 +602,13 @@ public static class RegistrySnapshotEngine
                         entry.ValueName,
                         false,
                         null,
-                        "Item não pertence ao catálogo fechado de ajustes."
+                        "Item do snapshot não corresponde ao registro autorizado no catálogo fechado."
                     ));
                     continue;
                 }
 
-                var res = RegistryOptimizer.RestoreCatalogTweak(
-                    def.TweakId,
-                    entry.RawValue,
-                    entry.ValueKind,
-                    entry.WasInitiallyAbsent,
-                    entry.KeyCreatedByApp
-                );
+                var def = defByPath;
+                var res = RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(def, entry);
 
                 if (res.Success)
                 {
@@ -612,13 +646,10 @@ public static class RegistrySnapshotEngine
             {
                 foreach (var rollbackEntry in appliedBeforeFailure)
                 {
-                    RegistryOptimizer.RestoreCatalogTweak(
-                        rollbackEntry.TweakId,
-                        rollbackEntry.RawValue,
-                        rollbackEntry.ValueKind,
-                        rollbackEntry.WasInitiallyAbsent,
-                        rollbackEntry.KeyCreatedByApp
-                    );
+                    if (RegistryOptimizer.Catalog.TryGetValue(rollbackEntry.TweakId, out var rDef))
+                    {
+                        RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(rDef, rollbackEntry);
+                    }
                 }
                 rolledBack = true;
                 return new SnapshotRestoreResult(

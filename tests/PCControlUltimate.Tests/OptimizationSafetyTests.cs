@@ -79,7 +79,6 @@ public class OptimizationSafetyTests
         using var server = new PrivilegedAgentServer(19879);
         string nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
 
-        // 1. Authorized localhost Origin with anti-replay nonce succeeds
         var validOriginResult = server.ValidateOriginAndClientPolicy(
             "http://localhost:3000",
             "PCControl-WebBridge/2.1",
@@ -88,7 +87,6 @@ public class OptimizationSafetyTests
         );
         Assert.True(validOriginResult.IsValid);
 
-        // 2. Unauthorized external Origin must be rejected
         var evilOriginResult = server.ValidateOriginAndClientPolicy(
             "https://evil-site.example.com",
             "PCControl-WebBridge/2.1",
@@ -97,7 +95,6 @@ public class OptimizationSafetyTests
         );
         Assert.False(evilOriginResult.IsValid);
 
-        // 3. Missing Origin WITHOUT X-PCControl-Client header must be rejected
         var missingClientHeader = server.ValidateOriginAndClientPolicy(
             null,
             null,
@@ -106,35 +103,89 @@ public class OptimizationSafetyTests
         );
         Assert.False(missingClientHeader.IsValid);
 
-        // 4. Legitimate WPF client without Origin but WITH X-PCControl-Client + valid timestamp + unique nonce succeeds
         string wpfNonce = $"nonce-wpf-{Guid.NewGuid():N}";
         var validWpfClient = server.ValidateOriginAndClientPolicy(
             null,
-            "PCControl-WPF/2.1",
+            "PCControl-WPF/2.5",
             nowUnix,
             wpfNonce
         );
         Assert.True(validWpfClient.IsValid);
 
-        // 5. Replaying the exact same nonce must be rejected
         var replayAttempt = server.ValidateOriginAndClientPolicy(
             null,
-            "PCControl-WPF/2.1",
+            "PCControl-WPF/2.5",
             nowUnix,
             wpfNonce
         );
         Assert.False(replayAttempt.IsValid);
         Assert.Contains("Replay", replayAttempt.ErrorReason, StringComparison.OrdinalIgnoreCase);
 
-        // 6. Expired timestamp outside the 120s window must be rejected
         string expiredUnix = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeSeconds().ToString();
         var expiredAttempt = server.ValidateOriginAndClientPolicy(
             null,
-            "PCControl-WPF/2.1",
+            "PCControl-WPF/2.5",
             expiredUnix,
             $"nonce-expired-{Guid.NewGuid():N}"
         );
         Assert.False(expiredAttempt.IsValid);
+    }
+
+    [Fact]
+    public void ValidateRequestHmacSignature_EnforcesPerRequestCryptographicIntegrity()
+    {
+        using var server = new PrivilegedAgentServer(19880);
+        string timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        string nonce = Guid.NewGuid().ToString("N");
+        string method = "POST";
+        string path = "/api/tweaks/restore";
+        string body = "{\"tweakId\":\"perf-game-dvr\"}";
+
+        string validSignature = IntegrityVerifier.ComputeRequestHmacSha256(
+            server.SessionToken,
+            method,
+            path,
+            timestamp,
+            nonce,
+            body
+        );
+
+        // 1. Valid signature succeeds
+        var validCheck = server.ValidateRequestHmacSignature(
+            "PCControl-WPF/2.5",
+            validSignature,
+            method,
+            path,
+            timestamp,
+            nonce,
+            body
+        );
+        Assert.True(validCheck.IsValid);
+
+        // 2. Tampered body with same signature must be rejected
+        var tamperedBodyCheck = server.ValidateRequestHmacSignature(
+            "PCControl-WPF/2.5",
+            validSignature,
+            method,
+            path,
+            timestamp,
+            nonce,
+            "{\"tweakId\":\"perf-mmcss\"}"
+        );
+        Assert.False(tamperedBodyCheck.IsValid);
+        Assert.Contains("HMAC-SHA256 inválida", tamperedBodyCheck.ErrorReason);
+
+        // 3. Missing signature on WPF client must be rejected
+        var missingSigCheck = server.ValidateRequestHmacSignature(
+            "PCControl-WPF/2.5",
+            null,
+            method,
+            path,
+            timestamp,
+            nonce,
+            body
+        );
+        Assert.False(missingSigCheck.IsValid);
     }
 
     [Fact]

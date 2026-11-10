@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de implementação completo para correção da fundação de segurança, eliminação de bypass do catálogo de Registro, proteção DPAPI/ACL e anti-replay do agente privilegiado, backup e restauração com rollback seguro, navegação modular real e internacionalização PT-BR/EN-US no WPF, integrações reais (PresentMon, LibreHardwareMonitor, Network Lab, Debloat, Driver Center), suíte xUnit expandida, CI Windows e documentação técnica.",
-  "updatedAt":  "2026-11-10T16:35:05.728646038Z",
+  "summary":  "Plano de execução técnico em 10 etapas para correção crítica, segurança e estabilização do PC Control Ultimate (Vite/HMR no AI Studio, restauração segura do Registro via Ledger DPAPI + HMAC-SHA256, IHardwareMonitorService com estados de sensor diferenciados, correção do advisory SQLitePCLRaw.lib.e_sqlite3, navegação WPF real com ContentControl/DataTemplates/UserControls/ViewModels, internacionalização completa PT-BR/EN-US, Restore Center completo, assinatura HMAC-SHA256 por requisição no Agente Privilegiado e pipeline GitHub Actions Windows x64).",
+  "updatedAt":  "2026-11-10T17:18:59.522536060Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

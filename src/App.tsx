@@ -135,6 +135,7 @@ export default function App() {
       const newRestore: RestoreItem = {
         id: `rest-${Date.now()}-${target.id}`,
         tweakId: target.id,
+        operationId: res.operationId,
         registryKey: target.registryKey,
         valueName: target.valueName || 'TargetDword',
         valueKind: res.valueKind || target.valueKind || 'DWord',
@@ -163,16 +164,10 @@ export default function App() {
       const existingRecord = restoreItems.find(
         (r) => r.tweakId === target.id || r.actionName === target.name
       );
-      const wasAbsent = !!existingRecord?.wasInitiallyAbsent;
-      const originalVal = wasAbsent ? null : existingRecord?.previousValue || target.currentValue;
 
       const res = await nativeBridge.restoreRegistryTweak(
-        existingRecord?.registryKey || target.registryKey || '',
-        existingRecord?.valueName || target.valueName || 'TargetDword',
-        originalVal,
-        existingRecord?.valueKind || target.valueKind || 'DWord',
-        wasAbsent,
-        !!existingRecord?.keyCreatedByApp
+        target.id,
+        existingRecord?.operationId
       );
 
       if (!res.success) {
@@ -239,6 +234,7 @@ export default function App() {
           const newRestore: RestoreItem = {
             id: `rest-${Date.now()}-${item.id}`,
             tweakId: item.id,
+            operationId: res.operationId,
             registryKey: item.registryKey,
             valueName: item.valueName || 'TargetDword',
             valueKind: res.valueKind || item.valueKind || 'DWord',
@@ -290,16 +286,10 @@ export default function App() {
         const existingRecord = restoreItems.find(
           (r) => r.tweakId === item.id || r.actionName === item.name
         );
-        const wasAbsent = !!existingRecord?.wasInitiallyAbsent;
-        const originalVal = wasAbsent ? null : existingRecord?.previousValue || item.currentValue;
 
         const res = await nativeBridge.restoreRegistryTweak(
-          existingRecord?.registryKey || item.registryKey || '',
-          existingRecord?.valueName || item.valueName || 'TargetDword',
-          originalVal,
-          existingRecord?.valueKind || item.valueKind || 'DWord',
-          wasAbsent,
-          !!existingRecord?.keyCreatedByApp
+          item.id,
+          existingRecord?.operationId
         );
 
         if (res.success && res.verified) {
@@ -390,16 +380,11 @@ export default function App() {
     const matchedTweak = tweaks.find(
       (tweak) => tweak.id === item.tweakId || tweak.name === item.actionName
     );
-    const wasAbsent = !!item.wasInitiallyAbsent;
-    const originalVal = wasAbsent ? null : item.previousValue;
+    const targetTweakId = item.tweakId || matchedTweak?.id || '';
 
     const res = await nativeBridge.restoreRegistryTweak(
-      item.registryKey || matchedTweak?.registryKey || '',
-      item.valueName || matchedTweak?.valueName || 'TargetDword',
-      originalVal,
-      item.valueKind || matchedTweak?.valueKind || 'DWord',
-      wasAbsent,
-      !!item.keyCreatedByApp
+      targetTweakId,
+      item.operationId
     );
 
     if (!res.success || !res.verified) {

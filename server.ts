@@ -327,8 +327,18 @@ ${userQuestion || 'Analise o estado atual do sistema e recomende ações seguras
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });
   } else {
+    const isAiStudioPreview =
+      process.env.DISABLE_HMR === 'true' ||
+      Boolean(process.env.K_SERVICE) ||
+      Boolean(process.env.APP_URL?.includes('.run.app')) ||
+      Boolean(process.env.GOOGLE_RUNTIME);
+
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: !isAiStudioPreview,
+        watch: isAiStudioPreview ? null : {},
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

@@ -18,13 +18,72 @@ public record TokenProtectionResult(
 public static class IntegrityVerifier
 {
     private static readonly byte[] DpapiEntropy = Encoding.UTF8.GetBytes("PCControlUltimate_v2.5_IPC_Salt");
+    private static readonly byte[] LedgerHmacSalt = Encoding.UTF8.GetBytes("PCControlUltimate_v2.5_Ledger_HMAC_Key");
 
     public static string ComputeCanonicalSha256(string canonicalText)
     {
         using var sha = SHA256.Create();
-        byte[] bytes = Encoding.UTF8.GetBytes(canonicalText);
+        byte[] bytes = Encoding.UTF8.GetBytes(canonicalText ?? string.Empty);
         byte[] hash = sha.ComputeHash(bytes);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    public static string ComputeHmacSha256(string secretKey, string canonicalPayload)
+    {
+        byte[] keyBytes = string.IsNullOrEmpty(secretKey)
+            ? LedgerHmacSalt
+            : Encoding.UTF8.GetBytes(secretKey);
+        using var hmac = new HMACSHA256(keyBytes);
+        byte[] payloadBytes = Encoding.UTF8.GetBytes(canonicalPayload ?? string.Empty);
+        byte[] mac = hmac.ComputeHash(payloadBytes);
+        return Convert.ToHexString(mac).ToLowerInvariant();
+    }
+
+    public static bool VerifyHmacSha256(string secretKey, string canonicalPayload, string? expectedHmacHex)
+    {
+        if (string.IsNullOrWhiteSpace(expectedHmacHex)) return false;
+        string computed = ComputeHmacSha256(secretKey, canonicalPayload);
+        byte[] computedBytes = Encoding.UTF8.GetBytes(computed);
+        byte[] expectedBytes = Encoding.UTF8.GetBytes(expectedHmacHex.Trim().ToLowerInvariant());
+        if (computedBytes.Length != expectedBytes.Length) return false;
+        return CryptographicOperations.FixedTimeEquals(computedBytes, expectedBytes);
+    }
+
+    /// <summary>
+    /// Computes cryptographic HMAC-SHA256 request signature over HTTP method, path, timestamp, nonce, and SHA-256 of the body.
+    /// </summary>
+    public static string ComputeRequestHmacSha256(
+        string sessionToken,
+        string httpMethod,
+        string pathAndQuery,
+        string timestamp,
+        string nonce,
+        string? bodyContent)
+    {
+        string bodyHash = ComputeCanonicalSha256(bodyContent ?? string.Empty);
+        string canonicalRequest = $"{httpMethod.Trim().ToUpperInvariant()}|{pathAndQuery.Trim().ToLowerInvariant()}|{timestamp.Trim()}|{nonce.Trim()}|{bodyHash}";
+        return ComputeHmacSha256(sessionToken.Trim(), canonicalRequest);
+    }
+
+    public static bool VerifyRequestHmacSha256(
+        string sessionToken,
+        string httpMethod,
+        string pathAndQuery,
+        string timestamp,
+        string nonce,
+        string? bodyContent,
+        string? providedSignatureHex)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken) || string.IsNullOrWhiteSpace(providedSignatureHex))
+            return false;
+
+        string expected = ComputeRequestHmacSha256(sessionToken, httpMethod, pathAndQuery, timestamp, nonce, bodyContent);
+        byte[] expectedBytes = Encoding.UTF8.GetBytes(expected);
+        byte[] providedBytes = Encoding.UTF8.GetBytes(providedSignatureHex.Trim().ToLowerInvariant());
+        if (expectedBytes.Length != providedBytes.Length)
+            return false;
+
+        return CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
     }
 
     public static bool VerifyFileSha256(string filePath, string expectedHash)
@@ -37,15 +96,17 @@ public static class IntegrityVerifier
         byte[] hash = sha.ComputeHash(stream);
         string calculated = Convert.ToHexString(hash).ToLowerInvariant();
 
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(calculated),
-            Encoding.UTF8.GetBytes(expectedHash.Trim().ToLowerInvariant())
-        );
+        byte[] calcBytes = Encoding.UTF8.GetBytes(calculated);
+        byte[] expBytes = Encoding.UTF8.GetBytes(expectedHash.Trim().ToLowerInvariant());
+        if (calcBytes.Length != expBytes.Length)
+            return false;
+
+        return CryptographicOperations.FixedTimeEquals(calcBytes, expBytes);
     }
 
     /// <summary>
     /// Saves the agent session token protected via Windows DPAPI (CurrentUser scope)
-    /// and restricts file ACLs to the current Windows user only.
+    /// and restricts both directory and file NTFS ACLs to the current Windows user only.
     /// Never reports success on Windows if either DPAPI or NTFS ACL application fails.
     /// </summary>
     public static TokenProtectionResult SaveProtectedSessionTokenWithReport(string filePath, string plainToken)
@@ -61,6 +122,10 @@ public static class IntegrityVerifier
             if (!string.IsNullOrEmpty(dir))
             {
                 Directory.CreateDirectory(dir);
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    TryRestrictDirectoryAclToCurrentUser(dir, out _);
+                }
             }
 
             byte[] plainBytes = Encoding.UTF8.GetBytes(plainToken);
@@ -136,6 +201,51 @@ public static class IntegrityVerifier
         catch
         {
             return null;
+        }
+    }
+
+    public static bool TryRestrictDirectoryAclToCurrentUser(string directoryPath, out string? errorMessage)
+    {
+        errorMessage = null;
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            errorMessage = "NTFS ACL restriction requires Windows OS.";
+            return false;
+        }
+
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            if (identity.User == null)
+            {
+                errorMessage = "Current WindowsIdentity SID is null.";
+                return false;
+            }
+
+            var dirInfo = new DirectoryInfo(directoryPath);
+            var security = dirInfo.GetAccessControl();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+            var currentRules = security.GetAccessRules(true, true, typeof(SecurityIdentifier));
+            foreach (FileSystemAccessRule rule in currentRules)
+            {
+                security.RemoveAccessRule(rule);
+            }
+
+            security.AddAccessRule(new FileSystemAccessRule(
+                identity.User,
+                FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+
+            dirInfo.SetAccessControl(security);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
         }
     }
 

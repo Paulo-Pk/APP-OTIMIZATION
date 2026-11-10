@@ -44,7 +44,6 @@ public class RegistrySnapshotTests
             new List<RegistryValueEntry> { entryA, entryB }
         );
 
-        // Even with identical sorted list, canonical hash must be deterministic
         string hash1 = IntegrityVerifier.ComputeCanonicalSha256(payload1);
         string hash2 = IntegrityVerifier.ComputeCanonicalSha256(payload1);
 
@@ -242,12 +241,80 @@ public class RegistrySnapshotTests
 
             File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
 
-            // Calling without allowIncompleteBackup = true must be blocked
             var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(tempFile, allowIncompleteBackup: false);
 
             Assert.False(report.Success);
             Assert.Equal(0, report.RestoredCount);
             Assert.Contains(report.Errors, e => e.Contains("incompleto", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void RestoreFromBackupWithReport_PartialFailureInMultiItemRestore_NeverReportsFullSuccess()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 10, 16, 30, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                },
+                // Second entry has a value outside AllowedValues ("999999"), causing a deterministic item failure
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-fso-flags",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_FSEBehavior",
+                    ValueKind = "DWord",
+                    RawValue = "999999",
+                    WasInitiallyAbsent = false
+                }
+            };
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-partial-fail-001",
+                "2.1",
+                createdUtc,
+                "Partial Failure Test",
+                entries
+            );
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-partial-fail-001",
+                FormatVersion = "2.1",
+                CreatedUtc = createdUtc,
+                Description = "Partial Failure Test",
+                TotalKeysCaptured = entries.Count,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(
+                tempFile,
+                confirmIncompleteBackup: true,
+                singleTweakId: null,
+                rollbackOnPartialFailure: false
+            );
+
+            Assert.False(report.Success);
+            Assert.True(report.FailedCount > 0);
         }
         finally
         {
@@ -308,4 +375,3 @@ public class RegistrySnapshotTests
         }
     }
 }
-

@@ -9,34 +9,57 @@ on:
 
 jobs:
   build-and-test-windows:
-    name: Build & Test .NET 10 WPF (windows-latest)
+    name: Build, Test & Publish .NET 10 WPF (windows-latest x64)
     runs-on: windows-latest
 
     steps:
-      - name: Checkout Repository
+      - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup .NET 10 SDK
+      - name: 2. Setup .NET 10 SDK (x64)
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'ga'
+          architecture: 'x64'
 
-      - name: Restore Solution Dependencies
-        run: dotnet restore PCControlUltimate.sln
+      - name: 3. Restore Solution Dependencies & Audit Vulnerable Packages (win-x64)
+        shell: pwsh
+        run: |
+          dotnet restore PCControlUltimate.sln -r win-x64
+          $vulnOutput = dotnet list PCControlUltimate.sln package --vulnerable --include-transitive | Out-String
+          Write-Host $vulnOutput
+          if ($vulnOutput -match "has the following vulnerable packages") {
+            Write-Error "Vulnerable NuGet package detected in dependency graph."
+            exit 1
+          }
 
-      - name: Build Solution (Release)
-        run: dotnet build PCControlUltimate.sln -c Release --no-restore
+      - name: 4. Build Solution (Release x64)
+        run: dotnet build PCControlUltimate.sln -c Release -p:Platform=x64
 
-      - name: Run xUnit Automated Security & Integration Tests
-        run: dotnet test PCControlUltimate.sln -c Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+      - name: 5. Run xUnit Automated Security & Integration Tests (Release x64)
+        run: dotnet test PCControlUltimate.sln -c Release -p:Platform=x64 --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
 
-      - name: Publish WPF Native Desktop Application (win-x64)
-        run: dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 --self-contained false -o artifacts/publish/win-x64
+      - name: 6. Publish Native WPF Application (Windows x64)
+        run: dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained false -o artifacts/publish/win-x64
 
-      - name: Upload Published Windows x64 Artifact
+      - name: 7. Package Verified Windows x64 Release Artifact
+        if: success()
+        shell: pwsh
+        run: |
+          if (!(Test-Path "artifacts/publish/win-x64/PCControlUltimate.App.exe")) {
+            Write-Error "Published executable PCControlUltimate.App.exe was not found!"
+            exit 1
+          }
+          Compress-Archive -Path "artifacts/publish/win-x64/*" -DestinationPath "artifacts/PCControlUltimate-win-x64-Release.zip" -Force
+
+      - name: 8. Upload Windows x64 Release Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: PCControlUltimate-win-x64-Release
-          path: artifacts/publish/win-x64
+          path: |
+            artifacts/PCControlUltimate-win-x64-Release.zip
+            artifacts/publish/win-x64/
+          if-no-files-found: error
           retention-days: 14

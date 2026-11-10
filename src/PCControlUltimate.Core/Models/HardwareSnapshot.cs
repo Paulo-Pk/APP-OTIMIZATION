@@ -3,6 +3,14 @@ using System.Collections.Generic;
 
 namespace PCControlUltimate.Core.Models;
 
+public enum SensorReadingStatus
+{
+    Available,
+    SensorNotSupported,
+    ReadingUnavailable,
+    CommunicationFailure
+}
+
 public record SensorDataPoint(
     string Identifier,
     string Name,
@@ -10,8 +18,20 @@ public record SensorDataPoint(
     string SensorType,
     float? Value,
     string Unit,
-    bool IsAvailable
-);
+    bool IsAvailable,
+    SensorReadingStatus Status = SensorReadingStatus.Available
+)
+{
+    public string HardwareCategory => HardwareType;
+    public string FormattedValue => IsAvailable && Value.HasValue
+        ? $"{Value.Value:F1} {Unit}".Trim()
+        : Status switch
+        {
+            SensorReadingStatus.SensorNotSupported => "Sensor não suportado",
+            SensorReadingStatus.CommunicationFailure => "Falha de comunicação",
+            _ => "Leitura indisponível (N/D)"
+        };
+}
 
 public record StorageTelemetryPoint(
     string Model,
@@ -39,5 +59,7 @@ public record HardwareSnapshot(
     float? GpuClockMhz = null,
     float? GpuPowerWatts = null,
     float? GpuFanRpm = null,
-    IReadOnlyList<StorageTelemetryPoint>? StorageDrives = null
+    IReadOnlyList<StorageTelemetryPoint>? StorageDrives = null,
+    SensorReadingStatus MonitorStatus = SensorReadingStatus.Available,
+    string? DiagnosticMessage = null
 );

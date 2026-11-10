@@ -72,14 +72,31 @@ public class AgentClientService : IDisposable
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _sessionToken);
         }
 
-        // Attach mandatory local client proof & anti-replay headers (since native WPF does not send browser Origin)
-        req.Headers.TryAddWithoutValidation("X-PCControl-Client", LocalClientIdentifier);
-        req.Headers.TryAddWithoutValidation("X-PCControl-Timestamp", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
-        req.Headers.TryAddWithoutValidation("X-PCControl-Nonce", Guid.NewGuid().ToString("N"));
+        string timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+        string nonce = Guid.NewGuid().ToString("N");
+        string? bodyString = jsonPayload != null ? JsonSerializer.Serialize(jsonPayload) : null;
 
-        if (jsonPayload != null)
+        // Attach mandatory local client proof, anti-replay headers, and cryptographic HMAC-SHA256 signature
+        req.Headers.TryAddWithoutValidation("X-PCControl-Client", LocalClientIdentifier);
+        req.Headers.TryAddWithoutValidation("X-PCControl-Timestamp", timestamp);
+        req.Headers.TryAddWithoutValidation("X-PCControl-Nonce", nonce);
+
+        if (!string.IsNullOrWhiteSpace(_sessionToken))
         {
-            req.Content = new StringContent(JsonSerializer.Serialize(jsonPayload), Encoding.UTF8, "application/json");
+            string signature = IntegrityVerifier.ComputeRequestHmacSha256(
+                _sessionToken,
+                method.Method,
+                relativePath,
+                timestamp,
+                nonce,
+                bodyString
+            );
+            req.Headers.TryAddWithoutValidation("X-PCControl-Signature", signature);
+        }
+
+        if (bodyString != null)
+        {
+            req.Content = new StringContent(bodyString, Encoding.UTF8, "application/json");
         }
 
         return req;
@@ -163,14 +180,13 @@ public class AgentClientService : IDisposable
     }
 
     /// <summary>
-    /// Restores a tweak strictly by its authorized catalog ID.
+    /// Restores a tweak strictly by its authorized catalog ID using the backend's trusted DPAPI/HMAC ledger or a verified snapshot.
+    /// Never sends untrusted originalValue, valueKind, wasInitiallyAbsent, or keyCreatedByApp from the client.
     /// </summary>
     public async Task<(bool success, string details)> RestoreCatalogTweakAsync(
         string tweakId,
-        string? originalValue = null,
-        string? valueKind = null,
-        bool wasInitiallyAbsent = false,
-        bool keyCreatedByApp = false)
+        string? operationId = null,
+        string? snapshotId = null)
     {
         if (!IsConnected) return (false, "Agente não autenticado ou desconectado.");
         try
@@ -178,10 +194,8 @@ public class AgentClientService : IDisposable
             var payload = new
             {
                 tweakId,
-                originalValue,
-                valueKind,
-                wasInitiallyAbsent,
-                keyCreatedByApp
+                operationId,
+                snapshotId
             };
             using var req = CreateAuthenticatedRequest(HttpMethod.Post, "/api/tweaks/restore", payload);
             using var res = await _httpClient.SendAsync(req);
