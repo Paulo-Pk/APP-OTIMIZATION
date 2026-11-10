@@ -21,7 +21,6 @@ jobs:
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'ga'
-          architecture: 'x64'
 
       - name: 3. Restore Solution Dependencies & Audit Vulnerable Packages (win-x64)
         shell: pwsh
