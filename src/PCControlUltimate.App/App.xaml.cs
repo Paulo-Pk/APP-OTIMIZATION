@@ -85,6 +85,7 @@ public partial class App : Application
             services.AddTransient<RestoreCenterViewModel>();
             services.AddTransient<DebloatCleanerViewModel>();
             services.AddTransient<NetworkLabViewModel>();
+            services.AddTransient<GameNetworkAcceleratorViewModel>();
             services.AddTransient<GamingPresentMonViewModel>();
             services.AddTransient<DiagnosticsViewModel>();
             services.AddTransient<DriverCenterViewModel>();
@@ -96,6 +97,7 @@ public partial class App : Application
             services.AddTransient<RestoreCenterView>();
             services.AddTransient<DebloatCleanerView>();
             services.AddTransient<NetworkLabView>();
+            services.AddTransient<GameNetworkAcceleratorView>();
             services.AddTransient<GamingPresentMonView>();
             services.AddTransient<DiagnosticsView>();
             services.AddTransient<DriverCenterView>();
