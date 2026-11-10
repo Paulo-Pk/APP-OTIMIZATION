@@ -83,7 +83,7 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
         {
             Status = $"Medindo handshake TCP para {TargetHost}:{port}. Isso não é o ping interno da partida.";
             var result = await _probe.MeasureTcpAsync(TargetHost.Trim(), port, 7, _operationCts.Token);
-            Measurements.Insert(0, result with { Label = _tunnelInstalled ? "Via túnel WireGuard" : "Direta (sem túnel)" });
+            Measurements.Insert(0, result with { Label = _tunnelInstalled ? "Após instalar túnel (handshake não verificado)" : "Direta (sem túnel)" });
             while (Measurements.Count > 20) Measurements.RemoveAt(Measurements.Count - 1);
             Status = result.AverageMs.HasValue
                 ? $"Medição concluída: {result.AverageMs:F1} ms TCP, jitter {result.JitterMs?.ToString("F1") ?? "N/D"} ms, perda de conexão {result.PacketLossPercent:F1}%."
