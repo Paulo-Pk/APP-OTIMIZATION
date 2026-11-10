@@ -445,7 +445,7 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <TextBlock Text="WIREGUARD — SERVIDOR PRÓPRIO OU PERFIL DE PROVEDOR" Foreground="#C084FC" FontWeight="Bold" FontSize="11" Margin="0,18,0,6" />
-                        <TextBlock Text="{Binding WireGuardAvailable, StringFormat=WireGuard for Windows encontrado: {0}}" Foreground="#94A3B8" FontSize="11" />
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="WireGuard for Windows encontrado: " Foreground="#94A3B8" FontSize="11" /><TextBlock Text="{Binding WireGuardAvailable}" Foreground="#C084FC" FontSize="11" /></StackPanel>
                         <DockPanel Margin="0,8,0,8">
                             <Button DockPanel.Dock="Right" Style="{StaticResource ActionSecondaryButton}" Content="Selecionar .conf" Command="{Binding ImportConfigCommand}" />
                             <TextBox Text="{Binding ConfigPath}" IsReadOnly="True" Background="#0B0E17" Foreground="#FFFFFF" BorderBrush="#334155" Padding="8" />
@@ -459,7 +459,7 @@
                         <ItemsControl ItemsSource="{Binding TraceHops}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Hop, StringFormat=Hop {0}} {Binding Address} {Binding RoundTripMs, StringFormat={}{0:F1} ms} — {Binding Status}" Foreground="#94A3B8" FontFamily="Consolas" FontSize="11" />
+                                    <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="55"/><ColumnDefinition Width="150"/><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Grid.Column="0" Text="{Binding Hop, StringFormat=Hop {0}}" Foreground="#C084FC" FontFamily="Consolas" FontSize="11"/><TextBlock Grid.Column="1" Text="{Binding Address}" Foreground="#94A3B8" FontFamily="Consolas" FontSize="11"/><TextBlock Grid.Column="2" Text="{Binding RoundTripMs, StringFormat={}{0:F1} ms}" Foreground="#22C55E" FontFamily="Consolas" FontSize="11"/><TextBlock Grid.Column="3" Text="{Binding Status}" Foreground="#64748B" FontSize="11"/></Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
