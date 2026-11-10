@@ -54,7 +54,8 @@ public record RegistryOperationResult(
     bool KeyCreatedByApp,
     string? ErrorMessage,
     string? TweakId = null,
-    string? OperationId = null
+    string? OperationId = null,
+    string? ErrorCode = null
 )
 {
     public string? VerifiedCurrentValue => VerifiedValue;
@@ -700,9 +701,9 @@ public static class RegistryOptimizer
         if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
         {
             RecordAudit("RESTORE_REJECTED_ID", tweakId ?? "NULL", "N/A", "N/A", "Unknown",
-                null, null, null, false, $"Ajuste '{tweakId}' não pertence ao catálogo fechado.");
+                null, null, null, false, $"UNCATALOGED_TWEAK: Ajuste '{tweakId}' não pertence ao catálogo fechado.");
             return new RegistryOperationResult(false, null, null, "Unknown", false, false,
-                $"Ajuste '{tweakId}' não pertence ao catálogo fechado.", tweakId);
+                $"UNCATALOGED_TWEAK: Ajuste '{tweakId}' não pertence ao catálogo fechado.", tweakId, null, "UNCATALOGED_TWEAK");
         }
 
         // Source A: Restore from a verified backend snapshot
@@ -721,7 +722,7 @@ public static class RegistryOptimizer
                 string err = itemReport?.ErrorMessage ?? snapReport.ErrorMessage ?? "Falha ao restaurar a partir do snapshot.";
                 RecordAudit("RESTORE_SNAPSHOT_REJECTED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
                     def.ValueKind.ToString(), null, snapshotIdOrPath, null, false, err);
-                return new RegistryOperationResult(false, null, null, def.ValueKind.ToString(), false, false, err, def.TweakId);
+                return new RegistryOperationResult(false, null, null, def.ValueKind.ToString(), false, false, err, def.TweakId, null, "SNAPSHOT_RESTORE_FAILED");
             }
 
             return new RegistryOperationResult(
@@ -740,11 +741,14 @@ public static class RegistryOptimizer
         var ledgerValidation = RegistryStateLedger.ResolveTrustedRestoreEntry(def.TweakId, operationId);
         if (!ledgerValidation.IsValid || ledgerValidation.Entry == null)
         {
-            string err = ledgerValidation.ErrorMessage ?? "Estado original confiável não encontrado no backend.";
+            string errCode = ledgerValidation.ErrorCode ?? "NO_TRUSTED_BACKEND_HISTORY";
+            string err = !string.IsNullOrWhiteSpace(ledgerValidation.ErrorReason)
+                ? ledgerValidation.ErrorReason
+                : $"{errCode}: Estado original confiável não encontrado no backend.";
             RecordAudit("RESTORE_LEDGER_BLOCKED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
                 def.ValueKind.ToString(), null, operationId, null, false, err);
             return new RegistryOperationResult(
-                false, null, null, def.ValueKind.ToString(), false, false, err, def.TweakId, operationId
+                false, null, null, def.ValueKind.ToString(), false, false, err, def.TweakId, operationId, errCode
             );
         }
 

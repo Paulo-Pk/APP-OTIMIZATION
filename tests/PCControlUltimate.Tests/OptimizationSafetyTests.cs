@@ -62,8 +62,13 @@ public class OptimizationSafetyTests
     }
 
     [Theory]
-    [InlineData("127.0.0.1:5005", true)]
-    [InlineData("localhost:5005", true)]
+    [InlineData("127.0.0.1:19878", true)]
+    [InlineData("localhost:19878", true)]
+    [InlineData("127.0.0.1", true)]
+    [InlineData("localhost", true)]
+    [InlineData("127.0.0.1:5005", false)]
+    [InlineData("localhost:5005", false)]
+    [InlineData("evil.attacker.com:19878", false)]
     [InlineData("evil.attacker.com:5005", false)]
     [InlineData("", false)]
     [InlineData(null, false)]

@@ -219,10 +219,12 @@ public class RegistryOptimizerTests
 
         var validation = RegistryStateLedger.ResolveAndValidateRestore("perf-game-dvr");
         Assert.False(validation.IsValid);
+        Assert.Equal("NO_TRUSTED_BACKEND_HISTORY", validation.ErrorCode);
         Assert.Contains("NO_TRUSTED_BACKEND_HISTORY", validation.ErrorReason);
 
         var restoreResult = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr");
         Assert.False(restoreResult.Success);
+        Assert.Equal("NO_TRUSTED_BACKEND_HISTORY", restoreResult.ErrorCode);
         Assert.Contains("NO_TRUSTED_BACKEND_HISTORY", restoreResult.ErrorMessage ?? string.Empty);
     }
 

@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de correção definitiva do erro CS1739 em WireGuardConfigAuditResult (com detecção granular de rota padrão IPv4 0.0.0.0/0 e IPv6 ::/0), remoção da referência redundante Microsoft.Win32.Registry (NU1510), ampliação dos testes automatizados xUnit e validação completa do workflow Windows x64 CI.",
-  "updatedAt":  "2026-11-10T19:55:40.892583605Z",
+  "summary":  "Plano cirúrgico para corrigir as 3 falhas restantes nos 99 testes automatizados (RegistryStateLedger_RestoreWithoutTrustedHistory_MustBeBlocked e os 2 casos de ValidateHostHeader_EnforcesStrictLoopbackHost), preservando toda a validação de segurança, WireGuard IPv4/IPv6 e dependências SQLite/EF Core.",
+  "updatedAt":  "2026-11-10T21:36:02.420793466Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
