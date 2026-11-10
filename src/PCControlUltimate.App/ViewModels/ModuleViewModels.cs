@@ -133,3 +133,19 @@ public sealed class DriverCenterViewModel : ModuleViewModelBase
         }
     }
 }
+
+public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
+{
+    public GameNetworkAcceleratorViewModel(MainViewModel workspace)
+        : base(workspace, "accelerator", "NavAccelerator")
+    {
+    }
+
+    public override void OnNavigatedTo()
+    {
+        base.OnNavigatedTo();
+        Workspace.RefreshGameConnectionsCommand.Execute(null);
+    }
+}
+
+

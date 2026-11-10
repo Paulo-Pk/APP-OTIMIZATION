@@ -34,6 +34,7 @@ public class NavigationService : INavigationService
         RegisterModule("gaming", () => new GamingPresentMonViewModel(workspace));
         RegisterModule("diagnostics", () => new DiagnosticsViewModel(workspace));
         RegisterModule("drivers", () => new DriverCenterViewModel(workspace));
+        RegisterModule("accelerator", () => new GameNetworkAcceleratorViewModel(workspace));
 
         NavigateTo("dashboard");
     }

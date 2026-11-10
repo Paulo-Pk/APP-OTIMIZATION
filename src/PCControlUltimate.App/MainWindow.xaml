@@ -545,6 +545,55 @@
                 </Border>
             </views:DriverCenterView>
         </DataTemplate>
+
+        <!-- MODULE 10 DATA TEMPLATE: GAME NETWORK ACCELERATOR -->
+        <DataTemplate DataType="{x:Type vm:GameNetworkAcceleratorViewModel}">
+            <views:GameNetworkAcceleratorView>
+                <StackPanel>
+                    <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Workspace.Loc[AcceleratorTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                            <TextBlock Text="{Binding Workspace.Loc[AcceleratorSubtitle]}" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,10" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Workspace.WfpSelectiveRoutingNoticeText}" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <TextBox Text="{Binding Workspace.AcceleratorGameName}" Width="190" Background="#0B0E17" Foreground="#FFFFFF" BorderBrush="#334155" Padding="8,6" FontFamily="Consolas" Margin="0,0,8,0" />
+                                <TextBox Text="{Binding Workspace.AcceleratorTargetHost}" Width="150" Background="#0B0E17" Foreground="#38BDF8" BorderBrush="#334155" Padding="8,6" FontFamily="Consolas" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource ActionPrimaryButton}" Content="{Binding Workspace.Loc[BtnAnalyzeRoute]}" Command="{Binding Workspace.EvaluateGameRouteCommand}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Workspace.Loc[BtnRunTraceroute]}" Command="{Binding Workspace.RunTracerouteCommand}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Workspace.Loc[BtnDetectGameSockets]}" Command="{Binding Workspace.RefreshGameConnectionsCommand}" />
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding Workspace.RouteVerdictText}" Foreground="#22C55E" FontFamily="Consolas" FontWeight="Bold" FontSize="12" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Workspace.Loc[BtnAddRelayNode]}" Command="{Binding Workspace.RegisterSampleVpsNodeCommand}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Workspace.Loc[BtnAuditWgConfig]}" Command="{Binding Workspace.AuditWireGuardConfigCommand}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Workspace.Loc[BtnQueryWgTunnel]}" Command="{Binding Workspace.CheckWireGuardTunnelCommand}" />
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding Workspace.WireGuardConfigAuditText}" Foreground="#C084FC" FontFamily="Consolas" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Workspace.WireGuardStatusText}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap" />
+
+                            <ItemsControl ItemsSource="{Binding Workspace.TracerouteHops}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="6,4">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding HopNumber, StringFormat='TTL #{0}'}" Foreground="#C084FC" FontFamily="Consolas" Width="80" />
+                                                <TextBlock Text="{Binding HopAddress}" Foreground="#FFFFFF" FontFamily="Consolas" Width="170" />
+                                                <TextBlock Text="{Binding RttMs, StringFormat='{}{0} ms'}" Foreground="#38BDF8" FontFamily="Consolas" Width="100" />
+                                                <TextBlock Text="{Binding Status}" Foreground="#94A3B8" FontFamily="Consolas" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </views:GameNetworkAcceleratorView>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid>
@@ -584,7 +633,7 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- 9-Module Sidebar Navigation with Active Visual State -->
+            <!-- 10-Module Sidebar Navigation with Active Visual State -->
             <Border Grid.Column="0" Background="{StaticResource SidebarBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="0,0,1,0" Padding="14,18">
                 <StackPanel>
                     <TextBlock Text="{Binding Loc[NavSection]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,10" />
@@ -597,6 +646,7 @@
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsGamingVisible}" Content="{Binding Loc[NavGaming]}" Command="{Binding SelectTabCommand}" CommandParameter="gaming" />
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsDiagnosticsVisible}" Content="{Binding Loc[NavDiagnostics]}" Command="{Binding SelectTabCommand}" CommandParameter="diagnostics" />
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsDriversVisible}" Content="{Binding Loc[NavDrivers]}" Command="{Binding SelectTabCommand}" CommandParameter="drivers" />
+                    <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsAcceleratorVisible}" Content="{Binding Loc[NavAccelerator]}" Command="{Binding SelectTabCommand}" CommandParameter="accelerator" />
 
                     <Separator Background="{StaticResource BorderDark}" Margin="0,14" />
 

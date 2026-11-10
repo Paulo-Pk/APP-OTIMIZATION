@@ -106,7 +106,16 @@ public class LocalizationService : INotifyPropertyChanged
             ["DriversTitle"] = "DRIVER CENTER — INVENTÁRIO SOMENTE-LEITURA DE DRIVERS ASSINADOS (WMI)",
             ["DriversSubtitle"] = "Lista fabricante, versão, data e assinatura digital via Win32_PnPSignedDriver. Não baixa nem instala drivers automaticamente.",
             ["BtnRefreshDrivers"] = "Atualizar Inventário de Drivers",
-            ["FooterLeftText"] = "PC Control Ultimate v2.5.0 · Solução Desktop Nativa .NET 10 WPF · Catálogo Fechado + Ledger DPAPI/HMAC + Anti-Replay",
+            ["NavAccelerator"] = "10. Game Network Accelerator",
+            ["AcceleratorTitle"] = "GAME NETWORK ACCELERATOR — DIAGNÓSTICO MULTI-AMOSTRA, TRACEROUTE E TÚNEL WIREGUARD SELETIVO",
+            ["AcceleratorSubtitle"] = "Compara Rota Direta vs. Nós Intermediários com múltiplas amostras (ICMP/TCP/Jitter). Recomenda manter a Rota Direta sempre que o túnel não trouxer ganho real.",
+            ["BtnDetectGameSockets"] = "Detectar Jogos e Conexões Ativas",
+            ["BtnAnalyzeRoute"] = "Avaliar Rota Multi-Amostra (Direta vs. Nós)",
+            ["BtnRunTraceroute"] = "Executar Traceroute (Saltos TTL)",
+            ["BtnAuditWgConfig"] = "Validar Configuração WireGuard (AllowedIPs)",
+            ["BtnQueryWgTunnel"] = "Verificar Serviço & Handshake WireGuard",
+            ["BtnAddRelayNode"] = "Cadastrar Nó WireGuard / VPS",
+            ["FooterLeftText"] = "PC Control Ultimate v2.5.0 · Solução Desktop Nativa .NET 10 WPF · Catálogo Fechado + Ledger DPAPI/HMAC + SQLite",
             ["FooterRightText"] = "IPC Loopback Autenticado: 127.0.0.1:52194 (HMAC-SHA256)"
         },
         ["en-US"] = new(StringComparer.OrdinalIgnoreCase)
@@ -195,7 +204,16 @@ public class LocalizationService : INotifyPropertyChanged
             ["DriversTitle"] = "DRIVER CENTER — READ-ONLY SIGNED DRIVER INVENTORY (WMI)",
             ["DriversSubtitle"] = "Lists vendor, version, date, and digital signature via Win32_PnPSignedDriver. Never downloads or installs drivers automatically.",
             ["BtnRefreshDrivers"] = "Refresh Driver Inventory",
-            ["FooterLeftText"] = "PC Control Ultimate v2.5.0 · Native .NET 10 WPF Desktop Suite · Closed Catalog + DPAPI/HMAC Ledger + Anti-Replay",
+            ["NavAccelerator"] = "10. Game Network Accelerator",
+            ["AcceleratorTitle"] = "GAME NETWORK ACCELERATOR — MULTI-SAMPLE DIAGNOSTICS, TRACEROUTE & SELECTIVE WIREGUARD TUNNEL",
+            ["AcceleratorSubtitle"] = "Compares Direct Route vs. Relay Nodes with multi-sample probing (ICMP/TCP/Jitter). Recommends keeping Direct Route whenever the tunnel offers no real gain.",
+            ["BtnDetectGameSockets"] = "Detect Running Games & Active Sockets",
+            ["BtnAnalyzeRoute"] = "Evaluate Multi-Sample Route (Direct vs. Nodes)",
+            ["BtnRunTraceroute"] = "Run Traceroute (TTL Hops)",
+            ["BtnAuditWgConfig"] = "Validate WireGuard Config (AllowedIPs)",
+            ["BtnQueryWgTunnel"] = "Verify WireGuard Service & Handshake",
+            ["BtnAddRelayNode"] = "Register WireGuard / VPS Node",
+            ["FooterLeftText"] = "PC Control Ultimate v2.5.0 · Native .NET 10 WPF Desktop Suite · Closed Catalog + DPAPI/HMAC Ledger + SQLite",
             ["FooterRightText"] = "Authenticated IPC Loopback: 127.0.0.1:52194 (HMAC-SHA256)"
         }
     };

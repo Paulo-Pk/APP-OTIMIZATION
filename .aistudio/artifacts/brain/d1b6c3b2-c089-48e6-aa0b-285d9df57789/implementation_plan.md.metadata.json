@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de auditoria e correção dos 36 erros de compilação e avisos de anulabilidade no PC Control Ultimate (.NET 10 WPF x64), alinhando contratos entre serviços, modelos, MainViewModel e suíte xUnit, além de configurar publicação self-contained win-x64 e triggers para feature/game-network-accelerator no GitHub Actions.",
-  "updatedAt":  "2026-11-10T18:32:44.567665951Z",
+  "summary":  "Plano de Auditoria Técnica, Correção de Dependências (NU1605 e GHSA-2m69-gcr7-jv3q), Estabilização de Arquitetura MVVM/SQLite, Implementação do Game Network Accelerator (Diagnóstico Real, Avaliação Multi-Amostra, WireGuard e Roteamento por Destino de Jogo) e CI Windows x64 para o PC Control Ultimate.",
+  "updatedAt":  "2026-11-10T18:54:34.329609640Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

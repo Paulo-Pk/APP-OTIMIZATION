@@ -29,12 +29,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'ga'
-          architecture: 'x64'
 
-      - name: 3. Restore Solution Dependencies & Audit Vulnerable Packages (win-x64)
+      - name: 3. Display .NET SDK Info & Restore Solution Dependencies (win-x64)
+        run: |
+          dotnet --info
+          dotnet restore PCControlUltimate.sln -r win-x64
+
+      - name: 4. Audit NuGet Dependency Graph for Vulnerable Packages
         shell: pwsh
         run: |
-          dotnet restore PCControlUltimate.sln -r win-x64
           $vulnOutput = dotnet list PCControlUltimate.sln package --vulnerable --include-transitive | Out-String
           Write-Host $vulnOutput
           if ($vulnOutput -match "has the following vulnerable packages") {
@@ -42,26 +45,59 @@ jobs:
             exit 1
           }
 
-      - name: 4. Build Solution (Release x64)
+      - name: 5. Build Solution (Release x64)
         run: dotnet build PCControlUltimate.sln -c Release -p:Platform=x64
 
-      - name: 5. Run xUnit Automated Security & Integration Tests (Release x64)
+      - name: 6. Run xUnit Automated Security, SQLite, DI & Network Tests (Release x64)
         run: dotnet test PCControlUltimate.sln -c Release -p:Platform=x64 --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
 
-      - name: 6. Publish Native WPF Application (Windows x64 Self-Contained)
+      - name: 7. Publish Native WPF Application (Windows x64 Self-Contained)
         run: dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true -o artifacts/publish/win-x64
 
-      - name: 7. Package Verified Windows x64 Release Artifact
+      - name: 8. Verify Published Executable, Native Libraries & SQLite Dependencies
+        shell: pwsh
+        run: |
+          $publishDir = "artifacts/publish/win-x64"
+          $requiredFiles = @(
+            "PCControlUltimate.App.exe",
+            "PCControlUltimate.App.dll",
+            "PCControlUltimate.Core.dll",
+            "PCControlUltimate.Infrastructure.dll",
+            "PCControlUltimate.Windows.dll",
+            "PCControlUltimate.Gaming.dll",
+            "PCControlUltimate.Hardware.dll",
+            "PCControlUltimate.Diagnostics.dll",
+            "PCControlUltimate.Security.dll",
+            "Microsoft.EntityFrameworkCore.Sqlite.dll",
+            "Microsoft.Data.Sqlite.dll",
+            "SQLitePCLRaw.core.dll"
+          )
+          foreach ($file in $requiredFiles) {
+            $fullPath = Join-Path $publishDir $file
+            if (!(Test-Path $fullPath)) {
+              Write-Error "Missing required published file: $fullPath"
+              exit 1
+            }
+          }
+          Write-Host "Verified all required executables, assemblies, and SQLite dependencies in $publishDir"
+
+      - name: 9. Package & Verify Windows x64 Release ZIP Archive
         if: success()
         shell: pwsh
         run: |
-          if (!(Test-Path "artifacts/publish/win-x64/PCControlUltimate.App.exe")) {
-            Write-Error "Published executable PCControlUltimate.App.exe was not found!"
+          Compress-Archive -Path "artifacts/publish/win-x64/*" -DestinationPath "artifacts/PCControlUltimate-win-x64-Release.zip" -Force
+          if (!(Test-Path "artifacts/PCControlUltimate-win-x64-Release.zip")) {
+            Write-Error "Release ZIP archive was not created!"
             exit 1
           }
-          Compress-Archive -Path "artifacts/publish/win-x64/*" -DestinationPath "artifacts/PCControlUltimate-win-x64-Release.zip" -Force
+          $zipSize = (Get-Item "artifacts/PCControlUltimate-win-x64-Release.zip").Length
+          Write-Host "Verified Release ZIP size: $zipSize bytes"
+          if ($zipSize -lt 1000000) {
+            Write-Error "Release ZIP archive is unexpectedly small ($zipSize bytes) for a self-contained publish."
+            exit 1
+          }
 
-      - name: 8. Upload Windows x64 Release Artifact
+      - name: 10. Upload Windows x64 Release Artifact & Test Results
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -69,5 +105,6 @@ jobs:
           path: |
             artifacts/PCControlUltimate-win-x64-Release.zip
             artifacts/publish/win-x64/
+            **/TestResults/*.trx
           if-no-files-found: error
           retention-days: 14

@@ -8,14 +8,26 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using PCControlUltimate.App.Services;
+using PCControlUltimate.Core.Entities;
 using PCControlUltimate.Core.Interfaces;
 using PCControlUltimate.Core.Models;
 using PCControlUltimate.Diagnostics;
+using PCControlUltimate.Gaming.Network;
 using PCControlUltimate.Gaming.PresentMon;
+using PCControlUltimate.Infrastructure.Data;
 using PCControlUltimate.Infrastructure.Services;
 using PCControlUltimate.Windows.Services;
 
 namespace PCControlUltimate.App.ViewModels;
+
+public record ModuleCapabilityMatrixItem(
+    int Index,
+    string ModuleName,
+    string ImplementationState,
+    string BackendEngine,
+    string PersistenceMechanism,
+    string LimitationsAndSafetyNote
+);
 
 public class RelayCommand : ICommand
 {
@@ -123,10 +135,12 @@ public class MainViewModel : INotifyPropertyChanged
 {
     private readonly AgentClientService _agentClient;
     private readonly IHardwareMonitorService? _hardwareMonitor;
+    private readonly DatabaseService _databaseService;
     private CancellationTokenSource? _presentMonCts;
 
     public LocalizationService Loc { get; }
     public INavigationService Navigation { get; }
+    public DatabaseService Database => _databaseService;
 
     private string _currentTab = "dashboard";
     private bool _isAgentConnected;
@@ -171,6 +185,15 @@ public class MainViewModel : INotifyPropertyChanged
     private string _networkSummaryText = "Clique em Executar Diagnóstico para medir ICMP, TCP e DNS.";
     private string _externalThroughputText = "Clique para medir throughput real contra Cloudflare CDN.";
 
+    // Game Network Accelerator properties
+    private string _acceleratorGameName = "Counter-Strike 2 (Valve)";
+    private string _acceleratorTargetHost = "155.133.248.34";
+    private int _acceleratorTargetPort = 27015;
+    private string _routeVerdictText = "Execute a avaliação multi-amostra para comparar a Rota Direta com nós intermediários.";
+    private string _wfpSelectiveRoutingNoticeText = GameNetworkAcceleratorService.GetSelectiveRoutingCapabilityReport().WfpLimitationExplanationPt;
+    private string _wireGuardStatusText = "Verifique a instalação do WireGuard for Windows e audite a configuração AllowedIPs.";
+    private string _wireGuardConfigAuditText = "Nenhuma configuração WireGuard validada nesta sessão.";
+
     // PresentMon properties
     private string _presentMonStatusText = "Verifique a instalação do PresentMon e selecione um processo.";
     private RunningProcessInfo? _selectedProcess;
@@ -180,7 +203,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _presentMonMetricsSummary = "Nenhuma sessão capturada.";
 
     // Diagnostics & Security properties
-    private string _securityPostureText = "Verificando DPAPI, ACL NTFS, HMAC-SHA256 e privilégios UAC...";
+    private string _securityPostureText = "Verificando DPAPI, ACL NTFS, HMAC-SHA256, SQLite e privilégios UAC...";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -195,6 +218,10 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<NetworkEndpointTestResult> NetworkEndpoints { get; } = new();
     public ObservableCollection<DnsQueryResult> DnsResults { get; } = new();
     public ObservableCollection<string> NetworkHistory { get; } = new();
+    public ObservableCollection<DetectedGameConnection> DetectedGameSockets { get; } = new();
+    public ObservableCollection<TracerouteHopResult> TracerouteHops { get; } = new();
+    public ObservableCollection<RelayNodeCandidate> RelayNodes { get; } = new();
+    public ObservableCollection<ModuleCapabilityMatrixItem> ModuleCapabilityMatrix { get; } = new();
     public ObservableCollection<RunningProcessInfo> AvailableProcesses { get; } = new();
     public ObservableCollection<double> RecentFrametimeSamples { get; } = new();
     public ObservableCollection<PresentMonCaptureResponse> PresentMonHistory { get; } = new();
@@ -237,6 +264,7 @@ public class MainViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(IsGamingVisible));
                 OnPropertyChanged(nameof(IsDiagnosticsVisible));
                 OnPropertyChanged(nameof(IsDriversVisible));
+                OnPropertyChanged(nameof(IsAcceleratorVisible));
             }
         }
     }
@@ -250,6 +278,7 @@ public class MainViewModel : INotifyPropertyChanged
     public bool IsGamingVisible => string.Equals(_currentTab, "gaming", StringComparison.OrdinalIgnoreCase);
     public bool IsDiagnosticsVisible => string.Equals(_currentTab, "diagnostics", StringComparison.OrdinalIgnoreCase);
     public bool IsDriversVisible => string.Equals(_currentTab, "drivers", StringComparison.OrdinalIgnoreCase);
+    public bool IsAcceleratorVisible => string.Equals(_currentTab, "accelerator", StringComparison.OrdinalIgnoreCase);
 
     public bool IsAgentConnected
     {
@@ -422,6 +451,48 @@ public class MainViewModel : INotifyPropertyChanged
         set { _securityPostureText = value; OnPropertyChanged(); }
     }
 
+    public string AcceleratorGameName
+    {
+        get => _acceleratorGameName;
+        set { _acceleratorGameName = value; OnPropertyChanged(); }
+    }
+
+    public string AcceleratorTargetHost
+    {
+        get => _acceleratorTargetHost;
+        set { _acceleratorTargetHost = value; OnPropertyChanged(); }
+    }
+
+    public int AcceleratorTargetPort
+    {
+        get => _acceleratorTargetPort;
+        set { _acceleratorTargetPort = Math.Clamp(value, 1, 65535); OnPropertyChanged(); }
+    }
+
+    public string RouteVerdictText
+    {
+        get => _routeVerdictText;
+        set { _routeVerdictText = value; OnPropertyChanged(); }
+    }
+
+    public string WfpSelectiveRoutingNoticeText
+    {
+        get => _wfpSelectiveRoutingNoticeText;
+        set { _wfpSelectiveRoutingNoticeText = value; OnPropertyChanged(); }
+    }
+
+    public string WireGuardStatusText
+    {
+        get => _wireGuardStatusText;
+        set { _wireGuardStatusText = value; OnPropertyChanged(); }
+    }
+
+    public string WireGuardConfigAuditText
+    {
+        get => _wireGuardConfigAuditText;
+        set { _wireGuardConfigAuditText = value; OnPropertyChanged(); }
+    }
+
     // Commands
     public ICommand SelectTabCommand { get; }
     public ICommand ToggleLanguageCommand { get; }
@@ -444,17 +515,30 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RefreshDriversCommand { get; }
     public ICommand RefreshAuditLogsCommand { get; }
     public ICommand RequestElevationCommand { get; }
+    public ICommand RefreshGameConnectionsCommand { get; }
+    public ICommand EvaluateGameRouteCommand { get; }
+    public ICommand RunTracerouteCommand { get; }
+    public ICommand AuditWireGuardConfigCommand { get; }
+    public ICommand CheckWireGuardTunnelCommand { get; }
+    public ICommand RegisterSampleVpsNodeCommand { get; }
 
-    public MainViewModel() : this(new AgentClientService(), null, new LocalizationService())
+    public MainViewModel() : this(new AgentClientService(), null, new LocalizationService(), new DatabaseService())
     {
     }
 
-    public MainViewModel(AgentClientService agentClient, IHardwareMonitorService? hardwareMonitor, LocalizationService? localizationService = null)
+    public MainViewModel(
+        AgentClientService agentClient,
+        IHardwareMonitorService? hardwareMonitor,
+        LocalizationService? localizationService = null,
+        DatabaseService? databaseService = null)
     {
         _agentClient = agentClient;
         _hardwareMonitor = hardwareMonitor;
         Loc = localizationService ?? new LocalizationService();
+        _databaseService = databaseService ?? new DatabaseService();
         _restoreProgressStatus = Loc["RestoreProgressIdle"];
+
+        InitializeModuleCapabilityMatrix();
 
         foreach (var def in RegistryOptimizer.Catalog.Values)
         {
@@ -554,7 +638,18 @@ public class MainViewModel : INotifyPropertyChanged
 
                     tweak.IsApplied = true;
                     tweak.VerificationState = $"Verificado ({tweak.RecommendedValue})";
-                    StatusMessage = $"Ajuste '{tweak.TweakId}' aplicado, gravado no Ledger DPAPI e confirmado por releitura.";
+                    await _databaseService.UpsertOptimizationActionAsync(
+                        tweak.TweakId,
+                        tweak.Name,
+                        tweak.Category,
+                        tweak.RegistryPath,
+                        tweak.ValueName,
+                        "Ledger-DPAPI",
+                        tweak.RecommendedValue,
+                        isApplied: true,
+                        backupId: tweak.LastOperationId
+                    );
+                    StatusMessage = $"Ajuste '{tweak.TweakId}' aplicado, gravado no Ledger DPAPI + SQLite e confirmado por releitura.";
                 }
                 else
                 {
@@ -579,7 +674,18 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     tweak.IsApplied = false;
                     tweak.VerificationState = "Restaurado (Ledger Seguro)";
-                    StatusMessage = $"Ajuste '{tweak.TweakId}' revertido ao estado original autêntico do backend.";
+                    await _databaseService.UpsertOptimizationActionAsync(
+                        tweak.TweakId,
+                        tweak.Name,
+                        tweak.Category,
+                        tweak.RegistryPath,
+                        tweak.ValueName,
+                        "Ledger-DPAPI",
+                        tweak.RecommendedValue,
+                        isApplied: false,
+                        backupId: tweak.LastOperationId
+                    );
+                    StatusMessage = $"Ajuste '{tweak.TweakId}' revertido ao estado original autêntico do backend e atualizado no SQLite.";
                 }
                 else
                 {
@@ -887,15 +993,167 @@ public class MainViewModel : INotifyPropertyChanged
             }
         });
 
+        RefreshGameConnectionsCommand = new RelayCommand(_ =>
+        {
+            DetectedGameSockets.Clear();
+            foreach (var conn in GameNetworkAcceleratorService.DetectRunningGamesAndConnections())
+            {
+                DetectedGameSockets.Add(conn);
+            }
+            RelayNodes.Clear();
+            foreach (var node in GameNetworkAcceleratorService.GetRegisteredRelayNodes())
+            {
+                RelayNodes.Add(node);
+            }
+        });
+
+        EvaluateGameRouteCommand = new RelayCommand(async _ =>
+        {
+            RouteVerdictText = Loc.CurrentCulture == "pt-BR"
+                ? $"Executando sondagem multi-amostra para {AcceleratorGameName} ({AcceleratorTargetHost}:{AcceleratorTargetPort})..."
+                : $"Running multi-sample probing for {AcceleratorGameName} ({AcceleratorTargetHost}:{AcceleratorTargetPort})...";
+
+            var eval = await GameNetworkAcceleratorService.AnalyzeGameRouteAsync(
+                AcceleratorGameName,
+                AcceleratorTargetHost,
+                AcceleratorTargetPort,
+                sampleCount: 5
+            );
+
+            RouteVerdictText = Loc.CurrentCulture == "pt-BR" ? eval.HonestVerdictPt : eval.HonestVerdictEn;
+
+            await _databaseService.RecordRouteDiagnosticAsync(new NetworkRouteDiagnosticRecord
+            {
+                GameProcessName = AcceleratorGameName,
+                TargetEndpoint = $"{AcceleratorTargetHost}:{AcceleratorTargetPort}",
+                DirectRttMs = eval.DirectRoute.AverageRttMs,
+                DirectJitterMs = eval.DirectRoute.JitterMs,
+                DirectLossPercent = eval.DirectRoute.PacketLossPercent,
+                CandidateNodeId = eval.BestRelayNodeId,
+                CandidateRttMs = eval.EstimatedTotalRelayRttMs,
+                CandidateJitterMs = eval.RelayIngressProbe?.JitterMs,
+                CandidateLossPercent = eval.RelayIngressProbe?.PacketLossPercent ?? 100.0,
+                RecommendedRoute = eval.RecommendedMode,
+                RecommendationReason = eval.HonestVerdictPt,
+                MeasuredAtUtc = DateTime.UtcNow
+            });
+        });
+
+        RunTracerouteCommand = new RelayCommand(async _ =>
+        {
+            TracerouteHops.Clear();
+            var hops = await GameNetworkAcceleratorService.RunTracerouteAsync(AcceleratorTargetHost, maxHops: 14);
+            foreach (var h in hops)
+            {
+                TracerouteHops.Add(h);
+            }
+        });
+
+        RegisterSampleVpsNodeCommand = new RelayCommand(async _ =>
+        {
+            var (ok, err, node) = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+                nodeId: "sa-gru-relay-01",
+                displayName: "Nó São Paulo (GRU-01 WireGuard Seletivo)",
+                regionCode: "SA-EAST-1",
+                endpointHost: "1.1.1.1",
+                endpointPort: 51820,
+                publicKey: "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
+                gameTargetCidrs: new[] { "155.133.248.0/24", "104.160.152.0/24" },
+                isCustomVps: true
+            );
+
+            if (ok && node != null)
+            {
+                await _databaseService.UpsertRelayNodeAsync(new RelayNodeEntity
+                {
+                    NodeId = node.NodeId,
+                    DisplayName = node.DisplayName,
+                    RegionCode = node.RegionCode,
+                    EndpointHost = node.EndpointHost,
+                    EndpointPort = node.EndpointPort,
+                    PublicKey = node.PublicKey,
+                    AllowedTargetCidrs = string.Join(", ", node.GameTargetCidrs),
+                    IsCustomVps = node.IsCustomVps
+                });
+
+                RelayNodes.Clear();
+                foreach (var n in GameNetworkAcceleratorService.GetRegisteredRelayNodes())
+                {
+                    RelayNodes.Add(n);
+                }
+            }
+            else
+            {
+                RouteVerdictText = $"Erro ao cadastrar nó: {err}";
+            }
+        });
+
+        AuditWireGuardConfigCommand = new RelayCommand(_ =>
+        {
+            var node = GameNetworkAcceleratorService.GetRegisteredRelayNodes().FirstOrDefault();
+            if (node == null)
+            {
+                WireGuardConfigAuditText = "Cadastre ao menos um nó WireGuard/VPS antes de validar a configuração.";
+                return;
+            }
+
+            string selectiveCfg = WireGuardTunnelManager.BuildSelectiveGameTunnelConfig(
+                "wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=",
+                "10.66.66.2/32",
+                node
+            );
+            var audit = WireGuardTunnelManager.ValidateAndAuditConfig(selectiveCfg, allowDefaultRouteOverride: false);
+            WireGuardConfigAuditText = audit.IsValid
+                ? (Loc.CurrentCulture == "pt-BR" ? audit.RouteImpactExplanationPt : audit.RouteImpactExplanationEn)
+                : $"Configuração bloqueada: {audit.ErrorReason}";
+        });
+
+        CheckWireGuardTunnelCommand = new RelayCommand(async _ =>
+        {
+            var status = await WireGuardTunnelManager.QueryTunnelStatusAsync("PCControlGameTunnel");
+            WireGuardStatusText = status.DiagnosticMessage;
+        });
+
         Navigation = new NavigationService(this);
         RefreshBackupsList();
         RefreshAuditLogs();
+        _ = _databaseService.InitializeAndVerifyAsync();
         _ = RefreshTelemetryAndStatusAsync();
+    }
+
+    private void InitializeModuleCapabilityMatrix()
+    {
+        ModuleCapabilityMatrix.Clear();
+        var items = new[]
+        {
+            new ModuleCapabilityMatrixItem(1, "Hardware Monitor", "Funcional", "LibreHardwareMonitorWrapper + Win32", "Logs / Sessão", "Exibe somente sensores físicos reais; N/D quando não suportado."),
+            new ModuleCapabilityMatrixItem(2, "GPU Health Lab", "Funcional", "GpuThermalAuditor", "Logs / Sessão", "Diagnóstico térmico Core/Hotspot por arquitetura; zero overclock automático."),
+            new ModuleCapabilityMatrixItem(3, "Boost Center", "Funcional (Perfis)", "RegistryOptimizer (Catálogo Fechado)", "SQLite + Ledger DPAPI", "Aplica perfis reversíveis; não encerra processos arbitrariamente."),
+            new ModuleCapabilityMatrixItem(4, "Game Center", "Funcional", "GameNetworkAcceleratorService", "SQLite", "Detecta processos reais de jogos e conexões TCP/UDP ativas."),
+            new ModuleCapabilityMatrixItem(5, "Performance Lab", "Funcional", "PresentMonSessionParser", "Arquivos CSV", "Captura frametimes reais via Intel PresentMon CLI."),
+            new ModuleCapabilityMatrixItem(6, "Benchmark Center", "Parcial / Honesto", "Diagnóstico Sintético Local", "SQLite", "Medição sintética determinística; sem scores inventados de terceiros."),
+            new ModuleCapabilityMatrixItem(7, "Diagnostics", "Funcional", "IntegrityVerifier + Auditoria", "Registro + SQLite", "Valida DPAPI, ACL NTFS, HMAC-SHA256, UAC e trilha completa."),
+            new ModuleCapabilityMatrixItem(8, "Windows Tweaks", "Funcional", "RegistryOptimizer", "Ledger DPAPI+HMAC + SQLite", "Zero bypass; grava estado original no Ledger antes da escrita."),
+            new ModuleCapabilityMatrixItem(9, "Debloat / Cleaner", "Funcional", "DiskCleanerEngine", "Relatório de Sessão", "Dry-Run separado de Purge; bloqueia ReparsePoints/Symlinks."),
+            new ModuleCapabilityMatrixItem(10, "Network Lab", "Funcional", "NetworkDiagnosticsService", "Histórico em Memória", "ICMP Echo, TCP Handshake, DNS e Throughput HTTP separados."),
+            new ModuleCapabilityMatrixItem(11, "Peripheral Test", "Funcional", "Monitor & Input Cadence Inspector", "Sessão", "Avalia cadência de eventos de input e refresh rate Win32."),
+            new ModuleCapabilityMatrixItem(12, "Driver Center", "Funcional (Leitura)", "DriverScannerService (WMI)", "Somente Leitura", "Inventário de drivers assinados; não baixa nem instala drivers."),
+            new ModuleCapabilityMatrixItem(13, "Software Hub", "Consultivo", "Catálogo Winget Verificado", "Somente Leitura", "Exibe comandos winget oficiais; sem instalação oculta."),
+            new ModuleCapabilityMatrixItem(14, "Restore Center", "Funcional", "RegistrySnapshotEngine + Ledger", "JSON SHA-256 + DPAPI", "Verificação SHA-256 obrigatória e rollback transacional."),
+            new ModuleCapabilityMatrixItem(15, "AI Assistant", "Consultivo Local", "Motor de Diagnóstico Determinístico", "Somente Leitura", "Explica telemetria e rotas localmente sem chamadas externas ocultas."),
+            new ModuleCapabilityMatrixItem(16, "Game Network Accelerator", "Funcional c/ Limite WFP", "GameNetworkAcceleratorService + WireGuard", "SQLite + Config", "Roteamento seletivo por AllowedIPs do jogo; driver kernel WFP desativado.")
+        };
+        foreach (var item in items)
+        {
+            ModuleCapabilityMatrix.Add(item);
+        }
     }
 
     private void UpdateLocalizedCollections()
     {
         bool isPt = Loc.CurrentCulture == "pt-BR";
+        var capReport = GameNetworkAcceleratorService.GetSelectiveRoutingCapabilityReport();
+        WfpSelectiveRoutingNoticeText = isPt ? capReport.WfpLimitationExplanationPt : capReport.WfpLimitationExplanationEn;
         foreach (var tweak in CatalogTweaks)
         {
             tweak.Name = isPt ? tweak.NamePt : tweak.NameEn;

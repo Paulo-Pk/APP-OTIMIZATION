@@ -357,6 +357,50 @@ export const NetworkLabView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Game Network Accelerator — Honest Route Comparison & Selective WireGuard AllowedIPs */}
+      <div className="p-5 rounded-xl bg-[#0f121b] border border-purple-500/30 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+          <div>
+            <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">
+              Game Network Accelerator · WireGuard Selective CIDR Routing
+            </span>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Avalia múltiplas amostras antes de recomendar túneis. Se o nó intermediário não reduzir a latência/jitter com estabilidade comprovada, recomenda manter a Rota Direta.
+            </p>
+          </div>
+          <span className="text-xs font-mono text-emerald-400 shrink-0">
+            AllowedIPs Seletivo · Zero Kernel Hook
+          </span>
+        </div>
+
+        <div className="p-3.5 rounded-lg bg-[#0a0c13] border border-amber-500/30 text-xs text-amber-200 leading-relaxed">
+          <strong className="text-amber-400">Escopo Técnico Real (WFP &amp; Anti-Cheat):</strong> O roteamento seletivo opera por sub-redes de destino dos servidores do jogo (<code className="font-mono text-purple-300">AllowedIPs = 155.133.248.0/24, 104.160.152.0/24</code>), preservando a rota padrão do Windows (<code className="font-mono text-rose-300">0.0.0.0/0</code> bloqueado por padrão). O redirecionamento exclusivo por PID via driver kernel WFP (<code className="font-mono">Callout Driver</code>) permanece desativado nesta versão para garantir compatibilidade total com sistemas anti-cheat (Vanguard, Ricochet, EAC, BattlEye).
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono tabular-nums">
+          <div className="p-3.5 rounded-lg bg-[#0a0c13] border border-slate-800 space-y-1">
+            <span className="text-slate-400 font-sans font-semibold block">
+              Veredito Honesto de Rota (Multi-Amostra)
+            </span>
+            <div className="text-emerald-400 font-bold">
+              {avgExternalPing !== null
+                ? `Rota Direta Medida (${avgExternalPing} ms / σ=${avgExternalJitter ?? 0} ms) — Manter Rota Direta caso o nó VPS adicione salto superior.`
+                : 'Execute o diagnóstico acima para medir a Rota Direta com múltiplas amostras.'}
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-lg bg-[#0a0c13] border border-slate-800 space-y-1">
+            <span className="text-slate-400 font-sans font-semibold block">
+              Auditoria de Túnel WireGuard (WireGuardTunnelManager)
+            </span>
+            <div className="text-purple-300">
+              Bloqueia scripts PreUp/PostUp e exige verificação real de Handshake + contadores RX/TX via wg.exe show dump.
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
+
