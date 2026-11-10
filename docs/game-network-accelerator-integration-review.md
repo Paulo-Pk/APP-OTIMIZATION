@@ -22,7 +22,7 @@ Os arquivos da branch histórica `feature/game-network-accelerator` em `PCContro
 
 ## Bloqueadores antes de uso em produção
 
-- **Proteção da chave privada:** a instalação ainda grava o conteúdo do perfil WireGuard em arquivo local. O arquivo contém uma chave privada e precisa de ACL restritiva e ciclo de vida seguro. Não trate esse fluxo como pronto para produção até essa proteção ser implementada e testada.
+- **Proteção da chave privada:** foi implementado o endurecimento da ACL da pasta de túneis antes de gravar o perfil, permitindo acesso ao usuário atual, LocalSystem (serviço WireGuard) e Administradores. A instalação falha de forma fechada se o `icacls.exe` não aplicar as permissões. A CI do novo commit ainda precisa validar a compilação; também é necessário testar em Windows real se o serviço WireGuard instala e lê o perfil corretamente e definir a limpeza segura dos arquivos.
 - **Restauração de rede:** implementar verificação explícita do estado de rotas/adaptadores após remover o túnel, sem tentar reproduzir cegamente uma saída textual de `route print`.
 - **Roteamento por processo:** `AllowedIPs` faz roteamento por destino IP/CIDR, não por PID/executável. A opção de roteamento WFP por processo continua desativada.
 - **Anti-cheat:** testar cada jogo/anti-cheat suportado e seguir as políticas do fornecedor. Não existe garantia universal.
