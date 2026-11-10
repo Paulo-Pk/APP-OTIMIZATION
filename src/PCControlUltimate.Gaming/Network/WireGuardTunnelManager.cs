@@ -7,6 +7,7 @@ using System.Net;
 using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -562,7 +563,30 @@ public static class WireGuardTunnelManager
             "PCControlUltimate",
             "Tunnels"
         );
-        Directory.CreateDirectory(configDir);
+        try
+        {
+            Directory.CreateDirectory(configDir);
+
+            // The WireGuard profile contains a plaintext private key. Restrict the directory
+            // before writing any profile and fail closed if Windows ACL hardening cannot be verified.
+            if (!await TryRestrictTunnelConfigDirectoryAsync(configDir, cancellationToken))
+            {
+                return new WireGuardServiceOperationResult(
+                    false,
+                    "CONFIG_ACL_HARDENING_FAILED",
+                    "Instalação bloqueada: não foi possível restringir e verificar as permissões da pasta que armazenará a chave privada WireGuard."
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "CONFIG_DIRECTORY_SECURITY_FAILED",
+                $"Instalação bloqueada ao preparar a pasta protegida da configuração WireGuard: {ex.Message}"
+            );
+        }
+
         string configFilePath = Path.Combine(configDir, $"{safeName}.conf");
         await File.WriteAllTextAsync(configFilePath, configContent, Encoding.UTF8, cancellationToken);
 
@@ -709,6 +733,69 @@ public static class WireGuardTunnelManager
                 "TUNNEL_UNINSTALL_EXCEPTION",
                 $"Erro ao remover serviço WireGuard: {ex.Message}"
             );
+        }
+    }
+
+    private static async Task<bool> TryRestrictTunnelConfigDirectoryAsync(
+        string directoryPath,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        string? currentUserSid;
+        try
+        {
+            currentUserSid = WindowsIdentity.GetCurrent().User?.Value;
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentUserSid))
+        {
+            return false;
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = Path.Combine(Environment.SystemDirectory, "icacls.exe"),
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            psi.ArgumentList.Add(directoryPath);
+            psi.ArgumentList.Add("/inheritance:r");
+            psi.ArgumentList.Add("/grant:r");
+            psi.ArgumentList.Add($"*{currentUserSid}:(OI)(CI)F");
+            psi.ArgumentList.Add("*S-1-5-18:(OI)(CI)F"); // LocalSystem: WireGuard tunnel service
+            psi.ArgumentList.Add("*S-1-5-32-544:(OI)(CI)F"); // Local Administrators
+            psi.ArgumentList.Add("/T");
+            psi.ArgumentList.Add("/C");
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                return false;
+            }
+
+            await process.WaitForExitAsync(cancellationToken);
+            return process.ExitCode == 0;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
         }
     }
 
