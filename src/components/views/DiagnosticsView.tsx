@@ -9,18 +9,26 @@ import {
   RefreshCw,
   Wrench,
   Check,
+  X,
 } from 'lucide-react';
 import { DiagnosticIssue, HealthStatus, TabId } from '../../types';
 import { useI18n } from '../../i18n';
+import { nativeBridge } from '../../services/nativeBridge';
 
 interface DiagnosticsViewProps {
   onNavigate: (tab: TabId) => void;
   onOpenBoostModal: () => void;
+  onApplyDiagnosticFix?: (
+    tweakId: string,
+    issueTitle: string,
+    component: string
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
   onNavigate,
   onOpenBoostModal,
+  onApplyDiagnosticFix,
 }) => {
   const { t } = useI18n();
 
@@ -85,9 +93,45 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
   ];
 
   const [fixedIds, setFixedIds] = useState<string[]>([]);
+  const [issueToConfirm, setIssueToConfirm] = useState<DiagnosticIssue | null>(null);
+  const [isFixing, setIsFixing] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleFixIssue = (issue: DiagnosticIssue) => {
-    setFixedIds((prev) => [...prev, issue.id]);
+  const handleRequestFix = (issue: DiagnosticIssue) => {
+    setErrorMessage(null);
+    setIssueToConfirm(issue);
+  };
+
+  const handleExecuteFix = async () => {
+    if (!issueToConfirm || !issueToConfirm.tweakIdRef) return;
+    setIsFixing(true);
+    setErrorMessage(null);
+
+    const isConnected = nativeBridge.getStatus().isConnected;
+    if (!isConnected) {
+      setErrorMessage(t.diagnostics.agentRequiredDiag);
+      setIsFixing(false);
+      setIssueToConfirm(null);
+      return;
+    }
+
+    if (onApplyDiagnosticFix) {
+      const res = await onApplyDiagnosticFix(
+        issueToConfirm.tweakIdRef,
+        issueToConfirm.title,
+        issueToConfirm.component
+      );
+      if (res.success) {
+        setFixedIds((prev) => [...prev, issueToConfirm.id]);
+        setIssueToConfirm(null);
+      } else {
+        setErrorMessage(res.error || t.diagnostics.fixFailed);
+      }
+    } else {
+      setErrorMessage('Gerenciador de correções não inicializado.');
+    }
+
+    setIsFixing(false);
   };
 
   const severityBadges: Record<HealthStatus, { label: string; color: string; icon: React.ElementType }> = {
@@ -119,6 +163,22 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
           <span>{t.diagnostics.fixWithOneClick}</span>
         </button>
       </div>
+
+      {/* Error Message Notice */}
+      {errorMessage && (
+        <div className="p-4 rounded-xl bg-[#261316] border border-rose-500/60 text-xs text-rose-300 flex items-center justify-between animate-scale-in">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-slate-400 hover:text-white font-bold text-xs cursor-pointer ml-3"
+          >
+            {t.common.close}
+          </button>
+        </div>
+      )}
 
       {/* Issues List */}
       <div className="space-y-3">
@@ -162,7 +222,7 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
 
               {issue.autoFixAvailable && !isFixed && (
                 <button
-                  onClick={() => handleFixIssue(issue)}
+                  onClick={() => handleRequestFix(issue)}
                   className="px-3.5 py-1.5 rounded-lg bg-[#181c2d] hover:bg-[#20273d] border border-purple-500/40 text-purple-200 text-xs font-semibold cursor-pointer transition-colors shrink-0 flex items-center gap-1.5"
                 >
                   <Wrench className="w-3.5 h-3.5 text-purple-400" />
@@ -179,6 +239,57 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
           );
         })}
       </div>
+
+      {/* Confirmation Modal for Diagnostic Repair */}
+      {issueToConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-[#0f121b] border border-purple-500/40 rounded-xl p-6 shadow-2xl space-y-4 animate-scale-in">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 text-purple-400">
+                <Wrench className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-base text-white">{t.diagnostics.confirmFixTitle}</h3>
+              </div>
+              <button
+                onClick={() => setIssueToConfirm(null)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase text-purple-400">
+                {issueToConfirm.component}
+              </span>
+              <p className="text-sm font-bold text-white">{issueToConfirm.title}</p>
+              <p className="text-xs text-slate-300 leading-relaxed pt-1">
+                {issueToConfirm.recommendation}
+              </p>
+            </div>
+
+            <div className="p-3 rounded-lg bg-[#141829] border border-slate-800 text-xs flex items-start gap-2 text-slate-300">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <span>{t.diagnostics.confirmFixWarning}</span>
+            </div>
+
+            <div className="flex justify-end items-center gap-3 pt-2">
+              <button
+                onClick={() => setIssueToConfirm(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+              >
+                {t.diagnostics.confirmFixCancel}
+              </button>
+              <button
+                onClick={handleExecuteFix}
+                disabled={isFixing}
+                className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold cursor-pointer transition-colors shadow-lg shadow-purple-600/30 border border-purple-400/40 disabled:opacity-50"
+              >
+                {isFixing ? t.common.loading : t.diagnostics.confirmFixConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

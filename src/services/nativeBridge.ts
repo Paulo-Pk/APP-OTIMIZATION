@@ -266,6 +266,145 @@ class NativeBridgeService {
     }
     return null;
   }
+
+  // Real Windows Registry Snapshot Backup
+  public async createRegistrySnapshot(): Promise<{
+    success: boolean;
+    snapshotId?: string;
+    filePath?: string;
+    fileSizeBytes?: number;
+    checksumSha256?: string;
+    error?: string;
+  }> {
+    if (!this.agentStatus.isConnected) {
+      return {
+        success: false,
+        error: 'AGENT_DISCONNECTED',
+      };
+    }
+
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      return {
+        success: !!data.success,
+        snapshotId: data.snapshotId,
+        filePath: data.filePath,
+        fileSizeBytes: data.fileSizeBytes,
+        checksumSha256: data.checksumSha256,
+        error: data.error,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Falha na comunicação com o agente Windows para criar snapshot.',
+      };
+    }
+  }
+
+  // Real Windows Registry Snapshot Restoration
+  public async restoreRegistrySnapshot(snapshotId: string): Promise<{
+    success: boolean;
+    restoredKeysCount?: number;
+    error?: string;
+  }> {
+    if (!this.agentStatus.isConnected) {
+      return {
+        success: false,
+        error: 'AGENT_DISCONNECTED',
+      };
+    }
+
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshotId }),
+      });
+      const data = await res.json();
+      return {
+        success: !!data.success,
+        restoredKeysCount: data.restoredKeysCount,
+        error: data.error,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Falha ao restaurar snapshot pelo agente Windows.',
+      };
+    }
+  }
+
+  // Verify Snapshot File Integrity
+  public async verifySnapshotIntegrity(snapshotId: string): Promise<{
+    success: boolean;
+    isValid: boolean;
+    checksum?: string;
+    error?: string;
+  }> {
+    if (!this.agentStatus.isConnected) {
+      return {
+        success: false,
+        isValid: false,
+        error: 'AGENT_DISCONNECTED',
+      };
+    }
+
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/verify?id=${encodeURIComponent(snapshotId)}`);
+      const data = await res.json();
+      return {
+        success: !!data.success,
+        isValid: !!data.isValid,
+        checksum: data.checksum,
+        error: data.error,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        isValid: false,
+        error: err.message,
+      };
+    }
+  }
+
+  // Query Real Hardware Monitor Refresh Rate via Windows Win32 API
+  public async fetchDisplayInfo(): Promise<{
+    available: boolean;
+    nativeRefreshRateHz: number | null;
+    monitorName?: string;
+    resolution?: string;
+  }> {
+    if (!this.agentStatus.isConnected) {
+      return {
+        available: false,
+        nativeRefreshRateHz: null,
+      };
+    }
+
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/display/info`);
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          available: !!data.available,
+          nativeRefreshRateHz: data.nativeRefreshRateHz || null,
+          monitorName: data.monitorName,
+          resolution: data.resolution,
+        };
+      }
+    } catch {
+      // not available
+    }
+
+    return {
+      available: false,
+      nativeRefreshRateHz: null,
+    };
+  }
 }
 
 export const nativeBridge = new NativeBridgeService();

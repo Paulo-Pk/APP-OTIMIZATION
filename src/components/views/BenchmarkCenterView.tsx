@@ -157,6 +157,19 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         </div>
       </div>
 
+      {/* Runtime Environment Notice */}
+      <div className="p-3.5 rounded-xl bg-[#0f1424] border border-cyan-500/30 text-xs flex items-start gap-3">
+        <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+        <div className="space-y-0.5">
+          <div className="font-bold text-cyan-300">
+            Ambiente de Execução: Benchmark Sintético em Navegador (V8 Engine / WebGL2 Compute)
+          </div>
+          <p className="text-slate-400 leading-relaxed text-[11px]">
+            Este teste executa no motor JavaScript (V8) e WebGL2 do navegador web para avaliar capacidade computacional e vazão de shaders. Ele não é apresentado como benchmark nativo do Windows. Para benchmarks nativos com acesso direto a instruções x86-64 e Intel PresentMon, execute a solução desktop C# .NET 10.
+          </p>
+        </div>
+      </div>
+
       {/* Progress status if test running */}
       {isRunning && (
         <div className="p-4 rounded-xl bg-[#141829] border border-purple-500 space-y-2 animate-scale-in">

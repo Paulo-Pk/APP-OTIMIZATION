@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Trash2,
   HardDrive,
@@ -9,8 +9,8 @@ import {
   ShieldCheck,
   Check,
   AlertCircle,
+  X,
 } from 'lucide-react';
-import { DebloatCategory } from '../../types';
 import { useI18n } from '../../i18n';
 import { nativeBridge } from '../../services/nativeBridge';
 
@@ -24,6 +24,8 @@ export const DebloatView: React.FC = () => {
   const [isCleaning, setIsCleaning] = useState<boolean>(false);
   const [cleanedBytes, setCleanedBytes] = useState<number | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
   const categories = [
     {
@@ -83,24 +85,33 @@ export const DebloatView: React.FC = () => {
     .filter((c) => selectedIds.has(c.id))
     .reduce((acc, c) => acc + c.estimatedBytes, 0);
 
-  const handleClean = async () => {
+  const handleStartCleanRequest = () => {
     const isConnected = nativeBridge.getStatus().isConnected;
     if (!isConnected) {
-      // Per Master Prompt: DO NOT simulate success when agent is disconnected
       setNoticeMessage(t.debloat.agentRequiredNotice);
       return;
     }
+    setNoticeMessage(null);
+    setErrorMessage(null);
+    setIsConfirmModalOpen(true);
+  };
 
+  const handleExecuteClean = async () => {
+    setIsConfirmModalOpen(false);
     setIsCleaning(true);
+    setErrorMessage(null);
+
     let totalFreed = 0;
     try {
       for (const id of Array.from(selectedIds)) {
         const freed = await nativeBridge.purgeRealDebloatDirectory(id);
         totalFreed += freed;
       }
-      setCleanedBytes(totalFreed > 0 ? totalFreed : selectedBytes);
-    } catch {
-      setNoticeMessage('Falha ao comunicar com o serviço de limpeza.');
+      // Strict rule: if Windows service reports 0 bytes, display 0 B. NEVER substitute with estimated space!
+      setCleanedBytes(totalFreed);
+    } catch (err: any) {
+      setErrorMessage(`${t.debloat.cleanError}: ${err.message || 'Falha de I/O no Windows'}`);
+      setCleanedBytes(null);
     } finally {
       setIsCleaning(false);
     }
@@ -130,12 +141,12 @@ export const DebloatView: React.FC = () => {
 
         <div className="flex items-center gap-3">
           <div className="text-right font-mono text-xs hidden sm:block">
-            <span className="text-slate-500 block text-[10px] uppercase">{t.debloat.selectedSpace}</span>
+            <span className="text-slate-500 block text-[10px] uppercase">{t.debloat.estimatedSpaceLabel}</span>
             <span className="text-lg font-bold text-purple-300">{formatBytes(selectedBytes)}</span>
           </div>
 
           <button
-            onClick={handleClean}
+            onClick={handleStartCleanRequest}
             disabled={isCleaning || selectedBytes === 0}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40 disabled:opacity-50"
           >
@@ -161,14 +172,36 @@ export const DebloatView: React.FC = () => {
         </div>
       )}
 
-      {/* Success Notification */}
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="p-4 rounded-xl bg-[#261316] border border-rose-500/60 flex items-center justify-between text-xs animate-scale-in">
+          <div className="flex items-center gap-2.5 text-rose-300">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-slate-400 hover:text-white font-bold text-xs cursor-pointer ml-3"
+          >
+            {t.common.close}
+          </button>
+        </div>
+      )}
+
+      {/* Verified Clean Result (Only from Real Windows Service) */}
       {cleanedBytes !== null && (
         <div className="p-4 rounded-xl bg-[#0f1626] border border-emerald-500/50 flex items-center justify-between text-xs animate-scale-in">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="text-emerald-200 font-semibold">
-              {t.debloat.cleanSuccess} {formatBytes(cleanedBytes)}!
-            </span>
+            <div className="text-emerald-200">
+              <span className="font-bold">{t.debloat.actualFreedLabel}: </span>
+              <span className="font-mono text-emerald-400 font-bold">{formatBytes(cleanedBytes)}</span>
+              {cleanedBytes === 0 ? (
+                <span className="text-slate-400 ml-2">({t.debloat.zeroBytesCleaned})</span>
+              ) : (
+                <span className="ml-2">— {t.debloat.cleanSuccess}</span>
+              )}
+            </div>
           </div>
           <button
             onClick={() => setCleanedBytes(null)}
@@ -186,7 +219,7 @@ export const DebloatView: React.FC = () => {
             {t.debloat.itemsTitle}
           </span>
           <span className="text-slate-400 font-mono">
-            Total: {formatBytes(categories.reduce((acc, c) => acc + c.estimatedBytes, 0))}
+            {t.debloat.estimatedSpaceLabel}: {formatBytes(categories.reduce((acc, c) => acc + c.estimatedBytes, 0))}
           </span>
         </div>
 
@@ -231,6 +264,60 @@ export const DebloatView: React.FC = () => {
           })}
         </div>
       </div>
+
+      {/* Explicit Confirmation Modal */}
+      {isConfirmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-[#0f121b] border border-purple-500/40 rounded-xl p-6 shadow-2xl space-y-4 animate-scale-in">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 text-purple-400">
+                <ShieldCheck className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-base text-white">{t.debloat.confirmModalTitle}</h3>
+              </div>
+              <button
+                onClick={() => setIsConfirmModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {t.debloat.confirmModalSubtitle}
+            </p>
+
+            <div className="p-3 rounded-lg bg-[#141829] border border-slate-800 text-xs space-y-2">
+              <span className="text-slate-400 block font-semibold">Pastas que serão verificadas e purgadas:</span>
+              <ul className="list-disc list-inside text-slate-300 space-y-1 text-[11px] font-mono">
+                {Array.from(selectedIds).map((id) => {
+                  const cat = categories.find((c) => c.id === id);
+                  return <li key={id}>{cat?.name || id}</li>;
+                })}
+              </ul>
+            </div>
+
+            <div className="p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{t.debloat.confirmModalPersonalDataSafe}</span>
+            </div>
+
+            <div className="flex justify-end items-center gap-3 pt-2">
+              <button
+                onClick={() => setIsConfirmModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+              >
+                {t.debloat.confirmModalCancel}
+              </button>
+              <button
+                onClick={handleExecuteClean}
+                className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold cursor-pointer transition-colors shadow-lg shadow-purple-600/30 border border-purple-400/40"
+              >
+                {t.debloat.confirmModalConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

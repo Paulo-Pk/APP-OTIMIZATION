@@ -7,8 +7,11 @@ import {
   Sparkles,
   Maximize2,
   CheckCircle2,
+  AlertCircle,
+  Info,
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import { nativeBridge } from '../../services/nativeBridge';
 
 export const PeripheralTestView: React.FC = () => {
   const { t } = useI18n();
@@ -43,8 +46,11 @@ export const PeripheralTestView: React.FC = () => {
   });
   const [mouseClicksCount, setMouseClicksCount] = useState<number>(0);
   const [mousePollingRate, setMousePollingRate] = useState<number>(1000);
+  const [clickDurationMs, setClickDurationMs] = useState<number | null>(null);
+
   const lastMouseTimeRef = useRef<number>(performance.now());
   const mouseIntervalsRef = useRef<number[]>([]);
+  const mouseDownTimestampRef = useRef<number | null>(null);
 
   const handleMouseMove = () => {
     const now = performance.now();
@@ -63,16 +69,44 @@ export const PeripheralTestView: React.FC = () => {
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
+    mouseDownTimestampRef.current = performance.now();
     setMouseClicksCount((prev) => prev + 1);
     if (e.button === 0) setMouseButtons((b) => ({ ...b, left: true }));
     if (e.button === 1) setMouseButtons((b) => ({ ...b, middle: true }));
     if (e.button === 2) setMouseButtons((b) => ({ ...b, right: true }));
   };
 
-  // MONITOR REFRESH RATE ESTIMATOR
-  const [detectedHz, setDetectedHz] = useState<number>(144);
+  const handleMouseUp = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (mouseDownTimestampRef.current !== null) {
+      const duration = performance.now() - mouseDownTimestampRef.current;
+      setClickDurationMs(parseFloat(duration.toFixed(1)));
+      mouseDownTimestampRef.current = null;
+    }
+    if (e.button === 0) setMouseButtons((b) => ({ ...b, left: false }));
+    if (e.button === 1) setMouseButtons((b) => ({ ...b, middle: false }));
+    if (e.button === 2) setMouseButtons((b) => ({ ...b, right: false }));
+  };
+
+  // MONITOR REFRESH RATE STATE
+  const [hardwareRefreshRate, setHardwareRefreshRate] = useState<number | null>(null);
+  const [browserRafFps, setBrowserRafFps] = useState<number>(60);
   const [fullscreenColor, setFullscreenColor] = useState<string | null>(null);
 
+  // Query real display refresh rate from native agent when available
+  useEffect(() => {
+    const checkDisplay = async () => {
+      const info = await nativeBridge.fetchDisplayInfo();
+      if (info.available && info.nativeRefreshRateHz) {
+        setHardwareRefreshRate(info.nativeRefreshRateHz);
+      } else {
+        setHardwareRefreshRate(null);
+      }
+    };
+    checkDisplay();
+  }, []);
+
+  // Browser rAF Estimator (explicitly documented as browser rendering rate, NOT physical monitor hardware frequency)
   useEffect(() => {
     let frameTimes: number[] = [];
     let lastTime = performance.now();
@@ -82,17 +116,12 @@ export const PeripheralTestView: React.FC = () => {
       const delta = now - lastTime;
       lastTime = now;
       if (delta > 0) frameTimes.push(delta);
-      if (frameTimes.length > 60) {
+      if (frameTimes.length > 50) {
         frameTimes.shift();
         const avg = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
-        const hz = Math.round(1000 / avg);
-        if (hz >= 50 && hz <= 540) {
-          if (Math.abs(hz - 60) < 4) setDetectedHz(60);
-          else if (Math.abs(hz - 144) < 6) setDetectedHz(144);
-          else if (Math.abs(hz - 165) < 6) setDetectedHz(165);
-          else if (Math.abs(hz - 240) < 8) setDetectedHz(240);
-          else if (Math.abs(hz - 360) < 12) setDetectedHz(360);
-          else setDetectedHz(hz);
+        const fps = Math.round(1000 / avg);
+        if (fps >= 30 && fps <= 540) {
+          setBrowserRafFps(fps);
         }
       }
       animId = requestAnimationFrame(countFrames);
@@ -215,6 +244,7 @@ export const PeripheralTestView: React.FC = () => {
         <div
           onMouseMove={handleMouseMove}
           onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
           onContextMenu={(e) => e.preventDefault()}
           className="p-6 rounded-xl bg-[#0f121b] border border-slate-800 space-y-5 select-none"
         >
@@ -226,6 +256,7 @@ export const PeripheralTestView: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+            {/* Polling rate */}
             <div className="p-5 rounded-xl bg-[#0a0c13] border border-slate-800 space-y-2">
               <span className="text-xs text-slate-500 uppercase font-bold">{t.peripherals.pollingRateTitle}</span>
               <div className="text-3xl font-black font-mono text-purple-400">
@@ -236,6 +267,7 @@ export const PeripheralTestView: React.FC = () => {
               </span>
             </div>
 
+            {/* Buttons */}
             <div className="p-5 rounded-xl bg-[#0a0c13] border border-slate-800 space-y-2">
               <span className="text-xs text-slate-500 uppercase font-bold">{t.peripherals.mouseButtonsTitle}</span>
               <div className="flex justify-center gap-2 pt-1">
@@ -252,12 +284,17 @@ export const PeripheralTestView: React.FC = () => {
               <span className="text-[11px] text-slate-400 block">{t.peripherals.clickToTest}</span>
             </div>
 
+            {/* Real Press Hold Duration (Measured, no fake 1.2ms) */}
             <div className="p-5 rounded-xl bg-[#0a0c13] border border-slate-800 space-y-2">
               <span className="text-xs text-slate-500 uppercase font-bold">{t.peripherals.clickLatencyTitle}</span>
               <div className="text-3xl font-black font-mono text-emerald-400">
-                1.2 ms
+                {clickDurationMs !== null ? `${clickDurationMs} ms` : '—'}
               </div>
-              <span className="text-[11px] text-slate-400 block">{t.peripherals.opticalSwitch}</span>
+              <span className="text-[11px] text-slate-400 block">
+                {clickDurationMs !== null
+                  ? t.peripherals.opticalSwitch
+                  : t.peripherals.clickDurationInstruction}
+              </span>
             </div>
           </div>
         </div>
@@ -270,9 +307,22 @@ export const PeripheralTestView: React.FC = () => {
             <span className="font-bold text-white uppercase tracking-wider">
               {t.peripherals.monitorTitle}
             </span>
-            <span className="text-purple-400 font-mono font-bold">
-              {t.peripherals.detectedRefreshRate} {detectedHz} Hz
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400">{t.peripherals.hardwareRefreshRate}:</span>
+              {hardwareRefreshRate !== null ? (
+                <span className="text-emerald-400 font-mono font-bold">{hardwareRefreshRate} Hz</span>
+              ) : (
+                <span className="text-amber-400 font-mono font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                  {t.peripherals.hardwareNotDetected}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Browser rAF notice banner */}
+          <div className="p-3.5 rounded-lg bg-[#141829] border border-purple-500/30 text-xs flex items-start gap-2.5 text-purple-300">
+            <Info className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+            <span>{t.peripherals.browserRafNotice}</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
@@ -281,8 +331,8 @@ export const PeripheralTestView: React.FC = () => {
               <span className="text-white font-bold">{window.screen.width} x {window.screen.height}</span>
             </div>
             <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px] uppercase">{t.peripherals.frameRate}</span>
-              <span className="text-emerald-400 font-bold">{detectedHz} Hz</span>
+              <span className="text-slate-500 block text-[10px] uppercase">{t.peripherals.browserRafEstimate}</span>
+              <span className="text-cyan-400 font-bold">~{browserRafFps} FPS</span>
             </div>
             <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800">
               <span className="text-slate-500 block text-[10px] uppercase">{t.peripherals.colorDepth}</span>

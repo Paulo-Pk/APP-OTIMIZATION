@@ -8,85 +8,138 @@ import {
   Globe,
   Server,
   Zap,
+  AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 
-interface PingResult {
+interface TargetMeasurement {
+  id: string;
   server: string;
   location: string;
-  pingMs: number;
-  jitterMs: number;
-  statusKey: 'excellent' | 'good' | 'warning';
+  host: string;
+  pingMs: number | null;
+  jitterMs: number | null;
+  packetLossPercent: number;
+  samples: number[];
+  isSuccess: boolean;
 }
 
-interface DnsResult {
+interface DnsMeasurement {
   provider: string;
   dnsIp: string;
-  resolveTimeMs: number;
+  resolveTimeMs: number | null;
   status: string;
+  isSuccess: boolean;
 }
 
 export const NetworkLabView: React.FC = () => {
   const { t } = useI18n();
   const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [currentPing, setCurrentPing] = useState<number | null>(null);
-  const [currentJitter, setCurrentJitter] = useState<number | null>(null);
-  const [downloadMbps, setDownloadMbps] = useState<number | null>(null);
-  const [dnsResults, setDnsResults] = useState<DnsResult[]>([
-    { provider: 'Cloudflare Gaming DNS (1.1.1.1)', dnsIp: '1.1.1.1', resolveTimeMs: 6, status: 'OK' },
-    { provider: 'Google Public DNS (8.8.8.8)', dnsIp: '8.8.8.8', resolveTimeMs: 9, status: 'OK' },
-    { provider: 'Quad9 Security DNS (9.9.9.9)', dnsIp: '9.9.9.9', resolveTimeMs: 14, status: 'OK' },
-  ]);
 
-  const servers: PingResult[] = [
-    { server: t.networkLab.serverSP, location: t.networkLab.locationSP, pingMs: 12, jitterMs: 0.8, statusKey: 'excellent' },
-    { server: t.networkLab.serverSantiago, location: t.networkLab.locationSantiago, pingMs: 38, jitterMs: 1.4, statusKey: 'excellent' },
-    { server: t.networkLab.serverMiami, location: t.networkLab.locationMiami, pingMs: 112, jitterMs: 2.1, statusKey: 'good' },
-    { server: t.networkLab.serverFrankfurt, location: t.networkLab.locationFrankfurt, pingMs: 198, jitterMs: 3.5, statusKey: 'warning' },
-  ];
+  // Local server / web bridge latency
+  const [localPingMs, setLocalPingMs] = useState<number | null>(null);
+
+  // External gaming target metrics (Real TCP handshakes)
+  const [targetResults, setTargetResults] = useState<TargetMeasurement[]>([]);
+
+  // Average external metrics
+  const [avgExternalPing, setAvgExternalPing] = useState<number | null>(null);
+  const [avgExternalJitter, setAvgExternalJitter] = useState<number | null>(null);
+  const [downloadMbps, setDownloadMbps] = useState<number | null>(null);
+  const [dnsResults, setDnsResults] = useState<DnsMeasurement[]>([]);
+  const [hasRun, setHasRun] = useState<boolean>(false);
+  const [testError, setTestError] = useState<string | null>(null);
 
   const runNetworkAudit = async () => {
     setIsRunning(true);
-    setCurrentPing(null);
-    setCurrentJitter(null);
-    setDownloadMbps(null);
+    setHasRun(true);
+    setTestError(null);
 
-    const pingSamples: number[] = [];
-
-    // Perform real ping requests to /api/network/ping
-    for (let i = 0; i < 6; i++) {
+    // 1. Measure Local Server / Web Bridge Latency
+    const localSamples: number[] = [];
+    for (let i = 0; i < 4; i++) {
       const start = performance.now();
       try {
-        await fetch(`/api/network/ping?t=${Date.now()}`);
-        const elapsed = performance.now() - start;
-        pingSamples.push(elapsed);
-        setCurrentPing(Math.round(elapsed));
-      } catch (err) {
-        pingSamples.push(16);
+        const res = await fetch(`/api/network/ping?t=${Date.now()}`);
+        if (res.ok) {
+          const elapsed = performance.now() - start;
+          localSamples.push(elapsed);
+        }
+      } catch {
+        // failed probe
       }
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 60));
     }
 
-    const avg = pingSamples.reduce((a, b) => a + b, 0) / pingSamples.length;
-    const variance = pingSamples.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / pingSamples.length;
-    const jitter = Math.sqrt(variance);
+    if (localSamples.length > 0) {
+      const avgLocal = localSamples.reduce((a, b) => a + b, 0) / localSamples.length;
+      setLocalPingMs(Math.round(avgLocal));
+    } else {
+      setLocalPingMs(null);
+    }
 
-    setCurrentPing(Math.round(avg));
-    setCurrentJitter(parseFloat(jitter.toFixed(1)));
+    // 2. Measure External Gaming Targets via Real TCP Handshake
+    try {
+      const targetRes = await fetch('/api/network/measure-targets');
+      if (targetRes.ok) {
+        const data = await targetRes.json();
+        if (data.results && Array.isArray(data.results)) {
+          setTargetResults(data.results);
 
-    // Speed test payload fetch
+          // Calculate average external ping and jitter for successful probes
+          const successfulTargets = (data.results as TargetMeasurement[]).filter(
+            (r) => r.isSuccess && r.pingMs !== null
+          );
+          if (successfulTargets.length > 0) {
+            const avgPing =
+              successfulTargets.reduce((acc, curr) => acc + (curr.pingMs || 0), 0) /
+              successfulTargets.length;
+            const avgJitter =
+              successfulTargets.reduce((acc, curr) => acc + (curr.jitterMs || 0), 0) /
+              successfulTargets.length;
+
+            setAvgExternalPing(Math.round(avgPing));
+            setAvgExternalJitter(parseFloat(avgJitter.toFixed(1)));
+          } else {
+            setAvgExternalPing(null);
+            setAvgExternalJitter(null);
+          }
+        }
+      } else {
+        setTargetResults([]);
+        setAvgExternalPing(null);
+        setAvgExternalJitter(null);
+      }
+    } catch {
+      setTargetResults([]);
+      setAvgExternalPing(null);
+      setAvgExternalJitter(null);
+      setTestError(t.networkLab.measurementUnavailable);
+    }
+
+    // 3. Measure Real Download Transfer Speed via Chunk Stream
     try {
       const dlStart = performance.now();
-      const res = await fetch(`/api/network/payload?size=1024&t=${Date.now()}`);
-      await res.arrayBuffer();
-      const dlElapsed = (performance.now() - dlStart) / 1000;
-      const mbps = (1.0 * 8) / dlElapsed;
-      setDownloadMbps(Math.round(mbps));
+      const res = await fetch(`/api/network/payload?size=2048&t=${Date.now()}`);
+      if (res.ok) {
+        const buffer = await res.arrayBuffer();
+        const dlElapsedSeconds = (performance.now() - dlStart) / 1000;
+        if (dlElapsedSeconds > 0 && buffer.byteLength > 0) {
+          const totalBits = buffer.byteLength * 8;
+          const calculatedMbps = totalBits / (dlElapsedSeconds * 1000000);
+          setDownloadMbps(Math.round(calculatedMbps));
+        } else {
+          setDownloadMbps(null);
+        }
+      } else {
+        setDownloadMbps(null);
+      }
     } catch {
-      setDownloadMbps(240);
+      setDownloadMbps(null);
     }
 
-    // Query real DNS benchmark endpoint
+    // 4. Measure Real DNS Resolution (No synthetic fallbacks)
     try {
       const dnsRes = await fetch('/api/network/dns-benchmark');
       if (dnsRes.ok) {
@@ -96,7 +149,7 @@ export const NetworkLabView: React.FC = () => {
         }
       }
     } catch {
-      // fallback
+      setDnsResults([]);
     }
 
     setIsRunning(false);
@@ -126,34 +179,77 @@ export const NetworkLabView: React.FC = () => {
         </button>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Real TCP Notice */}
+      <div className="p-3.5 rounded-xl bg-[#0e121e] border border-purple-500/20 text-xs flex items-center gap-2.5 text-purple-300">
+        <ShieldCheck className="w-4 h-4 text-purple-400 shrink-0" />
+        <span>{t.networkLab.realTcpNotice}</span>
+      </div>
+
+      {testError && (
+        <div className="p-4 rounded-xl bg-[#261316] border border-rose-500/60 text-xs text-rose-300 flex items-center gap-2.5">
+          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+          <span>{testError}</span>
+        </div>
+      )}
+
+      {/* Primary Metrics Row (Distinguishing Local Server vs External Gaming Clusters) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Local Server Latency */}
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
           <span className="text-[10px] text-slate-500 uppercase block font-semibold">
-            {t.networkLab.pingLatency}
+            {t.networkLab.localServerLatencyTitle}
           </span>
-          <div className="text-2xl font-black font-mono text-emerald-400">
-            {currentPing !== null ? `${currentPing} ms` : '12 ms'}
+          <div className="text-2xl font-black font-mono text-cyan-400">
+            {localPingMs !== null
+              ? `${localPingMs} ms`
+              : hasRun
+              ? t.networkLab.measurementUnavailable
+              : '—'}
           </div>
           <span className="text-[10px] text-slate-400 block">{t.networkLab.pingDesc}</span>
         </div>
 
+        {/* External Gaming Average Latency */}
+        <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
+          <span className="text-[10px] text-slate-500 uppercase block font-semibold">
+            {t.networkLab.pingLatency} (Média Externa)
+          </span>
+          <div className="text-2xl font-black font-mono text-emerald-400">
+            {avgExternalPing !== null
+              ? `${avgExternalPing} ms`
+              : hasRun
+              ? t.networkLab.measurementUnavailable
+              : '—'}
+          </div>
+          <span className="text-[10px] text-slate-400 block">TCP Handshake para Servidores de Jogos</span>
+        </div>
+
+        {/* Jitter */}
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
           <span className="text-[10px] text-slate-500 uppercase block font-semibold">
             {t.networkLab.jitterTitle}
           </span>
           <div className="text-2xl font-black font-mono text-purple-300">
-            {currentJitter !== null ? `±${currentJitter} ms` : '±0.8 ms'}
+            {avgExternalJitter !== null
+              ? `±${avgExternalJitter} ms`
+              : hasRun
+              ? t.networkLab.measurementUnavailable
+              : '—'}
           </div>
           <span className="text-[10px] text-slate-400 block">{t.networkLab.jitterDesc}</span>
         </div>
 
+        {/* Real Download Throughput */}
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
           <span className="text-[10px] text-slate-500 uppercase block font-semibold">
             {t.networkLab.throughputTitle}
           </span>
-          <div className="text-2xl font-black font-mono text-cyan-400">
-            {downloadMbps !== null ? `${downloadMbps} Mbps` : '420 Mbps'}
+          <div className="text-2xl font-black font-mono text-amber-300">
+            {downloadMbps !== null
+              ? `${downloadMbps} Mbps`
+              : hasRun
+              ? t.networkLab.measurementUnavailable
+              : '—'}
           </div>
           <span className="text-[10px] text-slate-400 block">{t.networkLab.throughputDesc}</span>
         </div>
@@ -171,70 +267,116 @@ export const NetworkLabView: React.FC = () => {
           <span className="text-slate-500 font-mono">{t.networkLab.dnsNodeQuery}</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {dnsResults.map((d, i) => (
-            <div key={i} className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800 space-y-1 text-xs">
-              <span className="font-bold text-white block">{d.provider}</span>
-              <div className="flex justify-between items-center text-slate-400 font-mono pt-1">
-                <span>{t.networkLab.resolutionTime}</span>
-                <span className="text-emerald-400 font-bold">{d.resolveTimeMs} ms</span>
+        {dnsResults.length === 0 ? (
+          <div className="text-center py-6 text-xs text-slate-500">
+            {hasRun ? t.networkLab.measurementUnavailable : t.networkLab.awaitingTest}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {dnsResults.map((d, i) => (
+              <div
+                key={i}
+                className="p-3.5 rounded-lg bg-[#0a0c13] border border-slate-800 space-y-1.5 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white">{d.provider}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{d.dnsIp}</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-400 font-mono pt-1">
+                  <span>{t.networkLab.resolutionTime}</span>
+                  {d.resolveTimeMs !== null ? (
+                    <span className="text-emerald-400 font-bold">{d.resolveTimeMs} ms</span>
+                  ) : (
+                    <span className="text-rose-400 font-semibold">{t.networkLab.measurementUnavailable}</span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Servers Ping Matrix */}
+      {/* External Gaming Servers Real Matrix */}
       <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
           <div className="flex items-center gap-2">
             <Globe className="w-4 h-4 text-purple-400" />
             <span className="font-bold text-white uppercase tracking-wider">
-              {t.networkLab.gameServersTitle}
+              {t.networkLab.externalGamingTargetsTitle}
             </span>
           </div>
           <span className="text-slate-500 font-mono">{t.networkLab.destinationLabel}</span>
         </div>
 
-        <div className="divide-y divide-slate-800/80">
-          {servers.map((s, idx) => (
-            <div key={idx} className="py-3 flex items-center justify-between gap-4 text-xs">
-              <div className="space-y-0.5">
-                <div className="font-bold text-white">{s.server}</div>
-                <div className="text-[11px] text-slate-400">{s.location}</div>
-              </div>
+        {targetResults.length === 0 ? (
+          <div className="text-center py-8 text-xs text-slate-500">
+            {hasRun ? t.networkLab.measurementUnavailable : t.networkLab.awaitingTest}
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800/80">
+            {targetResults.map((target, idx) => (
+              <div key={idx} className="py-3.5 flex items-center justify-between gap-4 text-xs">
+                <div className="space-y-0.5">
+                  <div className="font-bold text-white flex items-center gap-2">
+                    <span>{target.server}</span>
+                    <span className="text-[10px] font-mono text-slate-500 font-normal">
+                      ({target.host})
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400">{target.location}</div>
+                </div>
 
-              <div className="flex items-center gap-6 font-mono">
-                <div>
-                  <span className="text-slate-500 block text-[9px] uppercase">Ping</span>
-                  <span
-                    className={`text-sm font-bold ${
-                      s.pingMs < 50
-                        ? 'text-emerald-400'
-                        : s.pingMs < 120
-                        ? 'text-amber-400'
-                        : 'text-slate-300'
-                    }`}
-                  >
-                    {s.pingMs} ms
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[9px] uppercase">Jitter</span>
-                  <span className="text-slate-300 text-sm">±{s.jitterMs} ms</span>
-                </div>
-                <div className="hidden sm:block">
-                  <span className="text-slate-500 block text-[9px] uppercase">
-                    {t.networkLab.classification}
-                  </span>
-                  <span className="text-slate-400 text-xs font-sans">
-                    {s.statusKey === 'excellent' ? t.common.excellent : s.statusKey === 'good' ? t.common.good : t.common.warning}
-                  </span>
+                <div className="flex items-center gap-6 font-mono">
+                  {/* Ping */}
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Ping (TCP)</span>
+                    {target.pingMs !== null ? (
+                      <span
+                        className={`text-sm font-bold ${
+                          target.pingMs < 60
+                            ? 'text-emerald-400'
+                            : target.pingMs < 130
+                            ? 'text-amber-400'
+                            : 'text-slate-300'
+                        }`}
+                      >
+                        {target.pingMs} ms
+                      </span>
+                    ) : (
+                      <span className="text-xs text-rose-400">{t.networkLab.measurementUnavailable}</span>
+                    )}
+                  </div>
+
+                  {/* Jitter */}
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Jitter</span>
+                    <span className="text-slate-300 text-sm">
+                      {target.jitterMs !== null ? `±${target.jitterMs} ms` : '—'}
+                    </span>
+                  </div>
+
+                  {/* Packet Loss */}
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">
+                      {t.networkLab.packetLoss}
+                    </span>
+                    <span
+                      className={`text-sm font-bold ${
+                        target.packetLossPercent === 0
+                          ? 'text-emerald-400'
+                          : target.packetLossPercent < 30
+                          ? 'text-amber-400'
+                          : 'text-rose-400'
+                      }`}
+                    >
+                      {target.packetLossPercent}%
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

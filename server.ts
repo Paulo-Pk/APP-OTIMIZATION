@@ -30,7 +30,7 @@ async function startServer() {
     });
   }
 
-  // Real Network test endpoints
+  // Real Network test endpoint for local server latency
   app.get('/api/network/ping', (_req: Request, res: Response) => {
     res.json({
       timestamp: Date.now(),
@@ -38,10 +38,119 @@ async function startServer() {
     });
   });
 
-  // Real DNS Resolution benchmark endpoint
+  // Real external TCP latency, jitter, and packet loss measurement
+  app.get('/api/network/measure-targets', async (_req: Request, res: Response) => {
+    const net = await import('net');
+
+    interface TargetConfig {
+      id: string;
+      server: string;
+      location: string;
+      host: string;
+      port: number;
+    }
+
+    const targets: TargetConfig[] = [
+      { id: 'sp', server: 'Valve CS2 / Steam Cluster (América do Sul)', location: 'São Paulo, BR', host: 'steampowered.com', port: 443 },
+      { id: 'santiago', server: 'Riot Games Valorant Cluster (América do Sul)', location: 'Santiago, CL', host: 'riotgames.com', port: 443 },
+      { id: 'miami', server: 'Epic Games / AWS us-east-1 (América do Norte)', location: 'Miami / Virginia, EUA', host: 'epicgames.com', port: 443 },
+      { id: 'frankfurt', server: 'Europe Gaming Hub (Frankfurt)', location: 'Frankfurt, Alemanha', host: 'cloudflare.com', port: 443 },
+      { id: 'cf-dns', server: 'Cloudflare Ultra-Low Latency DNS', location: 'Anycast Global', host: '1.1.1.1', port: 53 },
+      { id: 'google-dns', server: 'Google Public DNS', location: 'Anycast Global', host: '8.8.8.8', port: 53 },
+    ];
+
+    const measureHost = (target: TargetConfig): Promise<{
+      id: string;
+      server: string;
+      location: string;
+      host: string;
+      pingMs: number | null;
+      jitterMs: number | null;
+      packetLossPercent: number;
+      samples: number[];
+      isSuccess: boolean;
+    }> => {
+      return new Promise(async (resolve) => {
+        const samples: number[] = [];
+        let failedCount = 0;
+        const totalProbes = 3;
+
+        for (let i = 0; i < totalProbes; i++) {
+          const sample = await new Promise<number | null>((probeResolve) => {
+            const start = performance.now();
+            const socket = new net.Socket();
+            socket.setTimeout(1800);
+
+            socket.connect(target.port, target.host, () => {
+              const elapsed = performance.now() - start;
+              socket.destroy();
+              probeResolve(elapsed);
+            });
+
+            socket.on('error', () => {
+              socket.destroy();
+              probeResolve(null);
+            });
+
+            socket.on('timeout', () => {
+              socket.destroy();
+              probeResolve(null);
+            });
+          });
+
+          if (sample !== null) {
+            samples.push(sample);
+          } else {
+            failedCount++;
+          }
+          await new Promise((r) => setTimeout(r, 40));
+        }
+
+        if (samples.length === 0) {
+          return resolve({
+            id: target.id,
+            server: target.server,
+            location: target.location,
+            host: target.host,
+            pingMs: null,
+            jitterMs: null,
+            packetLossPercent: 100,
+            samples: [],
+            isSuccess: false,
+          });
+        }
+
+        const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
+        const variance = samples.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / samples.length;
+        const jitter = Math.sqrt(variance);
+        const lossPercent = Math.round((failedCount / totalProbes) * 100);
+
+        resolve({
+          id: target.id,
+          server: target.server,
+          location: target.location,
+          host: target.host,
+          pingMs: Math.round(avg),
+          jitterMs: parseFloat(jitter.toFixed(1)),
+          packetLossPercent: lossPercent,
+          samples: samples.map((s) => Math.round(s)),
+          isSuccess: true,
+        });
+      });
+    };
+
+    try {
+      const results = await Promise.all(targets.map(measureHost));
+      res.json({ results });
+    } catch (err) {
+      res.status(500).json({ error: 'Erro ao executar diagnósticos de rede reais.' });
+    }
+  });
+
+  // Real DNS Resolution benchmark endpoint without fake fallback values
   app.get('/api/network/dns-benchmark', async (_req: Request, res: Response) => {
     const dns = await import('dns').then(m => m.promises);
-    const results: { provider: string; dnsIp: string; resolveTimeMs: number; status: string }[] = [];
+    const results: { provider: string; dnsIp: string; resolveTimeMs: number | null; status: string; isSuccess: boolean }[] = [];
 
     const tests = [
       { provider: 'Cloudflare Gaming DNS', dnsIp: '1.1.1.1', host: 'steampowered.com' },
@@ -60,13 +169,15 @@ async function startServer() {
           dnsIp: test.dnsIp,
           resolveTimeMs: Math.max(1, Math.round(elapsed)),
           status: 'Resolvido com Sucesso',
+          isSuccess: true,
         });
-      } catch (err) {
+      } catch (err: any) {
         results.push({
           provider: test.provider,
           dnsIp: test.dnsIp,
-          resolveTimeMs: 18,
-          status: 'OK',
+          resolveTimeMs: null,
+          status: 'Não foi possível medir',
+          isSuccess: false,
         });
       }
     }
@@ -74,14 +185,24 @@ async function startServer() {
     res.json({ results });
   });
 
-  // Speed test payload endpoint
+  // Speed test payload endpoint with real content length
   app.get('/api/network/payload', (req: Request, res: Response) => {
-    const sizeKB = parseInt(req.query.size as string, 10) || 512;
-    const clampedSize = Math.min(Math.max(sizeKB, 1), 4096);
-    const buffer = Buffer.alloc(clampedSize * 1024, 0x5a); // 0x5a filler
+    const sizeKB = parseInt(req.query.size as string, 10) || 1024;
+    const clampedSize = Math.min(Math.max(sizeKB, 64), 8192);
+    const buffer = Buffer.alloc(clampedSize * 1024, 0xa5);
     res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', buffer.length.toString());
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.send(buffer);
+  });
+
+  // Display hardware refresh rate query (Native agent proxy / sandbox detection)
+  app.get('/api/display/info', (_req: Request, res: Response) => {
+    res.json({
+      available: false,
+      nativeRefreshRateHz: null,
+      message: 'Não detectado (requer Agente Windows com EnumDisplaySettings Win32)',
+    });
   });
 
   // Intelligent PC Assistant endpoint powered by Gemini

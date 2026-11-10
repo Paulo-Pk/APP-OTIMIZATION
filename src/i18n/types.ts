@@ -319,6 +319,13 @@ export interface TranslationDictionary {
     issue6Title: string;
     issue6Desc: string;
     issue6Rec: string;
+    confirmFixTitle: string;
+    confirmFixDesc: string;
+    confirmFixWarning: string;
+    confirmFixCancel: string;
+    confirmFixConfirm: string;
+    agentRequiredDiag: string;
+    fixFailed: string;
   };
   windowsTweaks: {
     title: string;
@@ -354,6 +361,16 @@ export interface TranslationDictionary {
     deliveryCacheDesc: string;
     recycleBinTitle: string;
     recycleBinDesc: string;
+    estimatedSpaceLabel: string;
+    actualFreedLabel: string;
+    confirmModalTitle: string;
+    confirmModalSubtitle: string;
+    confirmModalWarning: string;
+    confirmModalPersonalDataSafe: string;
+    confirmModalCancel: string;
+    confirmModalConfirm: string;
+    zeroBytesCleaned: string;
+    cleanError: string;
   };
   networkLab: {
     title: string;
@@ -381,6 +398,12 @@ export interface TranslationDictionary {
     locationSantiago: string;
     locationMiami: string;
     locationFrankfurt: string;
+    localServerLatencyTitle: string;
+    externalGamingTargetsTitle: string;
+    measurementUnavailable: string;
+    realTcpNotice: string;
+    packetLoss: string;
+    awaitingTest: string;
   };
   peripherals: {
     title: string;
@@ -416,6 +439,12 @@ export interface TranslationDictionary {
     patternRed: string;
     patternGreen: string;
     patternBlue: string;
+    hardwareRefreshRate: string;
+    hardwareNotDetected: string;
+    browserRafEstimate: string;
+    browserRafNotice: string;
+    clickDurationMeasured: string;
+    clickDurationInstruction: string;
   };
   driverCenter: {
     title: string;
@@ -452,6 +481,14 @@ export interface TranslationDictionary {
     appliedValue: string;
     rollbackButton: string;
     userModified: string;
+    partialRestoreWarning: string;
+    restoreAllComplete: string;
+    restoreFailedAll: string;
+    snapshotUnavailableTitle: string;
+    snapshotUnavailableDesc: string;
+    snapshotCreatedSuccess: string;
+    snapshotIntegrityVerified: string;
+    snapshotFailed: string;
   };
   aiAssistant: {
     title: string;

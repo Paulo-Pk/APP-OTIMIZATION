@@ -248,7 +248,7 @@ export default function App() {
     }
   };
 
-  // Restore all tweaks to default
+  // Restore all tweaks to default with strict failure tracking and record preservation
   const handleRestoreAll = async () => {
     if (!agentStatus.isConnected) {
       setNotification({
@@ -260,6 +260,9 @@ export default function App() {
     }
 
     const restoredIds: string[] = [];
+    const restoredActionNames = new Set<string>();
+    const failedIds: string[] = [];
+    const failedNames: string[] = [];
 
     for (const item of tweaks) {
       if (item.isApplied) {
@@ -274,18 +277,46 @@ export default function App() {
 
         if (res.success) {
           restoredIds.push(item.id);
+          restoredActionNames.add(item.name);
+        } else {
+          failedIds.push(item.id);
+          failedNames.push(item.name);
         }
       }
     }
 
-    setTweaks((prev) =>
-      prev.map((tweak) => (restoredIds.includes(tweak.id) ? { ...tweak, isApplied: false } : tweak))
-    );
-    setRestoreItems([]);
-    setNotification({
-      type: 'success',
-      message: `${restoredIds.length} configurações restauradas para seus valores de fábrica.`,
-    });
+    // Only set isApplied to false for items whose restoration succeeded
+    if (restoredIds.length > 0) {
+      setTweaks((prev) =>
+        prev.map((tweak) => (restoredIds.includes(tweak.id) ? { ...tweak, isApplied: false } : tweak))
+      );
+    }
+
+    // CRITICAL: Remove ONLY confirmed restored tweaks from history.
+    // Preserve ALL records of operations that failed with original values intact so user can retry!
+    setRestoreItems((prev) => prev.filter((item) => !restoredActionNames.has(item.actionName)));
+
+    // Accurately report restoration results. NEVER declare complete success when there are failures!
+    if (failedIds.length > 0 && restoredIds.length > 0) {
+      setNotification({
+        type: 'warning',
+        title: 'Restauração Parcial',
+        message: t.restoreCenter.partialRestoreWarning
+          .replace('{success}', String(restoredIds.length))
+          .replace('{failed}', String(failedIds.length)),
+      });
+    } else if (failedIds.length > 0 && restoredIds.length === 0) {
+      setNotification({
+        type: 'error',
+        title: 'Falha na Restauração',
+        message: t.restoreCenter.restoreFailedAll.replace('{count}', String(failedIds.length)),
+      });
+    } else if (restoredIds.length > 0 && failedIds.length === 0) {
+      setNotification({
+        type: 'success',
+        message: t.restoreCenter.restoreAllComplete.replace('{count}', String(restoredIds.length)),
+      });
+    }
   };
 
   // Rollback single item from Restore Center
@@ -312,8 +343,9 @@ export default function App() {
         if (!res.success) {
           setNotification({
             type: 'error',
-            message: `${t.common.tweakExecutionFailed}: ${res.error || 'Erro'}`,
+            message: `${t.common.tweakExecutionFailed}: ${res.error || 'Erro no Agente Windows'}`,
           });
+          // Do NOT remove from restore list on failure!
           return;
         }
 
@@ -329,32 +361,102 @@ export default function App() {
     }
   };
 
-  // Create Snapshot
-  const handleCreateSnapshot = () => {
+  // Real Windows Registry Snapshot Backup
+  const handleCreateSnapshot = async () => {
     if (!agentStatus.isConnected) {
       setNotification({
-        type: 'warning',
-        title: t.common.agentDisconnectedAlert,
-        message: 'A criação de snapshot de registro real requer a conexão com o agente Windows em localhost:52194.',
+        type: 'error',
+        title: t.restoreCenter.snapshotUnavailableTitle,
+        message: t.restoreCenter.snapshotUnavailableDesc,
+      });
+      return;
+    }
+
+    const res = await nativeBridge.createRegistrySnapshot();
+    if (!res.success) {
+      setNotification({
+        type: 'error',
+        title: t.restoreCenter.snapshotFailed,
+        message: res.error || 'Falha ao comunicar com o serviço de backup do Registro.',
       });
       return;
     }
 
     const snapItem: RestoreItem = {
-      id: `snap-${Date.now()}`,
+      id: res.snapshotId || `snap-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      actionName: 'Snapshot Completo de Registro do Windows',
-      component: 'HKLM & HKCU Backup',
-      previousValue: 'Snapshot do Sistema',
-      newValue: 'Salvo em SQLite',
+      actionName: `Snapshot do Registro (${res.filePath ? res.filePath.split('\\').pop() : 'HKLM+HKCU'})`,
+      component: 'REGISTRY BACKUP',
+      previousValue: res.checksumSha256 ? `SHA-256: ${res.checksumSha256.substring(0, 16)}...` : 'Registro do Windows Original',
+      newValue: res.fileSizeBytes ? `Arquivo: ${(res.fileSizeBytes / 1024).toFixed(0)} KB` : 'Integridade Verificada',
       reversible: true,
       userInitiated: true,
     };
     setRestoreItems((prev) => [snapItem, ...prev]);
     setNotification({
       type: 'success',
-      message: 'Ponto de restauração manual criado e salvo com sucesso no banco de dados local.',
+      message: `${t.restoreCenter.snapshotCreatedSuccess}`,
     });
+  };
+
+  // Apply diagnostic fix with verified registry execution and restore record
+  const handleApplyDiagnosticFix = async (
+    tweakId: string,
+    issueTitle: string,
+    component: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!agentStatus.isConnected) {
+      setNotification({
+        type: 'error',
+        title: t.common.agentDisconnectedAlert,
+        message: t.diagnostics.agentRequiredDiag,
+      });
+      return { success: false, error: 'AGENT_DISCONNECTED' };
+    }
+
+    const target = tweaks.find((tw) => tw.id === tweakId);
+    if (!target) {
+      return { success: false, error: 'Configuração não encontrada no catálogo de otimizações.' };
+    }
+
+    const res = await nativeBridge.applyRegistryTweak(
+      target.id,
+      target.registryKey || '',
+      'TargetDword',
+      1
+    );
+
+    if (!res.success) {
+      setNotification({
+        type: 'error',
+        title: t.diagnostics.fixFailed,
+        message: res.error || 'Erro na chamada com o Agente Windows',
+      });
+      return { success: false, error: res.error };
+    }
+
+    const newRestore: RestoreItem = {
+      id: `rest-${Date.now()}-${target.id}`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      actionName: `${issueTitle} (${target.name})`,
+      component: component.toUpperCase(),
+      previousValue: res.previousValue || target.currentValue,
+      newValue: res.verifiedValue || target.recommendedValue,
+      reversible: target.reversible,
+      userInitiated: true,
+    };
+
+    setRestoreItems((prev) => [newRestore, ...prev]);
+    setTweaks((prev) =>
+      prev.map((tw) => (tw.id === target.id ? { ...tw, isApplied: true } : tw))
+    );
+
+    setNotification({
+      type: 'success',
+      message: `${issueTitle}: ${t.common.tweakAppliedSuccess}`,
+    });
+
+    return { success: true };
   };
 
   // Confirm Boost Modal
@@ -526,6 +628,7 @@ export default function App() {
             <DiagnosticsView
               onNavigate={setCurrentTab}
               onOpenBoostModal={() => setIsBoostModalOpen(true)}
+              onApplyDiagnosticFix={handleApplyDiagnosticFix}
             />
           )}
 
