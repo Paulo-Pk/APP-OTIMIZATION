@@ -452,7 +452,7 @@
                             <TextBox Text="{Binding ConfigPath}" IsReadOnly="True" Background="#0B0E17" Foreground="#FFFFFF" BorderBrush="#334155" Padding="8" />
                         </DockPanel>
                         <StackPanel Orientation="Horizontal">
-                            <Button Style="{StaticResource ActionPrimaryButton}" Content="Instalar / conectar túnel (UAC)" Command="{Binding InstallTunnelCommand}" Margin="0,0,8,0" />
+                            <Button Style="{StaticResource ActionPrimaryButton}" Content="Instalar serviço WireGuard (UAC)" Command="{Binding InstallTunnelCommand}" Margin="0,0,8,0" />
                             <Button Style="{StaticResource ActionSecondaryButton}" Content="Remover túnel" Command="{Binding RemoveTunnelCommand}" />
                         </StackPanel>
                         <TextBlock Text="A configuração contém chave privada. Mantenha o arquivo protegido. O aplicativo não envia o arquivo a terceiros. Use apenas perfis de provedores/servidores confiáveis." Foreground="#F59E0B" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,0" />
