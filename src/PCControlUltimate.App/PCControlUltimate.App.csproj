@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Platforms>AnyCPU;x64</Platforms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>PCControlUltimate.App</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
+    <ProjectReference Include="../PCControlUltimate.Infrastructure/PCControlUltimate.Infrastructure.csproj" />
+    <ProjectReference Include="../PCControlUltimate.Hardware/PCControlUltimate.Hardware.csproj" />
+    <ProjectReference Include="../PCControlUltimate.Windows/PCControlUltimate.Windows.csproj" />
+    <ProjectReference Include="../PCControlUltimate.Gaming/PCControlUltimate.Gaming.csproj" />
+    <ProjectReference Include="../PCControlUltimate.Diagnostics/PCControlUltimate.Diagnostics.csproj" />
+    <ProjectReference Include="../PCControlUltimate.Security/PCControlUltimate.Security.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.2" />
+    <PackageReference Include="Serilog" Version="4.2.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+  </ItemGroup>
+</Project>

@@ -8,8 +8,6 @@ import {
   Activity,
   CheckCircle2,
   AlertCircle,
-  Gauge,
-  Thermometer,
 } from 'lucide-react';
 import { HardwareTelemetry, TabId } from '../../types';
 import { useI18n } from '../../i18n';
@@ -22,45 +20,49 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   telemetry,
-  onNavigate,
   onOpenBoostModal,
 }) => {
   const { t } = useI18n();
 
-  // Live historical telemetry points for real-time SVG chart (60s history)
+  const isTelemetryAvailable =
+    telemetry.cpu.cores > 0 ||
+    telemetry.cpu.load > 0 ||
+    telemetry.gpu.utilization > 0 ||
+    telemetry.ram.totalGB > 0;
+
+  // Live historical telemetry points recorded strictly from real incoming telemetry
   const [history, setHistory] = useState<
     { time: number; cpuLoad: number; gpuLoad: number; cpuTemp: number; gpuTemp: number }[]
   >([]);
 
   useEffect(() => {
-    // Generate initial history
-    const initialPoints = Array.from({ length: 30 }, (_, i) => ({
-      time: Date.now() - (30 - i) * 1000,
-      cpuLoad: Math.min(100, Math.max(10, telemetry.cpu.load + Math.sin(i * 0.4) * 8)),
-      gpuLoad: Math.min(100, Math.max(15, telemetry.gpu.utilization + Math.cos(i * 0.5) * 10)),
-      cpuTemp: Math.min(85, Math.max(45, telemetry.cpu.temperature + Math.sin(i * 0.2) * 3)),
-      gpuTemp: Math.min(85, Math.max(45, telemetry.gpu.temperature + Math.cos(i * 0.2) * 2)),
-    }));
-    setHistory(initialPoints);
+    if (!isTelemetryAvailable) {
+      setHistory([]);
+      return;
+    }
 
-    const interval = setInterval(() => {
-      setHistory((prev) => {
-        const nextPoint = {
-          time: Date.now(),
-          cpuLoad: Math.min(100, Math.max(8, telemetry.cpu.load + (Math.random() * 6 - 3))),
-          gpuLoad: Math.min(100, Math.max(12, telemetry.gpu.utilization + (Math.random() * 8 - 4))),
-          cpuTemp: Math.min(85, Math.max(45, telemetry.cpu.temperature + (Math.random() * 1.5 - 0.75))),
-          gpuTemp: Math.min(85, Math.max(45, telemetry.gpu.temperature + (Math.random() * 1.2 - 0.6))),
-        };
-        const updated = [...prev.slice(1), nextPoint];
-        return updated;
-      });
-    }, 1500);
+    setHistory((prev) => {
+      const nextPoint = {
+        time: Date.now(),
+        cpuLoad: Math.min(100, Math.max(0, telemetry.cpu.load)),
+        gpuLoad: Math.min(100, Math.max(0, telemetry.gpu.utilization)),
+        cpuTemp: Math.min(110, Math.max(0, telemetry.cpu.temperature)),
+        gpuTemp: Math.min(110, Math.max(0, telemetry.gpu.temperature)),
+      };
+      return [...prev.slice(-29), nextPoint];
+    });
+  }, [
+    isTelemetryAvailable,
+    telemetry.cpu.load,
+    telemetry.gpu.utilization,
+    telemetry.cpu.temperature,
+    telemetry.gpu.temperature,
+  ]);
 
-    return () => clearInterval(interval);
-  }, [telemetry]);
-
-  const hotspotDelta = (telemetry.gpu.hotspot - telemetry.gpu.temperature).toFixed(1);
+  const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
+  const hotspotDelta = hasGpuTemps
+    ? (telemetry.gpu.hotspot - telemetry.gpu.temperature).toFixed(1)
+    : null;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -108,7 +110,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </svg>
             <div className="absolute flex flex-col items-center">
               <span className="text-lg font-black font-mono text-white leading-none">
-                {telemetry.overallScore}
+                {telemetry.overallScore > 0 ? telemetry.overallScore : '--'}
               </span>
               <span className="text-[9px] text-slate-400 font-bold uppercase">{t.common.pts}</span>
             </div>
@@ -116,9 +118,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div>
             <div className="text-xs text-slate-400">{t.common.overallHealth}</div>
-            <div className="text-sm font-bold text-emerald-400 flex items-center gap-1">
-              <CheckCircle2 className="w-4 h-4" /> {t.common.excellent}
-            </div>
+            {telemetry.overallScore > 0 ? (
+              <div className="text-sm font-bold text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="w-4 h-4" /> {t.common.excellent}
+              </div>
+            ) : (
+              <div className="text-sm font-bold text-amber-400 flex items-center gap-1">
+                <AlertCircle className="w-4 h-4" /> {t.common.sensorNotAvailable}
+              </div>
+            )}
             <div className="text-[10px] text-slate-500">{t.dashboard.readyForGaming}</div>
           </div>
         </div>
@@ -135,7 +143,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {t.dashboard.cpuCardTitle}
               </span>
             </div>
-            <span className="text-xs font-mono font-bold text-purple-300">{telemetry.cpu.load}%</span>
+            <span className="text-xs font-mono font-bold text-purple-300">
+              {isTelemetryAvailable ? `${telemetry.cpu.load}%` : t.common.sensorNotAvailable}
+            </span>
           </div>
 
           <div className="text-sm font-bold text-white truncate" title={telemetry.cpu.name}>
@@ -146,23 +156,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.cpu.temperature ? `${telemetry.cpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
+                {telemetry.cpu.temperature > 0
+                  ? `${telemetry.cpu.temperature.toFixed(1)}°C`
+                  : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.frequency}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.cpu.frequencyGHz ? `${telemetry.cpu.frequencyGHz.toFixed(2)} GHz` : t.common.sensorNotAvailable}
+                {telemetry.cpu.frequencyGHz > 0
+                  ? `${telemetry.cpu.frequencyGHz.toFixed(2)} GHz`
+                  : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.coresThreads}</span>
-              <span className="font-mono text-slate-200">{telemetry.cpu.cores}C / {telemetry.cpu.threads}T</span>
+              <span className="font-mono text-slate-200">
+                {telemetry.cpu.cores > 0
+                  ? `${telemetry.cpu.cores}C / ${telemetry.cpu.threads}T`
+                  : t.common.sensorNotAvailable}
+              </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.powerPackage}</span>
               <span className="font-mono text-slate-200">
-                {telemetry.cpu.powerWatts ? `${telemetry.cpu.powerWatts.toFixed(0)} W` : t.common.sensorNotAvailable}
+                {telemetry.cpu.powerWatts > 0
+                  ? `${telemetry.cpu.powerWatts.toFixed(0)} W`
+                  : t.common.sensorNotAvailable}
               </span>
             </div>
           </div>
@@ -184,7 +204,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {t.dashboard.gpuCardTitle}
               </span>
             </div>
-            <span className="text-xs font-mono font-bold text-rose-300">{telemetry.gpu.utilization}%</span>
+            <span className="text-xs font-mono font-bold text-rose-300">
+              {isTelemetryAvailable ? `${telemetry.gpu.utilization}%` : t.common.sensorNotAvailable}
+            </span>
           </div>
 
           <div className="text-sm font-bold text-white truncate" title={telemetry.gpu.name}>
@@ -195,26 +217,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.coreHotspot}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.gpu.temperature ? `${telemetry.gpu.temperature.toFixed(0)}°C` : '--'} /{' '}
+                {telemetry.gpu.temperature > 0 ? `${telemetry.gpu.temperature.toFixed(0)}°C` : '--'} /{' '}
                 <span className="text-amber-400">
-                  {telemetry.gpu.hotspot ? `${telemetry.gpu.hotspot.toFixed(0)}°C` : t.common.sensorNotAvailable}
+                  {telemetry.gpu.hotspot > 0
+                    ? `${telemetry.gpu.hotspot.toFixed(0)}°C`
+                    : t.common.sensorNotAvailable}
                 </span>
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.hotspotDelta}</span>
               <span className="font-mono font-semibold text-emerald-400">
-                +{hotspotDelta}°C ({t.gpuHealth.healthyGradient})
+                {hotspotDelta ? `+${hotspotDelta}°C` : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.gpuClock}</span>
-              <span className="font-mono text-slate-200">{telemetry.gpu.clockMHz} MHz</span>
+              <span className="font-mono text-slate-200">
+                {telemetry.gpu.clockMHz > 0 ? `${telemetry.gpu.clockMHz} MHz` : t.common.sensorNotAvailable}
+              </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.vramAllocated}</span>
               <span className="font-mono text-slate-200">
-                {(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} / {(telemetry.gpu.vramTotalMB / 1024).toFixed(0)} GB
+                {telemetry.gpu.vramTotalMB > 0
+                  ? `${(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} / ${(telemetry.gpu.vramTotalMB / 1024).toFixed(0)} GB`
+                  : t.common.sensorNotAvailable}
               </span>
             </div>
           </div>
@@ -236,33 +264,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {t.dashboard.ramCardTitle}
               </span>
             </div>
-            <span className="text-xs font-mono font-bold text-cyan-300">{telemetry.ram.percentage}%</span>
+            <span className="text-xs font-mono font-bold text-cyan-300">
+              {telemetry.ram.totalGB > 0 ? `${telemetry.ram.percentage}%` : t.common.sensorNotAvailable}
+            </span>
           </div>
 
           <div className="text-sm font-bold text-white truncate">
-            {telemetry.ram.totalGB} GB {telemetry.ram.type}
+            {telemetry.ram.totalGB > 0
+              ? `${telemetry.ram.totalGB} GB ${telemetry.ram.type}`
+              : t.common.sensorNotAvailable}
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.used}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.ram.usedGB.toFixed(1)} GB
+                {telemetry.ram.totalGB > 0
+                  ? `${telemetry.ram.usedGB.toFixed(1)} GB`
+                  : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.available}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.ram.availableGB.toFixed(1)} GB
+                {telemetry.ram.totalGB > 0
+                  ? `${telemetry.ram.availableGB.toFixed(1)} GB`
+                  : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.spdFrequency}</span>
-              <span className="font-mono text-slate-200">{telemetry.ram.speedMT} MT/s</span>
+              <span className="font-mono text-slate-200">
+                {telemetry.ram.speedMT > 0 ? `${telemetry.ram.speedMT} MT/s` : t.common.sensorNotAvailable}
+              </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.channels}</span>
-              <span className="font-mono text-slate-200">{telemetry.ram.channels}</span>
+              <span className="font-mono text-slate-200">
+                {telemetry.ram.channels || t.common.sensorNotAvailable}
+              </span>
             </div>
           </div>
 
@@ -283,35 +323,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {t.dashboard.storageCardTitle}
               </span>
             </div>
-            <span className="text-xs font-mono font-bold text-emerald-300">SMART OK</span>
+            <span className="text-xs font-mono font-bold text-emerald-300">
+              {telemetry.disks[0]?.smartStatus || t.common.sensorNotAvailable}
+            </span>
           </div>
 
           <div className="text-sm font-bold text-white truncate" title={telemetry.disks[0]?.model}>
-            {telemetry.disks[0]?.model || 'NVMe SSD'}
+            {telemetry.disks[0]?.model || t.common.sensorNotAvailable}
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.freeSpace}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.disks[0]?.freeSpaceGB} GB
+                {telemetry.disks[0] ? `${telemetry.disks[0].freeSpaceGB} GB` : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.disks[0]?.temperature}°C
+                {telemetry.disks[0]?.temperature
+                  ? `${telemetry.disks[0].temperature}°C`
+                  : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.nandHealth}</span>
               <span className="font-mono text-emerald-400">
-                {telemetry.disks[0]?.healthPercent}% ({t.common.excellent})
+                {telemetry.disks[0]
+                  ? `${telemetry.disks[0].healthPercent}%`
+                  : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.interface}</span>
-              <span className="font-mono text-slate-200">{telemetry.disks[0]?.interface} Gen4</span>
+              <span className="font-mono text-slate-200">
+                {telemetry.disks[0]?.interface || t.common.sensorNotAvailable}
+              </span>
             </div>
           </div>
 
@@ -320,11 +368,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full transition-all duration-500"
               style={{
                 width: `${
-                  telemetry.disks[0]
+                  telemetry.disks[0] && telemetry.disks[0].capacityGB > 0
                     ? ((telemetry.disks[0].capacityGB - telemetry.disks[0].freeSpaceGB) /
                         telemetry.disks[0].capacityGB) *
                       100
-                    : 30
+                    : 0
                 }%`,
               }}
             />
@@ -357,13 +405,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* SVG Canvas Chart */}
-          <div className="h-48 w-full bg-[#0a0c13] rounded-lg border border-slate-800/60 p-2 relative overflow-hidden">
-            <svg className="w-full h-full overflow-visible" viewBox="0 0 500 150" preserveAspectRatio="none">
-              <line x1="0" y1="37" x2="500" y2="37" stroke="#1f2438" strokeDasharray="3 3" />
-              <line x1="0" y1="75" x2="500" y2="75" stroke="#1f2438" strokeDasharray="3 3" />
-              <line x1="0" y1="112" x2="500" y2="112" stroke="#1f2438" strokeDasharray="3 3" />
+          <div className="h-48 w-full bg-[#0a0c13] rounded-lg border border-slate-800/60 p-2 relative overflow-hidden flex items-center justify-center">
+            {history.length > 1 ? (
+              <svg className="w-full h-full overflow-visible" viewBox="0 0 500 150" preserveAspectRatio="none">
+                <line x1="0" y1="37" x2="500" y2="37" stroke="#1f2438" strokeDasharray="3 3" />
+                <line x1="0" y1="75" x2="500" y2="75" stroke="#1f2438" strokeDasharray="3 3" />
+                <line x1="0" y1="112" x2="500" y2="112" stroke="#1f2438" strokeDasharray="3 3" />
 
-              {history.length > 1 && (
                 <polyline
                   fill="none"
                   stroke="#a855f7"
@@ -372,9 +420,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.cpuLoad / 100) * 140}`)
                     .join(' ')}
                 />
-              )}
 
-              {history.length > 1 && (
                 <polyline
                   fill="none"
                   stroke="#f43f5e"
@@ -383,9 +429,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.gpuLoad / 100) * 140}`)
                     .join(' ')}
                 />
-              )}
 
-              {history.length > 1 && (
                 <polyline
                   fill="none"
                   stroke="#06b6d4"
@@ -395,8 +439,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.cpuTemp / 100) * 140}`)
                     .join(' ')}
                 />
-              )}
-            </svg>
+              </svg>
+            ) : (
+              <div className="text-xs text-slate-500 font-mono text-center px-4">
+                {t.common.sensorNotAvailable} — Conecte o Agente Windows Local para telemetria de sensores em tempo real.
+              </div>
+            )}
 
             <div className="absolute bottom-1 right-2 text-[10px] text-slate-500 font-mono">
               {t.dashboard.pollingNotice}
@@ -461,37 +509,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.vrmTemp}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.temperatures.vrm ? `${telemetry.motherboard.temperatures.vrm}°C` : t.common.sensorNotAvailable}
+              {telemetry.motherboard.temperatures.vrm
+                ? `${telemetry.motherboard.temperatures.vrm}°C`
+                : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.chipsetTemp}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.temperatures.chipset ? `${telemetry.motherboard.temperatures.chipset}°C` : t.common.sensorNotAvailable}
+              {telemetry.motherboard.temperatures.chipset
+                ? `${telemetry.motherboard.temperatures.chipset}°C`
+                : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.rail12v}</span>
             <span className="font-mono font-semibold text-emerald-400">
-              {telemetry.motherboard.voltages.v12.toFixed(2)} V
+              {telemetry.motherboard.voltages.v12 > 0
+                ? `${telemetry.motherboard.voltages.v12.toFixed(2)} V`
+                : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.rail5v}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.voltages.v5.toFixed(2)} V
+              {telemetry.motherboard.voltages.v5 > 0
+                ? `${telemetry.motherboard.voltages.v5.toFixed(2)} V`
+                : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.cpuFan}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.fans.cpuFanRPM} RPM
+              {telemetry.motherboard.fans.cpuFanRPM > 0
+                ? `${telemetry.motherboard.fans.cpuFanRPM} RPM`
+                : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.pumpAio}</span>
             <span className="font-mono font-semibold text-purple-300">
-              {telemetry.motherboard.fans.pumpRPM} RPM
+              {telemetry.motherboard.fans.pumpRPM > 0
+                ? `${telemetry.motherboard.fans.pumpRPM} RPM`
+                : t.common.sensorNotAvailable}
             </span>
           </div>
         </div>

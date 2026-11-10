@@ -41,6 +41,9 @@ export interface SystemTweak {
   recommendedValue: string;
   isApplied: boolean;
   registryKey?: string;
+  valueName?: string;
+  valueKind?: 'DWord' | 'QWord' | 'String' | 'ExpandString' | 'MultiString' | 'Binary';
+  targetRawValue?: string;
   commandScript?: string;
   reversible: boolean;
 }
@@ -48,12 +51,12 @@ export interface SystemTweak {
 export interface GpuTelemetry {
   name: string;
   vendor: 'NVIDIA' | 'AMD' | 'Intel' | 'Outro';
-  temperature: number; // °C
-  hotspot: number; // °C
-  memoryTemp: number; // °C
+  temperature: number;
+  hotspot: number;
+  memoryTemp: number;
   clockMHz: number;
   memoryClockMHz: number;
-  utilization: number; // %
+  utilization: number;
   vramUsedMB: number;
   vramTotalMB: number;
   powerWatts: number;
@@ -89,9 +92,9 @@ export interface RamTelemetry {
   usedGB: number;
   availableGB: number;
   percentage: number;
-  speedMT: number; // e.g. 6000 MT/s
-  channels: string; // e.g. Dual Channel
-  type: string; // DDR5 / DDR4
+  speedMT: number;
+  channels: string;
+  type: string;
 }
 
 export interface DiskDrive {
@@ -137,7 +140,7 @@ export interface HardwareTelemetry {
   overallScore: number;
   fpsCaptureActive: boolean;
   currentFps?: number;
-  isSimulatedMode: boolean; // Flag to indicate demo/browser sensor environment per prompt rule #23
+  isSimulatedMode: boolean;
   lastUpdated: number;
 }
 
@@ -173,7 +176,7 @@ export interface PresentMonSession {
   gpuLoadAvg: number;
   cpuTempAvg: number;
   gpuTempAvg: number;
-  isOptimized: boolean; // true = depois da otimização, false = antes
+  isOptimized: boolean;
 }
 
 export interface BenchmarkRecord {
@@ -213,6 +216,14 @@ export interface DebloatCategory {
 
 export interface RestoreItem {
   id: string;
+  tweakId?: string;
+  registryKey?: string;
+  valueName?: string;
+  valueKind?: string;
+  wasInitiallyAbsent?: boolean;
+  keyCreatedByApp?: boolean;
+  snapshotFilePath?: string;
+  checksumSha256?: string;
   timestamp: string;
   actionName: string;
   component: string;
@@ -228,7 +239,7 @@ export interface DriverInfo {
   installedVersion: string;
   releaseDate: string;
   vendor: string;
-  status: 'Atualizado' | 'Atualização Recomendada' | 'Desatualizado';
+  status: 'Atualizado' | 'Atualização Recomendada' | 'Desatualizado' | 'Verificado via WMI';
   officialUrl: string;
 }
 

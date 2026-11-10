@@ -1,13 +1,9 @@
 import React, { useState } from 'react';
 import {
   Wifi,
-  Activity,
   Play,
-  RotateCcw,
-  CheckCircle2,
   Globe,
   Server,
-  Zap,
   AlertCircle,
   ShieldCheck,
 } from 'lucide-react';
@@ -18,6 +14,7 @@ interface TargetMeasurement {
   server: string;
   location: string;
   host: string;
+  protocol?: string;
   pingMs: number | null;
   jitterMs: number | null;
   packetLossPercent: number;
@@ -36,14 +33,8 @@ interface DnsMeasurement {
 export const NetworkLabView: React.FC = () => {
   const { t } = useI18n();
   const [isRunning, setIsRunning] = useState<boolean>(false);
-
-  // Local server / web bridge latency
   const [localPingMs, setLocalPingMs] = useState<number | null>(null);
-
-  // External gaming target metrics (Real TCP handshakes)
   const [targetResults, setTargetResults] = useState<TargetMeasurement[]>([]);
-
-  // Average external metrics
   const [avgExternalPing, setAvgExternalPing] = useState<number | null>(null);
   const [avgExternalJitter, setAvgExternalJitter] = useState<number | null>(null);
   const [downloadMbps, setDownloadMbps] = useState<number | null>(null);
@@ -56,20 +47,18 @@ export const NetworkLabView: React.FC = () => {
     setHasRun(true);
     setTestError(null);
 
-    // 1. Measure Local Server / Web Bridge Latency
+    // 1. Measure Local HTTP Loopback Latency (explicitly separated from external internet latency)
     const localSamples: number[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       const start = performance.now();
       try {
         const res = await fetch(`/api/network/ping?t=${Date.now()}`);
         if (res.ok) {
-          const elapsed = performance.now() - start;
-          localSamples.push(elapsed);
+          localSamples.push(performance.now() - start);
         }
       } catch {
         // failed probe
       }
-      await new Promise((r) => setTimeout(r, 60));
     }
 
     if (localSamples.length > 0) {
@@ -79,7 +68,7 @@ export const NetworkLabView: React.FC = () => {
       setLocalPingMs(null);
     }
 
-    // 2. Measure External Gaming Targets via Real TCP Handshake
+    // 2. Measure External Gaming Targets via Real TCP Handshake RTT
     try {
       const targetRes = await fetch('/api/network/measure-targets');
       if (targetRes.ok) {
@@ -87,7 +76,6 @@ export const NetworkLabView: React.FC = () => {
         if (data.results && Array.isArray(data.results)) {
           setTargetResults(data.results);
 
-          // Calculate average external ping and jitter for successful probes
           const successfulTargets = (data.results as TargetMeasurement[]).filter(
             (r) => r.isSuccess && r.pingMs !== null
           );
@@ -118,17 +106,13 @@ export const NetworkLabView: React.FC = () => {
       setTestError(t.networkLab.measurementUnavailable);
     }
 
-    // 3. Measure Real Download Transfer Speed via Chunk Stream
+    // 3. Measure Real External Download Throughput via Cloudflare Speed CDN (Never localhost!)
     try {
-      const dlStart = performance.now();
-      const res = await fetch(`/api/network/payload?size=2048&t=${Date.now()}`);
+      const res = await fetch(`/api/network/external-throughput?t=${Date.now()}`);
       if (res.ok) {
-        const buffer = await res.arrayBuffer();
-        const dlElapsedSeconds = (performance.now() - dlStart) / 1000;
-        if (dlElapsedSeconds > 0 && buffer.byteLength > 0) {
-          const totalBits = buffer.byteLength * 8;
-          const calculatedMbps = totalBits / (dlElapsedSeconds * 1000000);
-          setDownloadMbps(Math.round(calculatedMbps));
+        const data = await res.json();
+        if (data.available && typeof data.downloadMbps === 'number') {
+          setDownloadMbps(data.downloadMbps);
         } else {
           setDownloadMbps(null);
         }
@@ -139,7 +123,7 @@ export const NetworkLabView: React.FC = () => {
       setDownloadMbps(null);
     }
 
-    // 4. Measure Real DNS Resolution (No synthetic fallbacks)
+    // 4. Measure Real DNS Resolution (UDP 53)
     try {
       const dnsRes = await fetch('/api/network/dns-benchmark');
       if (dnsRes.ok) {
@@ -179,10 +163,12 @@ export const NetworkLabView: React.FC = () => {
         </button>
       </div>
 
-      {/* Real TCP Notice */}
+      {/* Method Distinction Notice */}
       <div className="p-3.5 rounded-xl bg-[#0e121e] border border-purple-500/20 text-xs flex items-center gap-2.5 text-purple-300">
         <ShieldCheck className="w-4 h-4 text-purple-400 shrink-0" />
-        <span>{t.networkLab.realTcpNotice}</span>
+        <span>
+          Distinção Técnica: Os tempos para servidores externos referem-se ao tempo de conexão TCP (SYN/SYN-ACK Handshake), distinto de ICMP Echo. O teste de velocidade realiza download externo real (speed.cloudflare.com), nunca contra localhost.
+        </span>
       </div>
 
       {testError && (
@@ -192,66 +178,62 @@ export const NetworkLabView: React.FC = () => {
         </div>
       )}
 
-      {/* Primary Metrics Row (Distinguishing Local Server vs External Gaming Clusters) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Local Server Latency */}
+      {/* Primary Metrics Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono tabular-nums">
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-500 uppercase block font-semibold">
-            {t.networkLab.localServerLatencyTitle}
+          <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
+            {t.networkLab.localServerLatencyTitle} (IPC Local)
           </span>
-          <div className="text-2xl font-black font-mono text-cyan-400">
+          <div className="text-2xl font-black text-cyan-400">
             {localPingMs !== null
               ? `${localPingMs} ms`
               : hasRun
               ? t.networkLab.measurementUnavailable
               : '—'}
           </div>
-          <span className="text-[10px] text-slate-400 block">{t.networkLab.pingDesc}</span>
+          <span className="text-[10px] text-slate-400 block font-sans">Loopback HTTP Local (Não é internet)</span>
         </div>
 
-        {/* External Gaming Average Latency */}
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-500 uppercase block font-semibold">
-            {t.networkLab.pingLatency} (Média Externa)
+          <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
+            Tempo de Conexão TCP (Externo)
           </span>
-          <div className="text-2xl font-black font-mono text-emerald-400">
+          <div className="text-2xl font-black text-emerald-400">
             {avgExternalPing !== null
               ? `${avgExternalPing} ms`
               : hasRun
               ? t.networkLab.measurementUnavailable
               : '—'}
           </div>
-          <span className="text-[10px] text-slate-400 block">TCP Handshake para Servidores de Jogos</span>
+          <span className="text-[10px] text-slate-400 block font-sans">TCP Handshake RTT Médio</span>
         </div>
 
-        {/* Jitter */}
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-500 uppercase block font-semibold">
-            {t.networkLab.jitterTitle}
+          <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
+            {t.networkLab.jitterTitle} (TCP)
           </span>
-          <div className="text-2xl font-black font-mono text-purple-300">
+          <div className="text-2xl font-black text-purple-300">
             {avgExternalJitter !== null
               ? `±${avgExternalJitter} ms`
               : hasRun
               ? t.networkLab.measurementUnavailable
               : '—'}
           </div>
-          <span className="text-[10px] text-slate-400 block">{t.networkLab.jitterDesc}</span>
+          <span className="text-[10px] text-slate-400 block font-sans">{t.networkLab.jitterDesc}</span>
         </div>
 
-        {/* Real Download Throughput */}
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-500 uppercase block font-semibold">
-            {t.networkLab.throughputTitle}
+          <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
+            Download Externo (Cloudflare CDN)
           </span>
-          <div className="text-2xl font-black font-mono text-amber-300">
+          <div className="text-2xl font-black text-amber-300">
             {downloadMbps !== null
               ? `${downloadMbps} Mbps`
               : hasRun
               ? t.networkLab.measurementUnavailable
               : '—'}
           </div>
-          <span className="text-[10px] text-slate-400 block">{t.networkLab.throughputDesc}</span>
+          <span className="text-[10px] text-slate-400 block font-sans">Origem Externa Confiável (HTTPS)</span>
         </div>
       </div>
 
@@ -282,7 +264,7 @@ export const NetworkLabView: React.FC = () => {
                   <span className="font-bold text-white">{d.provider}</span>
                   <span className="text-[10px] text-slate-500 font-mono">{d.dnsIp}</span>
                 </div>
-                <div className="flex justify-between items-center text-slate-400 font-mono pt-1">
+                <div className="flex justify-between items-center text-slate-400 font-mono tabular-nums pt-1">
                   <span>{t.networkLab.resolutionTime}</span>
                   {d.resolveTimeMs !== null ? (
                     <span className="text-emerald-400 font-bold">{d.resolveTimeMs} ms</span>
@@ -326,10 +308,9 @@ export const NetworkLabView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">{target.location}</div>
                 </div>
 
-                <div className="flex items-center gap-6 font-mono">
-                  {/* Ping */}
+                <div className="flex items-center gap-6 font-mono tabular-nums">
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Ping (TCP)</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Conexão TCP</span>
                     {target.pingMs !== null ? (
                       <span
                         className={`text-sm font-bold ${
@@ -347,7 +328,6 @@ export const NetworkLabView: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Jitter */}
                   <div>
                     <span className="text-slate-500 block text-[9px] uppercase">Jitter</span>
                     <span className="text-slate-300 text-sm">
@@ -355,7 +335,6 @@ export const NetworkLabView: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Packet Loss */}
                   <div>
                     <span className="text-slate-500 block text-[9px] uppercase">
                       {t.networkLab.packetLoss}

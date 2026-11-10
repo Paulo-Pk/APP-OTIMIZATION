@@ -61,6 +61,8 @@ public class PresentMonParserTests
             Assert.Equal(3, summary.TotalFramesCount);
             Assert.Equal(100.0, summary.AverageFps);
             Assert.Equal(10.0, summary.AverageFrametimeMs);
+            Assert.NotNull(summary.RecentFrameTimesMs);
+            Assert.Equal(3, summary.RecentFrameTimesMs.Count);
         }
         finally
         {

@@ -1,11 +1,39 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace PCControlUltimate.Windows.Services;
 
+public record DisplayMonitorInfo(
+    string DeviceName,
+    string MonitorModel,
+    string AdapterName,
+    bool IsPrimary,
+    int Width,
+    int Height,
+    int? RefreshRateHz
+);
+
 public static class DisplaySettingsService
 {
     private const int ENUM_CURRENT_SETTINGS = -1;
+    private const int DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x00000001;
+    private const int DISPLAY_DEVICE_PRIMARY_DEVICE = 0x00000004;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DISPLAY_DEVICEW
+    {
+        public int cb;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string DeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceString;
+        public int StateFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceID;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceKey;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct DEVMODEW
@@ -49,46 +77,104 @@ public static class DisplaySettingsService
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern bool EnumDisplaySettingsW(string? lpszDeviceName, int iModeNum, ref DEVMODEW lpDevMode);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool EnumDisplayDevicesW(string? lpDevice, uint iDevNum, ref DISPLAY_DEVICEW lpDisplayDevice, uint dwFlags);
+
     public static object GetPrimaryDisplayInfo()
     {
-        // Safe check for Windows platform
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             return new
             {
                 available = false,
                 nativeRefreshRateHz = (int?)null,
-                monitorName = "Não detectado (Ambiente não-Windows)",
-                resolution = "Não detectado"
+                monitorName = "Não detectado",
+                resolution = "Não detectado",
+                monitorsCount = 0,
+                monitors = Array.Empty<DisplayMonitorInfo>()
             };
         }
 
         try
         {
-            var devMode = new DEVMODEW();
-            devMode.dmSize = (short)Marshal.SizeOf(typeof(DEVMODEW));
+            var monitors = new List<DisplayMonitorInfo>();
+            uint devIndex = 0;
 
-            if (EnumDisplaySettingsW(null, ENUM_CURRENT_SETTINGS, ref devMode))
+            while (true)
             {
-                int hz = devMode.dmDisplayFrequency;
-                int width = devMode.dmPelsWidth;
-                int height = devMode.dmPelsHeight;
+                var adapter = new DISPLAY_DEVICEW();
+                adapter.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICEW));
 
-                if (hz > 0 && width > 0 && height > 0)
+                if (!EnumDisplayDevicesW(null, devIndex, ref adapter, 0))
+                    break;
+
+                devIndex++;
+
+                if ((adapter.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) == 0)
+                    continue;
+
+                bool isPrimary = (adapter.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0;
+
+                // Query child monitor device for the real hardware monitor name
+                var monitorDevice = new DISPLAY_DEVICEW();
+                monitorDevice.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICEW));
+                string realMonitorName = "Não detectado";
+
+                if (EnumDisplayDevicesW(adapter.DeviceName, 0, ref monitorDevice, 0) &&
+                    !string.IsNullOrWhiteSpace(monitorDevice.DeviceString))
                 {
-                    return new
-                    {
-                        available = true,
-                        nativeRefreshRateHz = hz,
-                        monitorName = string.IsNullOrWhiteSpace(devMode.dmDeviceName) ? "Primary Gaming Monitor" : devMode.dmDeviceName,
-                        resolution = $"{width}x{height}"
-                    };
+                    realMonitorName = monitorDevice.DeviceString.Trim();
                 }
+                else if (!string.IsNullOrWhiteSpace(adapter.DeviceString))
+                {
+                    realMonitorName = adapter.DeviceString.Trim();
+                }
+
+                var devMode = new DEVMODEW();
+                devMode.dmSize = (short)Marshal.SizeOf(typeof(DEVMODEW));
+
+                if (EnumDisplaySettingsW(adapter.DeviceName, ENUM_CURRENT_SETTINGS, ref devMode))
+                {
+                    int width = devMode.dmPelsWidth;
+                    int height = devMode.dmPelsHeight;
+                    int rawHz = devMode.dmDisplayFrequency;
+
+                    // Windows returns 0 or 1 for "default hardware frequency" on some virtual/headless adapters
+                    int? validHz = rawHz > 1 ? rawHz : null;
+
+                    if (width > 0 && height > 0)
+                    {
+                        monitors.Add(new DisplayMonitorInfo(
+                            DeviceName: adapter.DeviceName,
+                            MonitorModel: realMonitorName,
+                            AdapterName: adapter.DeviceString?.Trim() ?? "Não detectado",
+                            IsPrimary: isPrimary,
+                            Width: width,
+                            Height: height,
+                            RefreshRateHz: validHz
+                        ));
+                    }
+                }
+            }
+
+            if (monitors.Count > 0)
+            {
+                var primary = monitors.Find(m => m.IsPrimary) ?? monitors[0];
+                return new
+                {
+                    available = primary.RefreshRateHz.HasValue,
+                    nativeRefreshRateHz = primary.RefreshRateHz,
+                    monitorName = primary.MonitorModel,
+                    adapterName = primary.AdapterName,
+                    resolution = $"{primary.Width}x{primary.Height}",
+                    monitorsCount = monitors.Count,
+                    monitors
+                };
             }
         }
         catch
         {
-            // P/Invoke failed or driver restriction
+            // P/Invoke failure or restricted session
         }
 
         return new
@@ -96,7 +182,9 @@ public static class DisplaySettingsService
             available = false,
             nativeRefreshRateHz = (int?)null,
             monitorName = "Não detectado",
-            resolution = "Não detectado"
+            resolution = "Não detectado",
+            monitorsCount = 0,
+            monitors = Array.Empty<DisplayMonitorInfo>()
         };
     }
 }

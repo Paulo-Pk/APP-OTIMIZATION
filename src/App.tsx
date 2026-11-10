@@ -69,7 +69,6 @@ export default function App() {
   const [isBoostModalOpen, setIsBoostModalOpen] = useState<boolean>(false);
   const [gameProfileToEdit, setGameProfileToEdit] = useState<GameProfile | null>(null);
 
-  // Persist real restore records
   useEffect(() => {
     try {
       localStorage.setItem('pc_control_restore_records', JSON.stringify(restoreItems));
@@ -78,10 +77,12 @@ export default function App() {
     }
   }, [restoreItems]);
 
-  // Subscribe to Native Windows Agent connection & fetch real telemetry
   useEffect(() => {
     const unsubscribe = nativeBridge.subscribe((status) => {
       setAgentStatus(status);
+      if (!status.isConnected) {
+        setTelemetry(initialHardwareTelemetry);
+      }
     });
 
     const interval = setInterval(async () => {
@@ -99,7 +100,7 @@ export default function App() {
     };
   }, []);
 
-  // Toggle single tweak with authentic Windows Registry verification
+  // Toggle single tweak with authentic Windows Registry catalog verification
   const handleToggleTweak = async (id: string) => {
     const target = tweaks.find((tweak) => tweak.id === id);
     if (!target) return;
@@ -107,12 +108,12 @@ export default function App() {
     const nextApplied = !target.isApplied;
 
     if (nextApplied) {
-      // Execute via Native Bridge
       const res = await nativeBridge.applyRegistryTweak(
         target.id,
         target.registryKey || '',
-        'TargetDword',
-        1
+        target.valueName || 'TargetDword',
+        target.targetRawValue ?? 1,
+        target.valueKind || 'DWord'
       );
 
       if (!res.success) {
@@ -128,17 +129,23 @@ export default function App() {
             message: `${t.common.tweakExecutionFailed} (${res.error || 'Unknown'})`,
           });
         }
-        // Preserve state: DO NOT mark as applied, DO NOT create fake restore record
         return;
       }
 
-      // Record verified original value
       const newRestore: RestoreItem = {
         id: `rest-${Date.now()}-${target.id}`,
+        tweakId: target.id,
+        registryKey: target.registryKey,
+        valueName: target.valueName || 'TargetDword',
+        valueKind: res.valueKind || target.valueKind || 'DWord',
+        wasInitiallyAbsent: !!res.wasInitiallyAbsent,
+        keyCreatedByApp: !!res.keyCreatedByApp,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         actionName: target.name,
         component: target.category.toUpperCase(),
-        previousValue: res.previousValue || target.currentValue,
+        previousValue: res.wasInitiallyAbsent
+          ? '[Originalmente Inexistente]'
+          : res.previousValue || target.currentValue,
         newValue: res.verifiedValue || target.recommendedValue,
         reversible: target.reversible,
         userInitiated: true,
@@ -153,14 +160,19 @@ export default function App() {
         message: `${target.name}: ${t.common.tweakAppliedSuccess}`,
       });
     } else {
-      // Find original value recorded during application
-      const existingRecord = restoreItems.find((r) => r.actionName === target.name);
-      const originalVal = existingRecord?.previousValue || target.currentValue;
+      const existingRecord = restoreItems.find(
+        (r) => r.tweakId === target.id || r.actionName === target.name
+      );
+      const wasAbsent = !!existingRecord?.wasInitiallyAbsent;
+      const originalVal = wasAbsent ? null : existingRecord?.previousValue || target.currentValue;
 
       const res = await nativeBridge.restoreRegistryTweak(
-        target.registryKey || '',
-        'TargetDword',
-        originalVal
+        existingRecord?.registryKey || target.registryKey || '',
+        existingRecord?.valueName || target.valueName || 'TargetDword',
+        originalVal,
+        existingRecord?.valueKind || target.valueKind || 'DWord',
+        wasAbsent,
+        !!existingRecord?.keyCreatedByApp
       );
 
       if (!res.success) {
@@ -179,8 +191,9 @@ export default function App() {
         return;
       }
 
-      // Remove from restore records and update UI only upon real verified success
-      setRestoreItems((r) => r.filter((item) => item.actionName !== target.name));
+      setRestoreItems((r) =>
+        r.filter((item) => item.tweakId !== target.id && item.actionName !== target.name)
+      );
       setTweaks((prev) =>
         prev.map((item) => (item.id === id ? { ...item, isApplied: false } : item))
       );
@@ -216,18 +229,27 @@ export default function App() {
         const res = await nativeBridge.applyRegistryTweak(
           item.id,
           item.registryKey || '',
-          'TargetDword',
-          1
+          item.valueName || 'TargetDword',
+          item.targetRawValue ?? 1,
+          item.valueKind || 'DWord'
         );
 
         if (res.success) {
           appliedIds.push(item.id);
           const newRestore: RestoreItem = {
             id: `rest-${Date.now()}-${item.id}`,
+            tweakId: item.id,
+            registryKey: item.registryKey,
+            valueName: item.valueName || 'TargetDword',
+            valueKind: res.valueKind || item.valueKind || 'DWord',
+            wasInitiallyAbsent: !!res.wasInitiallyAbsent,
+            keyCreatedByApp: !!res.keyCreatedByApp,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             actionName: item.name,
             component: item.category.toUpperCase(),
-            previousValue: res.previousValue || item.currentValue,
+            previousValue: res.wasInitiallyAbsent
+              ? '[Originalmente Inexistente]'
+              : res.previousValue || item.currentValue,
             newValue: res.verifiedValue || item.recommendedValue,
             reversible: item.reversible,
             userInitiated: true,
@@ -262,41 +284,42 @@ export default function App() {
     const restoredIds: string[] = [];
     const restoredActionNames = new Set<string>();
     const failedIds: string[] = [];
-    const failedNames: string[] = [];
 
     for (const item of tweaks) {
       if (item.isApplied) {
-        const existingRecord = restoreItems.find((r) => r.actionName === item.name);
-        const originalVal = existingRecord?.previousValue || item.currentValue;
+        const existingRecord = restoreItems.find(
+          (r) => r.tweakId === item.id || r.actionName === item.name
+        );
+        const wasAbsent = !!existingRecord?.wasInitiallyAbsent;
+        const originalVal = wasAbsent ? null : existingRecord?.previousValue || item.currentValue;
 
         const res = await nativeBridge.restoreRegistryTweak(
-          item.registryKey || '',
-          'TargetDword',
-          originalVal
+          existingRecord?.registryKey || item.registryKey || '',
+          existingRecord?.valueName || item.valueName || 'TargetDword',
+          originalVal,
+          existingRecord?.valueKind || item.valueKind || 'DWord',
+          wasAbsent,
+          !!existingRecord?.keyCreatedByApp
         );
 
-        if (res.success) {
+        if (res.success && res.verified) {
           restoredIds.push(item.id);
           restoredActionNames.add(item.name);
         } else {
           failedIds.push(item.id);
-          failedNames.push(item.name);
         }
       }
     }
 
-    // Only set isApplied to false for items whose restoration succeeded
     if (restoredIds.length > 0) {
       setTweaks((prev) =>
         prev.map((tweak) => (restoredIds.includes(tweak.id) ? { ...tweak, isApplied: false } : tweak))
       );
     }
 
-    // CRITICAL: Remove ONLY confirmed restored tweaks from history.
-    // Preserve ALL records of operations that failed with original values intact so user can retry!
+    // Remove ONLY confirmed restored tweaks from history; preserve failed records intact
     setRestoreItems((prev) => prev.filter((item) => !restoredActionNames.has(item.actionName)));
 
-    // Accurately report restoration results. NEVER declare complete success when there are failures!
     if (failedIds.length > 0 && restoredIds.length > 0) {
       setNotification({
         type: 'warning',
@@ -319,7 +342,7 @@ export default function App() {
     }
   };
 
-  // Rollback single item from Restore Center
+  // Rollback single item or full backup from Restore Center
   const handleRollbackItem = async (id: string) => {
     if (!agentStatus.isConnected) {
       setNotification({
@@ -331,37 +354,76 @@ export default function App() {
     }
 
     const item = restoreItems.find((r) => r.id === id);
-    if (item) {
-      const matchedTweak = tweaks.find((tweak) => tweak.name === item.actionName);
-      if (matchedTweak) {
-        const res = await nativeBridge.restoreRegistryTweak(
-          matchedTweak.registryKey || '',
-          'TargetDword',
-          item.previousValue
-        );
+    if (!item) return;
 
-        if (!res.success) {
-          setNotification({
-            type: 'error',
-            message: `${t.common.tweakExecutionFailed}: ${res.error || 'Erro no Agente Windows'}`,
-          });
-          // Do NOT remove from restore list on failure!
-          return;
-        }
-
-        setTweaks((prev) =>
-          prev.map((tweak) => (tweak.name === item.actionName ? { ...tweak, isApplied: false } : tweak))
-        );
+    // Handle full supported-settings backup file restoration
+    if (item.component === 'REGISTRY BACKUP' && item.snapshotFilePath) {
+      const verify = await nativeBridge.verifySnapshotIntegrity(item.snapshotFilePath);
+      if (!verify.success || !verify.isValid) {
+        setNotification({
+          type: 'error',
+          title: 'Falha de Integridade SHA-256',
+          message: verify.error || 'O arquivo de backup falhou na verificação de integridade ou whitelist.',
+        });
+        return;
       }
-      setRestoreItems((prev) => prev.filter((r) => r.id !== id));
+
+      const snapRes = await nativeBridge.restoreRegistrySnapshot(item.snapshotFilePath);
+      if (!snapRes.success) {
+        setNotification({
+          type: snapRes.partialSuccess ? 'warning' : 'error',
+          title: snapRes.partialSuccess ? 'Restauração Parcial do Backup' : 'Falha na Restauração do Backup',
+          message:
+            snapRes.error ||
+            `Restauradas: ${snapRes.restoredKeysCount ?? 0}, Falhas: ${snapRes.failedKeysCount ?? 0}`,
+        });
+        return;
+      }
+
       setNotification({
         type: 'success',
-        message: `${item.actionName}: ${t.common.tweakRestoredSuccess}`,
+        message: `Backup restaurado e verificado com sucesso (${snapRes.restoredKeysCount ?? 0} chaves).`,
       });
+      return;
     }
+
+    const matchedTweak = tweaks.find(
+      (tweak) => tweak.id === item.tweakId || tweak.name === item.actionName
+    );
+    const wasAbsent = !!item.wasInitiallyAbsent;
+    const originalVal = wasAbsent ? null : item.previousValue;
+
+    const res = await nativeBridge.restoreRegistryTweak(
+      item.registryKey || matchedTweak?.registryKey || '',
+      item.valueName || matchedTweak?.valueName || 'TargetDword',
+      originalVal,
+      item.valueKind || matchedTweak?.valueKind || 'DWord',
+      wasAbsent,
+      !!item.keyCreatedByApp
+    );
+
+    if (!res.success || !res.verified) {
+      setNotification({
+        type: 'error',
+        message: `${t.common.tweakExecutionFailed}: ${res.error || 'Erro no Agente Windows'}`,
+      });
+      return;
+    }
+
+    if (matchedTweak) {
+      setTweaks((prev) =>
+        prev.map((tweak) => (tweak.id === matchedTweak.id ? { ...tweak, isApplied: false } : tweak))
+      );
+    }
+
+    setRestoreItems((prev) => prev.filter((r) => r.id !== id));
+    setNotification({
+      type: 'success',
+      message: `${item.actionName}: ${t.common.tweakRestoredSuccess}`,
+    });
   };
 
-  // Real Windows Registry Snapshot Backup
+  // Real Backup of Supported Registry Settings (Canonical SHA-256)
   const handleCreateSnapshot = async () => {
     if (!agentStatus.isConnected) {
       setNotification({
@@ -377,18 +439,22 @@ export default function App() {
       setNotification({
         type: 'error',
         title: t.restoreCenter.snapshotFailed,
-        message: res.error || 'Falha ao comunicar com o serviço de backup do Registro.',
+        message: res.error || 'Falha ao comunicar com o serviço de backup dos ajustes suportados.',
       });
       return;
     }
 
     const snapItem: RestoreItem = {
       id: res.snapshotId || `snap-${Date.now()}`,
+      snapshotFilePath: res.filePath,
+      checksumSha256: res.checksumSha256,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      actionName: `Snapshot do Registro (${res.filePath ? res.filePath.split('\\').pop() : 'HKLM+HKCU'})`,
+      actionName: `Backup dos Ajustes Suportados (${res.filePath ? res.filePath.split('\\').pop() : 'HKLM+HKCU'})`,
       component: 'REGISTRY BACKUP',
-      previousValue: res.checksumSha256 ? `SHA-256: ${res.checksumSha256.substring(0, 16)}...` : 'Registro do Windows Original',
-      newValue: res.fileSizeBytes ? `Arquivo: ${(res.fileSizeBytes / 1024).toFixed(0)} KB` : 'Integridade Verificada',
+      previousValue: res.checksumSha256
+        ? `SHA-256: ${res.checksumSha256.substring(0, 16)}...`
+        : 'Estado Original Capturado',
+      newValue: `${res.capturedKeysCount ?? 0} chaves · ${res.fileSizeBytes ? (res.fileSizeBytes / 1024).toFixed(1) : '0'} KB`,
       reversible: true,
       userInitiated: true,
     };
@@ -422,8 +488,9 @@ export default function App() {
     const res = await nativeBridge.applyRegistryTweak(
       target.id,
       target.registryKey || '',
-      'TargetDword',
-      1
+      target.valueName || 'TargetDword',
+      target.targetRawValue ?? 1,
+      target.valueKind || 'DWord'
     );
 
     if (!res.success) {
@@ -437,10 +504,18 @@ export default function App() {
 
     const newRestore: RestoreItem = {
       id: `rest-${Date.now()}-${target.id}`,
+      tweakId: target.id,
+      registryKey: target.registryKey,
+      valueName: target.valueName || 'TargetDword',
+      valueKind: res.valueKind || target.valueKind || 'DWord',
+      wasInitiallyAbsent: !!res.wasInitiallyAbsent,
+      keyCreatedByApp: !!res.keyCreatedByApp,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       actionName: `${issueTitle} (${target.name})`,
       component: component.toUpperCase(),
-      previousValue: res.previousValue || target.currentValue,
+      previousValue: res.wasInitiallyAbsent
+        ? '[Originalmente Inexistente]'
+        : res.previousValue || target.currentValue,
       newValue: res.verifiedValue || target.recommendedValue,
       reversible: target.reversible,
       userInitiated: true,
@@ -459,13 +534,11 @@ export default function App() {
     return { success: true };
   };
 
-  // Confirm Boost Modal
   const handleConfirmBoost = () => {
     setIsBoostModalOpen(false);
     handleApplyAllLevel('balanced');
   };
 
-  // Save game profile edit
   const handleSaveGameProfile = (updated: GameProfile) => {
     setGames((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
     setNotification({
@@ -474,7 +547,6 @@ export default function App() {
     });
   };
 
-  // Download complete .NET 10 Solution ZIP
   const handleDownloadSolution = async () => {
     try {
       const blob = await exportCompleteSolutionZip();
@@ -489,7 +561,6 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-[#07090e] text-slate-100 font-sans overflow-hidden select-none">
-      {/* Top Application Header */}
       <Header
         currentTab={currentTab}
         onNavigate={setCurrentTab}
@@ -499,18 +570,14 @@ export default function App() {
         overallScore={telemetry.overallScore}
       />
 
-      {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Navigation Sidebar */}
         <Sidebar
           currentTab={currentTab}
           onSelectTab={setCurrentTab}
           appliedTweaksCount={appliedTweaksCount}
         />
 
-        {/* Dynamic Viewport */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-[#080a11]">
-          {/* Notification Banner */}
           {notification && (
             <div
               className={`mb-5 p-4 rounded-xl border flex items-start justify-between gap-3 text-xs animate-scale-in shadow-xl ${
@@ -590,17 +657,16 @@ export default function App() {
               onAddCustomGame={() => {
                 const newGame: GameProfile = {
                   id: `game-${Date.now()}`,
-                  title: 'Apex Legends',
+                  title: 'Custom Game Process',
                   platform: 'Manual',
-                  executablePath: 'C:\\Program Files\\EA Games\\Apex\\r5apex.exe',
-                  coverImage: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=400&q=80',
+                  executablePath: 'C:\\Games\\Game.exe',
+                  coverImage: '',
                   processPriority: 'Alta',
                   cpuAffinity: 'P-Cores Apenas',
                   gpuPreference: 'Alto Desempenho',
                   powerProfile: 'Desempenho Máximo PC Control',
                   monitorFps: true,
                   monitorTemps: true,
-                  averageFps: 240,
                   boostEnabled: true,
                 };
                 setGames((prev) => [newGame, ...prev]);
@@ -679,7 +745,6 @@ export default function App() {
         </main>
       </div>
 
-      {/* Boost Analysis & Confirmation Modal */}
       <BoostConfirmModal
         isOpen={isBoostModalOpen}
         onClose={() => setIsBoostModalOpen(false)}
@@ -687,7 +752,6 @@ export default function App() {
         pendingTweaks={pendingTweaks.slice(0, 8)}
       />
 
-      {/* Game Profile Configuration Modal */}
       <GameProfileModal
         game={gameProfileToEdit}
         isOpen={gameProfileToEdit !== null}

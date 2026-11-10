@@ -2,12 +2,9 @@ import React, { useState } from 'react';
 import {
   BarChart3,
   Play,
-  RotateCcw,
   Cpu,
   Flame,
   CircuitBoard,
-  HardDrive,
-  CheckCircle2,
   Clock,
   Sparkles,
 } from 'lucide-react';
@@ -29,32 +26,8 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 }) => {
   const { t } = useI18n();
 
-  const [records, setRecords] = useState<BenchmarkRecord[]>([
-    {
-      id: 'bm-1',
-      type: 'CPU',
-      score: 11240,
-      metric: 'MIPS / AVX',
-      date: `${t.common.today}, 10:14`,
-      hardware: telemetry.cpu.name,
-      durationMs: 342,
-      cpuTempPeak: 66,
-      gpuTempPeak: 48,
-      notes: 'x86 Prime Sieve Arithmetic Precision',
-    },
-    {
-      id: 'bm-2',
-      type: 'GPU',
-      score: 18450,
-      metric: 'Shader Compute / FPS',
-      date: `${t.common.today}, 10:16`,
-      hardware: telemetry.gpu.name,
-      durationMs: 410,
-      cpuTempPeak: 58,
-      gpuTempPeak: 62,
-      notes: 'WebGL2 High-Density Raymarching',
-    },
-  ]);
+  // Start empty — records are only populated after a user actually runs a test
+  const [records, setRecords] = useState<BenchmarkRecord[]>([]);
 
   const [activeTest, setActiveTest] = useState<string | null>(null);
   const [progressState, setProgressState] = useState<BenchmarkProgress>({
@@ -73,11 +46,11 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         score: result.score,
         metric: t.benchmarks.metricIpc,
         date: t.benchmarks.justNow,
-        hardware: telemetry.cpu.name,
+        hardware: telemetry.cpu.name || t.common.sensorNotAvailable,
         durationMs: Math.round(result.durationMs),
-        cpuTempPeak: Math.round(telemetry.cpu.temperature + 5),
-        gpuTempPeak: Math.round(telemetry.gpu.temperature),
-        notes: result.details,
+        cpuTempPeak: telemetry.cpu.temperature > 0 ? Math.round(telemetry.cpu.temperature) : 0,
+        gpuTempPeak: telemetry.gpu.temperature > 0 ? Math.round(telemetry.gpu.temperature) : 0,
+        notes: `${result.details} (Teste Sintético Navegador V8)`,
       };
       setRecords((prev) => [newRecord, ...prev]);
     } finally {
@@ -95,11 +68,11 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         score: result.score,
         metric: 'WebGL2 Shader GFLOPS',
         date: t.benchmarks.justNow,
-        hardware: telemetry.gpu.name,
+        hardware: telemetry.gpu.name || t.common.sensorNotAvailable,
         durationMs: Math.round(result.durationMs),
-        cpuTempPeak: Math.round(telemetry.cpu.temperature),
-        gpuTempPeak: Math.round(telemetry.gpu.temperature + 4),
-        notes: result.details,
+        cpuTempPeak: telemetry.cpu.temperature > 0 ? Math.round(telemetry.cpu.temperature) : 0,
+        gpuTempPeak: telemetry.gpu.temperature > 0 ? Math.round(telemetry.gpu.temperature) : 0,
+        notes: `${result.details} (Teste Sintético WebGL2)`,
       };
       setRecords((prev) => [newRecord, ...prev]);
     } finally {
@@ -117,11 +90,14 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         score: result.score,
         metric: 'MB/s Throughput',
         date: t.benchmarks.justNow,
-        hardware: `${telemetry.ram.totalGB}GB ${telemetry.ram.type}`,
+        hardware:
+          telemetry.ram.totalGB > 0
+            ? `${telemetry.ram.totalGB}GB ${telemetry.ram.type}`
+            : t.common.sensorNotAvailable,
         durationMs: Math.round(result.durationMs),
-        cpuTempPeak: Math.round(telemetry.cpu.temperature),
-        gpuTempPeak: Math.round(telemetry.gpu.temperature),
-        notes: result.details,
+        cpuTempPeak: telemetry.cpu.temperature > 0 ? Math.round(telemetry.cpu.temperature) : 0,
+        gpuTempPeak: telemetry.gpu.temperature > 0 ? Math.round(telemetry.gpu.temperature) : 0,
+        notes: `${result.details} (Teste Sintético ArrayBuffer)`,
       };
       setRecords((prev) => [newRecord, ...prev]);
     } finally {
@@ -162,10 +138,10 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
         <div className="space-y-0.5">
           <div className="font-bold text-cyan-300">
-            Ambiente de Execução: Benchmark Sintético em Navegador (V8 Engine / WebGL2 Compute)
+            Ambiente de Execução: Teste Sintético em Navegador (V8 Engine / WebGL2 Compute)
           </div>
           <p className="text-slate-400 leading-relaxed text-[11px]">
-            Este teste executa no motor JavaScript (V8) e WebGL2 do navegador web para avaliar capacidade computacional e vazão de shaders. Ele não é apresentado como benchmark nativo do Windows. Para benchmarks nativos com acesso direto a instruções x86-64 e Intel PresentMon, execute a solução desktop C# .NET 10.
+            Estes testes executam no motor JavaScript (V8) e WebGL2 do navegador web para avaliar capacidade computacional sintética. Eles são estritamente separados de benchmarks nativos de hardware Windows.
           </p>
         </div>
       </div>
@@ -195,7 +171,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Cpu className="w-5 h-5 text-purple-400" />
-              <span className="text-[10px] font-mono text-slate-500">60k Primes & AVX</span>
+              <span className="text-[10px] font-mono text-slate-500">V8 Arithmetic Sieve</span>
             </div>
             <h3 className="font-bold text-sm text-white">{t.benchmarks.cpuTestTitle}</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
@@ -268,39 +244,59 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
           </span>
         </div>
 
-        <div className="divide-y divide-slate-800/60">
-          {records.map((r) => (
-            <div key={r.id} className="py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-white">{r.type} Benchmark</span>
-                  <span className="text-slate-500">·</span>
-                  <span className="text-slate-400 font-mono">{r.date}</span>
+        {records.length === 0 ? (
+          <div className="py-6 text-center text-xs text-slate-500 font-mono">
+            Nenhum teste executado nesta sessão. Clique em um dos testes acima para iniciar.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800/60">
+            {records.map((r) => (
+              <div
+                key={r.id}
+                className="py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
+              >
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white">{r.type} Benchmark</span>
+                    <span className="text-slate-500">·</span>
+                    <span className="text-slate-400 font-mono">{r.date}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {r.hardware} · {r.notes}
+                  </div>
                 </div>
-                <div className="text-[11px] text-slate-400">
-                  {r.hardware} · {r.notes}
-                </div>
-              </div>
 
-              <div className="flex items-center gap-6 shrink-0 font-mono">
-                <div>
-                  <span className="text-slate-500 block text-[9px] uppercase">{t.benchmarks.score}</span>
-                  <span className="text-base font-bold text-purple-300">
-                    {r.score.toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">{r.metric}</span>
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[9px] uppercase">{t.benchmarks.duration}</span>
-                  <span className="text-slate-300">{r.durationMs}ms</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[9px] uppercase">{t.benchmarks.peakTemp}</span>
-                  <span className="text-slate-300">CPU {r.cpuTempPeak}°C / GPU {r.gpuTempPeak}°C</span>
+                <div className="flex items-center gap-6 shrink-0 font-mono">
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">
+                      {t.benchmarks.score}
+                    </span>
+                    <span className="text-base font-bold text-purple-300">
+                      {r.score.toLocaleString()}{' '}
+                      <span className="text-[10px] text-slate-400 font-normal">{r.metric}</span>
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">
+                      {t.benchmarks.duration}
+                    </span>
+                    <span className="text-slate-300">{r.durationMs}ms</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">
+                      {t.benchmarks.peakTemp}
+                    </span>
+                    <span className="text-slate-300">
+                      {r.cpuTempPeak > 0
+                        ? `CPU ${r.cpuTempPeak}°C / GPU ${r.gpuTempPeak}°C`
+                        : t.common.sensorNotAvailable}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

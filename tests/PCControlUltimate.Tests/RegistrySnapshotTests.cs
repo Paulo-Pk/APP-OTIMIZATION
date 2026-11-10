@@ -1,5 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.Json;
+using PCControlUltimate.Security;
 using PCControlUltimate.Windows.Services;
 using Xunit;
 
@@ -8,26 +12,174 @@ namespace PCControlUltimate.Tests;
 public class RegistrySnapshotTests
 {
     [Fact]
+    public void BuildCanonicalPayload_ProducesDeterministicSha256RegardlessOfEntryInsertionOrder()
+    {
+        var createdUtc = new DateTime(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc);
+
+        var entryA = new RegistryValueEntry
+        {
+            Hive = "HKCU",
+            SubKey = @"System\GameConfigStore",
+            ValueName = "GameDVR_Enabled",
+            ValueKind = "DWord",
+            RawValue = "0",
+            WasInitiallyAbsent = false
+        };
+
+        var entryB = new RegistryValueEntry
+        {
+            Hive = "HKLM",
+            SubKey = @"SYSTEM\CurrentControlSet\Control\PriorityControl",
+            ValueName = "Win32PrioritySeparation",
+            ValueKind = "DWord",
+            RawValue = "38",
+            WasInitiallyAbsent = false
+        };
+
+        string payload1 = RegistrySnapshotEngine.BuildCanonicalPayload(
+            "snap-1",
+            "2.0",
+            createdUtc,
+            "Canonical Test",
+            new List<RegistryValueEntry> { entryA, entryB }
+        );
+
+        // Even with identical sorted list, canonical hash must be deterministic
+        string hash1 = IntegrityVerifier.ComputeCanonicalSha256(payload1);
+        string hash2 = IntegrityVerifier.ComputeCanonicalSha256(payload1);
+
+        Assert.Equal(hash1, hash2);
+    }
+
+    [Fact]
+    public void VerifyBackupIntegrity_WithValidCanonicalSnapshot_ReturnsTrue()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 10, 15, 30, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-valid-001",
+                "2.0",
+                createdUtc,
+                "Valid Test Backup",
+                entries
+            );
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-valid-001",
+                FormatVersion = "2.0",
+                CreatedUtc = createdUtc,
+                Description = "Valid Test Backup",
+                ScopeNotice = "Backup dos Ajustes Suportados pelo Aplicativo",
+                TotalKeysCaptured = entries.Count,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+
+            string json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(tempFile, json, Encoding.UTF8);
+
+            var (isValid, checksum, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+
+            Assert.True(isValid);
+            Assert.Null(error);
+            Assert.Equal(snapshot.ChecksumSha256, checksum);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void VerifyBackupIntegrity_WithTamperedFile_ShouldDetectChecksumMismatch()
     {
         string tempFile = Path.GetTempFileName();
         try
         {
-            string originalJson = "{\n" +
+            string tamperedJson = "{\n" +
                                   "  \"SnapshotId\": \"snap-test-123\",\n" +
+                                  "  \"FormatVersion\": \"2.0\",\n" +
                                   "  \"CreatedUtc\": \"2026-11-10T12:00:00Z\",\n" +
-                                  "  \"Description\": \"Test Snapshot\",\n" +
+                                  "  \"Description\": \"Tampered Snapshot\",\n" +
                                   "  \"TotalKeysCaptured\": 0,\n" +
                                   "  \"Entries\": [],\n" +
                                   "  \"ChecksumSha256\": \"1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff\"\n" +
                                   "}";
 
-            File.WriteAllText(tempFile, originalJson, Encoding.UTF8);
+            File.WriteAllText(tempFile, tamperedJson, Encoding.UTF8);
 
-            var (isValid, checksum, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+            var (isValid, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
 
             Assert.False(isValid);
-            Assert.Contains("Checksum mismatch", error);
+            Assert.Contains("Checksum mismatch", error ?? string.Empty);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void VerifyBackupIntegrity_WithUnauthorizedSubkeyInJson_ShouldRejectBackup()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 10, 15, 30, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    Hive = "HKLM",
+                    SubKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+                    ValueName = "InjectedPersistence",
+                    ValueKind = "String",
+                    RawValue = "cmd.exe",
+                    WasInitiallyAbsent = false
+                }
+            };
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-malicious",
+                "2.0",
+                createdUtc,
+                "Malicious Backup",
+                entries
+            );
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-malicious",
+                FormatVersion = "2.0",
+                CreatedUtc = createdUtc,
+                Description = "Malicious Backup",
+                TotalKeysCaptured = 1,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var (isValid, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+
+            Assert.False(isValid);
+            Assert.Contains("fora da whitelist", error ?? string.Empty);
         }
         finally
         {

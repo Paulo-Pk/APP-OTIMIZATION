@@ -1,14 +1,11 @@
 import React, { useState } from 'react';
 import {
   Flame,
-  AlertTriangle,
   CheckCircle,
   FileText,
   Activity,
   Fan,
   ShieldCheck,
-  TrendingUp,
-  Cpu,
   Info,
 } from 'lucide-react';
 import { GpuTelemetry } from '../../types';
@@ -21,13 +18,15 @@ interface GpuHealthLabViewProps {
 export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
   const { t } = useI18n();
   const [vendorFilter, setVendorFilter] = useState<'NVIDIA' | 'AMD' | 'Intel'>(
-    gpu.vendor as 'NVIDIA' | 'AMD' | 'Intel'
+    (gpu.vendor === 'NVIDIA' || gpu.vendor === 'AMD' || gpu.vendor === 'Intel'
+      ? gpu.vendor
+      : 'NVIDIA') as 'NVIDIA' | 'AMD' | 'Intel'
   );
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
 
-  const deltaT = gpu.hotspot - gpu.temperature;
-  const isDeltaElevated = deltaT > 22; // Nuanced evaluation, not an arbitrary 18°C universal defect rule
-  const isVramHigh = gpu.vramUsedMB / gpu.vramTotalMB > 0.9;
+  const hasGpuSensors = gpu.temperature > 0 && gpu.hotspot > 0;
+  const deltaT = hasGpuSensors ? gpu.hotspot - gpu.temperature : 0;
+  const isDeltaElevated = hasGpuSensors && deltaT > 22;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -61,9 +60,11 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
             <Flame className="w-5 h-5 text-rose-400" />
           </div>
           <div>
-            <div className="text-sm font-bold text-white">{gpu.name}</div>
+            <div className="text-sm font-bold text-white">
+              {gpu.name || t.common.sensorNotAvailable}
+            </div>
             <div className="text-xs text-slate-400">
-              {t.gpuHealth.activeSiliconArch} · {gpu.pcieLane}
+              {t.gpuHealth.activeSiliconArch} · {gpu.pcieLane || t.common.sensorNotAvailable}
             </div>
           </div>
         </div>
@@ -96,26 +97,38 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               </span>
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                  isDeltaElevated
+                  !hasGpuSensors
+                    ? 'bg-slate-800 text-slate-400 border border-slate-700'
+                    : isDeltaElevated
                     ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                     : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                 }`}
               >
-                {isDeltaElevated ? t.gpuHealth.warningGradient : t.gpuHealth.healthyGradient}
+                {!hasGpuSensors
+                  ? t.common.sensorNotAvailable
+                  : isDeltaElevated
+                  ? t.gpuHealth.warningGradient
+                  : t.gpuHealth.healthyGradient}
               </span>
             </div>
 
             <div className="mt-4 flex items-baseline gap-2">
               <span
-                className={`text-4xl font-black font-mono tracking-tight ${
-                  isDeltaElevated ? 'text-amber-400' : 'text-emerald-400'
+                className={`text-3xl font-black font-mono tracking-tight ${
+                  !hasGpuSensors
+                    ? 'text-slate-400'
+                    : isDeltaElevated
+                    ? 'text-amber-400'
+                    : 'text-emerald-400'
                 }`}
               >
-                +{deltaT.toFixed(1)}°C
+                {hasGpuSensors ? `+${deltaT.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </span>
-              <span className="text-xs text-slate-400 font-mono">
-                (Hotspot {gpu.hotspot}°C - Core {gpu.temperature}°C)
-              </span>
+              {hasGpuSensors && (
+                <span className="text-xs text-slate-400 font-mono">
+                  (Hotspot {gpu.hotspot}°C - Core {gpu.temperature}°C)
+                </span>
+              )}
             </div>
 
             <p className="text-xs text-slate-400 mt-2 leading-relaxed">
@@ -145,7 +158,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
-              {t.gpuHealth.noThrottling}
+              {hasGpuSensors ? t.gpuHealth.noThrottling : t.common.sensorNotAvailable}
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
               {t.gpuHealth.throttlingDesc}
@@ -160,7 +173,9 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <CheckCircle className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
-              {(gpu.vramUsedMB / 1024).toFixed(1)} GB / {(gpu.vramTotalMB / 1024).toFixed(0)} GB
+              {gpu.vramTotalMB > 0
+                ? `${(gpu.vramUsedMB / 1024).toFixed(1)} GB / ${(gpu.vramTotalMB / 1024).toFixed(0)} GB`
+                : t.common.sensorNotAvailable}
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
               {t.gpuHealth.vramDesc}
@@ -175,7 +190,9 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <Fan className="w-4 h-4 text-cyan-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
-              {gpu.fansRPM} RPM ({gpu.fanSpeedPercent}%)
+              {gpu.fansRPM > 0
+                ? `${gpu.fansRPM} RPM (${gpu.fanSpeedPercent}%)`
+                : t.common.sensorNotAvailable}
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
               {t.gpuHealth.fanCurveDesc}
@@ -190,7 +207,9 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <Activity className="w-4 h-4 text-purple-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
-              {gpu.powerWatts.toFixed(0)} W ({t.gpuHealth.tgpStable})
+              {gpu.powerWatts > 0
+                ? `${gpu.powerWatts.toFixed(0)} W (${t.gpuHealth.tgpStable})`
+                : t.common.sensorNotAvailable}
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
               {t.gpuHealth.siliconVoltageDesc}
@@ -199,7 +218,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
         </div>
       </div>
 
-      {/* Safety Notice per Master Prompt Rule #4 */}
+      {/* Safety Notice */}
       <div className="p-4 rounded-xl bg-[#11131c] border border-slate-800 flex items-start gap-3 text-xs text-slate-400 leading-relaxed">
         <Info className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
         <div>
@@ -233,13 +252,36 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <div className="text-slate-500">Timestamp: {new Date().toISOString()}</div>
               <div className="text-purple-400 font-bold">========================================================</div>
               <div>• GPU: {gpu.name} ({gpu.vendor})</div>
-              <div>• Core Temp: {gpu.temperature.toFixed(1)}°C</div>
-              <div>• Hotspot Temp: {gpu.hotspot.toFixed(1)}°C</div>
-              <div>• Thermal Delta (ΔT): +{deltaT.toFixed(1)}°C</div>
-              <div>• GDDR6X Memory Temp: {gpu.memoryTemp.toFixed(1)}°C</div>
-              <div>• VRAM Usage: {(gpu.vramUsedMB / 1024).toFixed(1)} GB / {(gpu.vramTotalMB / 1024).toFixed(0)} GB</div>
-              <div>• Frequency: {gpu.clockMHz} MHz</div>
-              <div>• Status: {t.gpuHealth.nominalSpecification}</div>
+              <div>
+                • Core Temp:{' '}
+                {gpu.temperature > 0 ? `${gpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
+              </div>
+              <div>
+                • Hotspot Temp:{' '}
+                {gpu.hotspot > 0 ? `${gpu.hotspot.toFixed(1)}°C` : t.common.sensorNotAvailable}
+              </div>
+              <div>
+                • Thermal Delta (ΔT):{' '}
+                {hasGpuSensors ? `+${deltaT.toFixed(1)}°C` : t.common.sensorNotAvailable}
+              </div>
+              <div>
+                • Memory Temp:{' '}
+                {gpu.memoryTemp > 0 ? `${gpu.memoryTemp.toFixed(1)}°C` : t.common.sensorNotAvailable}
+              </div>
+              <div>
+                • VRAM Usage:{' '}
+                {gpu.vramTotalMB > 0
+                  ? `${(gpu.vramUsedMB / 1024).toFixed(1)} GB / ${(gpu.vramTotalMB / 1024).toFixed(0)} GB`
+                  : t.common.sensorNotAvailable}
+              </div>
+              <div>
+                • Frequency:{' '}
+                {gpu.clockMHz > 0 ? `${gpu.clockMHz} MHz` : t.common.sensorNotAvailable}
+              </div>
+              <div>
+                • Status:{' '}
+                {hasGpuSensors ? t.gpuHealth.nominalSpecification : t.common.sensorNotAvailable}
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
