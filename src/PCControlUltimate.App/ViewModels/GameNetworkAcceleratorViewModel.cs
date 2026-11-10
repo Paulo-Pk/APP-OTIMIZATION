@@ -22,6 +22,7 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
     private string _tunnelName = string.Empty;
     private GameProcessInfo? _selectedGame;
     private bool _busy;
+    private bool _tunnelInstalled;
 
     public GameNetworkAcceleratorViewModel(MainViewModel workspace)
         : base(workspace, "accelerator", "NavAccelerator")
@@ -82,7 +83,7 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
         {
             Status = $"Medindo handshake TCP para {TargetHost}:{port}. Isso não é o ping interno da partida.";
             var result = await _probe.MeasureTcpAsync(TargetHost.Trim(), port, 7, _operationCts.Token);
-            Measurements.Insert(0, result);
+            Measurements.Insert(0, result with { Label = _tunnelInstalled ? "Via túnel WireGuard" : "Direta (sem túnel)" });
             while (Measurements.Count > 20) Measurements.RemoveAt(Measurements.Count - 1);
             Status = result.AverageMs.HasValue
                 ? $"Medição concluída: {result.AverageMs:F1} ms TCP, jitter {result.JitterMs?.ToString("F1") ?? "N/D"} ms, perda de conexão {result.PacketLossPercent:F1}%."
@@ -135,7 +136,11 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
         try
         {
             var result = await _tunnel.InstallAsync(ConfigPath);
-            if (result.Success && !string.IsNullOrWhiteSpace(result.TunnelName)) TunnelName = result.TunnelName;
+            if (result.Success && !string.IsNullOrWhiteSpace(result.TunnelName))
+            {
+                TunnelName = result.TunnelName;
+                _tunnelInstalled = true;
+            }
             Status = result.Message;
         }
         finally { IsBusy = false; }
@@ -152,6 +157,7 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
         try
         {
             var result = await _tunnel.RemoveAsync(TunnelName);
+            if (result.Success) _tunnelInstalled = false;
             Status = result.Message;
         }
         finally { IsBusy = false; }
