@@ -8,7 +8,7 @@ using System.Security.Principal;
 namespace PCControlUltimate.Gaming.NetworkAcceleration;
 
 public sealed record GameProcessInfo(int ProcessId, string ProcessName, string ExecutablePath);
-public sealed record RouteProbeResult(string Label, string Host, int Port, int Samples, int Successful, double? AverageMs, double? JitterMs, double PacketLossPercent, string Status, DateTimeOffset MeasuredAt);
+public sealed record RouteProbeResult(string Label, string Host, int Port, int Samples, int Successful, double? AverageMs, double? JitterMs, double ConnectionFailurePercent, string Status, DateTimeOffset MeasuredAt);
 public sealed record TraceHopResult(int Hop, string Address, double? RoundTripMs, string Status);
 public sealed record TunnelOperationResult(bool Success, string Message, string? TunnelName = null);
 
