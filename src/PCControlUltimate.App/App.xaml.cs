@@ -7,6 +7,7 @@ using PCControlUltimate.App.Services;
 using PCControlUltimate.App.ViewModels;
 using PCControlUltimate.App.Views;
 using PCControlUltimate.Core.Interfaces;
+using PCControlUltimate.Gaming.Network;
 using PCControlUltimate.Hardware;
 using PCControlUltimate.Infrastructure.Data;
 using PCControlUltimate.Infrastructure.Services;
@@ -82,6 +83,14 @@ public partial class App : Application
             services.AddTransient<AppDbContext>(sp => sp.GetRequiredService<DatabaseService>().CreateDbContext());
             services.AddSingleton<IHardwareMonitorService>(_hardwareMonitor);
             services.AddSingleton<AgentClientService>(_agentClient);
+            services.AddSingleton<GameNetworkAcceleratorEngine>();
+            services.AddSingleton<IAccelerationProvider>(sp => sp.GetRequiredService<GameNetworkAcceleratorEngine>());
+            services.AddSingleton<IGameNetworkDetector>(sp => sp.GetRequiredService<GameNetworkAcceleratorEngine>());
+            services.AddSingleton<IRouteProbe>(sp => sp.GetRequiredService<GameNetworkAcceleratorEngine>());
+            services.AddSingleton<INetworkMeasurementService>(sp => sp.GetRequiredService<GameNetworkAcceleratorEngine>());
+            services.AddSingleton<INodeHealthService>(sp => sp.GetRequiredService<GameNetworkAcceleratorEngine>());
+            services.AddSingleton<ITunnelProvider>(sp => sp.GetRequiredService<GameNetworkAcceleratorEngine>());
+            services.AddSingleton<ITrafficRoutingProvider>(sp => sp.GetRequiredService<GameNetworkAcceleratorEngine>());
             services.AddSingleton<MainViewModel>();
             services.AddSingleton<INavigationService>(sp => sp.GetRequiredService<MainViewModel>().Navigation);
 

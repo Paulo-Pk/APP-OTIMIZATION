@@ -122,7 +122,7 @@ public static class IntegrityVerifier
             if (!string.IsNullOrEmpty(dir))
             {
                 Directory.CreateDirectory(dir);
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                if (OperatingSystem.IsWindows())
                 {
                     TryRestrictDirectoryAclToCurrentUser(dir, out _);
                 }
@@ -130,7 +130,7 @@ public static class IntegrityVerifier
 
             byte[] plainBytes = Encoding.UTF8.GetBytes(plainToken);
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 byte[] encryptedBytes;
                 try
@@ -174,7 +174,7 @@ public static class IntegrityVerifier
     public static bool SaveProtectedSessionToken(string filePath, string plainToken)
     {
         var report = SaveProtectedSessionTokenWithReport(filePath, plainToken);
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (OperatingSystem.IsWindows())
         {
             return report.Success && report.DpapiProtected && report.AclRestricted;
         }
@@ -190,7 +190,7 @@ public static class IntegrityVerifier
 
             byte[] storedBytes = File.ReadAllBytes(filePath);
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 byte[] plainBytes = ProtectedData.Unprotect(storedBytes, DpapiEntropy, DataProtectionScope.CurrentUser);
                 return Encoding.UTF8.GetString(plainBytes);
@@ -207,7 +207,7 @@ public static class IntegrityVerifier
     public static bool TryRestrictDirectoryAclToCurrentUser(string directoryPath, out string? errorMessage)
     {
         errorMessage = null;
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
         {
             errorMessage = "NTFS ACL restriction requires Windows OS.";
             return false;
@@ -252,7 +252,7 @@ public static class IntegrityVerifier
     public static bool TryRestrictFileAclToCurrentUser(string filePath, out string? errorMessage)
     {
         errorMessage = null;
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
         {
             errorMessage = "NTFS ACL restriction requires Windows OS.";
             return false;

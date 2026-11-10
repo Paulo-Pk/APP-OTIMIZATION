@@ -129,6 +129,14 @@ public class DatabaseAndDiTests : IDisposable
         services.AddTransient<AppDbContext>(sp => sp.GetRequiredService<DatabaseService>().CreateDbContext());
         services.AddSingleton<IHardwareMonitorService, LibreHardwareMonitorWrapper>();
         services.AddSingleton(_ => new AgentClientService("test-session-token-1234567890"));
+        services.AddSingleton<PCControlUltimate.Gaming.Network.GameNetworkAcceleratorEngine>();
+        services.AddSingleton<PCControlUltimate.Gaming.Network.IAccelerationProvider>(sp => sp.GetRequiredService<PCControlUltimate.Gaming.Network.GameNetworkAcceleratorEngine>());
+        services.AddSingleton<PCControlUltimate.Gaming.Network.ITunnelProvider>(sp => sp.GetRequiredService<PCControlUltimate.Gaming.Network.GameNetworkAcceleratorEngine>());
+        services.AddSingleton<PCControlUltimate.Gaming.Network.ITrafficRoutingProvider>(sp => sp.GetRequiredService<PCControlUltimate.Gaming.Network.GameNetworkAcceleratorEngine>());
+        services.AddSingleton<PCControlUltimate.Gaming.Network.IRouteProbe>(sp => sp.GetRequiredService<PCControlUltimate.Gaming.Network.GameNetworkAcceleratorEngine>());
+        services.AddSingleton<PCControlUltimate.Gaming.Network.IGameNetworkDetector>(sp => sp.GetRequiredService<PCControlUltimate.Gaming.Network.GameNetworkAcceleratorEngine>());
+        services.AddSingleton<PCControlUltimate.Gaming.Network.INetworkMeasurementService>(sp => sp.GetRequiredService<PCControlUltimate.Gaming.Network.GameNetworkAcceleratorEngine>());
+        services.AddSingleton<PCControlUltimate.Gaming.Network.INodeHealthService>(sp => sp.GetRequiredService<PCControlUltimate.Gaming.Network.GameNetworkAcceleratorEngine>());
 
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions
         {
@@ -140,11 +148,15 @@ public class DatabaseAndDiTests : IDisposable
         using var dbContext = provider.GetRequiredService<AppDbContext>();
         var hwMonitor = provider.GetRequiredService<IHardwareMonitorService>();
         var agentClient = provider.GetRequiredService<AgentClientService>();
+        var accelProvider = provider.GetRequiredService<PCControlUltimate.Gaming.Network.IAccelerationProvider>();
+        var tunnelProvider = provider.GetRequiredService<PCControlUltimate.Gaming.Network.ITunnelProvider>();
 
         Assert.NotNull(dbService);
         Assert.NotNull(dbContext);
         Assert.NotNull(hwMonitor);
         Assert.NotNull(agentClient);
+        Assert.NotNull(accelProvider);
+        Assert.Same(accelProvider, tunnelProvider);
     }
 
     public void Dispose()

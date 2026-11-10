@@ -1322,7 +1322,7 @@ public class MainViewModel : INotifyPropertyChanged
 
                 if (snap.GpuCoreTemp.HasValue && snap.GpuHotspotTemp.HasValue)
                 {
-                    var thermalEval = GpuThermalAuditor.EvaluateThermalState(snap.GpuCoreTemp.Value, snap.GpuHotspotTemp.Value);
+                    var thermalEval = GpuThermalAuditor.EvaluateThermalState(snap.GpuCoreTemp.Value, snap.GpuHotspotTemp.Value, snap.GpuModelName);
                     GpuThermalDiagnosisText = $"Status: {thermalEval.Status} (Delta Core/Hotspot: +{thermalEval.Delta:F1} °C) — {thermalEval.Message}";
                 }
                 else

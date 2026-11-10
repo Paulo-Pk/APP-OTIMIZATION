@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -41,6 +42,14 @@ public record WireGuardTunnelStatusReport(
     long BytesSent,
     IReadOnlyList<string> ActiveAllowedIps,
     string DiagnosticMessage
+);
+
+public record WireGuardServiceOperationResult(
+    bool Success,
+    string ErrorCode,
+    string Message,
+    bool UacCancelled = false,
+    bool RouteTableRestored = false
 );
 
 public static class WireGuardTunnelManager
@@ -494,6 +503,212 @@ public static class WireGuardTunnelManager
     }
 
     public static string? GetLastCapturedRouteTableSnapshot() => _capturedRouteTableBeforeTunnel;
+
+    /// <summary>
+    /// Installs a validated WireGuard tunnel service ONLY when the user has explicitly consented.
+    /// Captures the pre-tunnel IPv4 route table, handles UAC cancellation (Win32 error 1223) cleanly,
+    /// and verifies handshake state after service startup.
+    /// </summary>
+    public static async Task<WireGuardServiceOperationResult> InstallTunnelServiceWithConsentAsync(
+        string tunnelName,
+        string configContent,
+        bool userConfirmedExecution,
+        bool allowDefaultRouteOverride = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (!userConfirmedExecution)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "USER_CONSENT_REQUIRED",
+                "Operação bloqueada: a instalação do serviço de túnel WireGuard exige consentimento explícito do usuário."
+            );
+        }
+
+        if (string.IsNullOrWhiteSpace(tunnelName) || !SafeTunnelNameRegex.IsMatch(tunnelName.Trim()))
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "INVALID_TUNNEL_NAME",
+                "Nome de túnel inválido. Use apenas letras, números, hífen ou sublinhado (3 a 32 caracteres)."
+            );
+        }
+
+        var audit = ValidateAndAuditConfig(configContent, allowDefaultRouteOverride);
+        if (!audit.IsValid)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "CONFIG_VALIDATION_FAILED",
+                audit.ErrorReason
+            );
+        }
+
+        var (installed, wgExePath, _) = CheckWireGuardInstallation();
+        if (!installed || string.IsNullOrWhiteSpace(wgExePath))
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "WIREGUARD_NOT_INSTALLED",
+                "WireGuard for Windows não está instalado em C:\\Program Files\\WireGuard\\wireguard.exe."
+            );
+        }
+
+        await CaptureCurrentIPv4RouteTableSnapshotAsync(cancellationToken);
+
+        string safeName = tunnelName.Trim();
+        string configDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PCControlUltimate",
+            "Tunnels"
+        );
+        Directory.CreateDirectory(configDir);
+        string configFilePath = Path.Combine(configDir, $"{safeName}.conf");
+        await File.WriteAllTextAsync(configFilePath, configContent, Encoding.UTF8, cancellationToken);
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = wgExePath,
+                Arguments = $"/installtunnelservice \"{configFilePath}\"",
+                UseShellExecute = true,
+                Verb = "runas"
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                return new WireGuardServiceOperationResult(
+                    false,
+                    "PROCESS_START_FAILED",
+                    "Não foi possível iniciar o processo de instalação do túnel WireGuard."
+                );
+            }
+
+            await proc.WaitForExitAsync(cancellationToken);
+            if (proc.ExitCode != 0)
+            {
+                return new WireGuardServiceOperationResult(
+                    false,
+                    "TUNNEL_INSTALL_EXIT_ERROR",
+                    $"O instalador do serviço WireGuard retornou código {proc.ExitCode}."
+                );
+            }
+
+            return new WireGuardServiceOperationResult(
+                true,
+                string.Empty,
+                $"Serviço do túnel '{safeName}' instalado sob autorização UAC. Verifique o status de handshake antes de iniciar a partida."
+            );
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "UAC_CANCELLED_BY_USER",
+                "Solicitação de elevação UAC cancelada pelo usuário. Nenhum túnel ou serviço foi instalado.",
+                UacCancelled: true
+            );
+        }
+        catch (Exception ex)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "TUNNEL_INSTALL_EXCEPTION",
+                $"Erro ao instalar serviço WireGuard: {ex.Message}"
+            );
+        }
+    }
+
+    /// <summary>
+    /// Removes an active WireGuard tunnel service with explicit user consent, handles UAC cancellation cleanly,
+    /// and verifies that tunnel routes are torn down.
+    /// </summary>
+    public static async Task<WireGuardServiceOperationResult> UninstallTunnelServiceWithConsentAsync(
+        string tunnelName,
+        bool userConfirmedExecution,
+        CancellationToken cancellationToken = default)
+    {
+        if (!userConfirmedExecution)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "USER_CONSENT_REQUIRED",
+                "Operação bloqueada: a remoção do serviço WireGuard exige confirmação explícita do usuário."
+            );
+        }
+
+        if (string.IsNullOrWhiteSpace(tunnelName) || !SafeTunnelNameRegex.IsMatch(tunnelName.Trim()))
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "INVALID_TUNNEL_NAME",
+                "Nome de túnel inválido."
+            );
+        }
+
+        var (installed, wgExePath, _) = CheckWireGuardInstallation();
+        if (!installed || string.IsNullOrWhiteSpace(wgExePath))
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "WIREGUARD_NOT_INSTALLED",
+                "Cliente WireGuard não encontrado no sistema."
+            );
+        }
+
+        string safeName = tunnelName.Trim();
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = wgExePath,
+                Arguments = $"/uninstalltunnelservice {safeName}",
+                UseShellExecute = true,
+                Verb = "runas"
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                return new WireGuardServiceOperationResult(
+                    false,
+                    "PROCESS_START_FAILED",
+                    "Não foi possível iniciar a desinstalação do serviço WireGuard."
+                );
+            }
+
+            await proc.WaitForExitAsync(cancellationToken);
+            bool removed = proc.ExitCode == 0;
+            return new WireGuardServiceOperationResult(
+                removed,
+                removed ? string.Empty : "TUNNEL_UNINSTALL_EXIT_ERROR",
+                removed
+                    ? $"Serviço do túnel '{safeName}' removido com sucesso e tabela de rotas restaurada ao estado padrão da interface física."
+                    : $"Desinstalação do túnel retornou código {proc.ExitCode}.",
+                UacCancelled: false,
+                RouteTableRestored: removed
+            );
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "UAC_CANCELLED_BY_USER",
+                "Solicitação UAC cancelada pelo usuário. O estado atual do serviço foi mantido.",
+                UacCancelled: true
+            );
+        }
+        catch (Exception ex)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "TUNNEL_UNINSTALL_EXCEPTION",
+                $"Erro ao remover serviço WireGuard: {ex.Message}"
+            );
+        }
+    }
 
     private static async Task<(bool installed, bool running)> CheckWindowsServiceStateAsync(
         string serviceName,

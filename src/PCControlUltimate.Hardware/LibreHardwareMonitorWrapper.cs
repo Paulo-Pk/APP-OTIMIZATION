@@ -36,7 +36,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
         {
             IsAvailable = false;
             CurrentStatus = SensorReadingStatus.SensorNotSupported;
@@ -197,12 +197,16 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         if (sensor.SensorType == SensorType.Temperature)
                         {
                             if (sensor.Name.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase) ||
-                                sensor.Name.Contains("Hotspot", StringComparison.OrdinalIgnoreCase))
+                                sensor.Name.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
+                                sensor.Name.Contains("Junction", StringComparison.OrdinalIgnoreCase))
                             {
                                 gpuHotspot ??= sensor.Value;
                             }
-                            else if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
-                                     sensor.Name.Contains("GPU", StringComparison.OrdinalIgnoreCase))
+                            else if ((sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
+                                      sensor.Name.Equals("GPU", StringComparison.OrdinalIgnoreCase) ||
+                                      sensor.Name.Equals("GPU Temperature", StringComparison.OrdinalIgnoreCase)) &&
+                                     !sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase) &&
+                                     !sensor.Name.Contains("SoC", StringComparison.OrdinalIgnoreCase))
                             {
                                 gpuTemp ??= sensor.Value;
                             }

@@ -25,9 +25,10 @@ public class OptimizationSafetyTests
     {
         float coreTemp = 60.0f;
         float hotspotTemp = 74.0f; // Delta = 14°C < 18°C
-        var result = GpuThermalAuditor.EvaluateThermalState(coreTemp, hotspotTemp);
+        var result = GpuThermalAuditor.EvaluateThermalState(coreTemp, hotspotTemp, "ASRock RX 7900 XTX Taichi White 24G OC");
         Assert.Equal(GpuThermalHealth.Excellent, result.Status);
         Assert.True(result.Delta <= 18.0f);
+        Assert.Contains("RDNA 3", result.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

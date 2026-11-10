@@ -268,4 +268,47 @@ public class GameNetworkAcceleratorTests
         Assert.Contains("DESATIVADO", report.WfpLimitationExplanationPt);
         Assert.Contains("DISABLED", report.WfpLimitationExplanationEn);
     }
+
+    [Fact]
+    public async System.Threading.Tasks.Task WireGuardTunnelManager_InstallAndUninstall_WithoutExplicitUserConsent_MustBeBlocked()
+    {
+        var node = new RelayNodeCandidate(
+            "sa-gru-01", "São Paulo Relay", "SA-EAST-1", "203.0.113.10", 51820,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
+            new[] { "155.133.248.0/24" }, true
+        );
+
+        Assert.IsAssignableFrom<IAccelerationNode>(node);
+
+        string selectiveConfig = WireGuardTunnelManager.BuildSelectiveGameTunnelConfig(
+            "wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=",
+            "10.66.66.2/32",
+            node
+        );
+
+        var engine = new GameNetworkAcceleratorEngine();
+        Assert.IsAssignableFrom<IAccelerationProvider>(engine);
+        Assert.IsAssignableFrom<ITunnelProvider>(engine);
+        Assert.IsAssignableFrom<ITrafficRoutingProvider>(engine);
+        Assert.IsAssignableFrom<IRouteProbe>(engine);
+        Assert.IsAssignableFrom<IGameNetworkDetector>(engine);
+        Assert.IsAssignableFrom<INetworkMeasurementService>(engine);
+        Assert.IsAssignableFrom<INodeHealthService>(engine);
+
+        var installBlocked = await engine.InstallTunnelWithConsentAsync(
+            "PCControlGameTunnel",
+            selectiveConfig,
+            userConfirmedExecution: false,
+            allowDefaultRouteOverride: false
+        );
+        Assert.False(installBlocked.Success);
+        Assert.Equal("USER_CONSENT_REQUIRED", installBlocked.ErrorCode);
+
+        var uninstallBlocked = await engine.RemoveTunnelAndRestoreRoutesAsync(
+            "PCControlGameTunnel",
+            userConfirmedExecution: false
+        );
+        Assert.False(uninstallBlocked.Success);
+        Assert.Equal("USER_CONSENT_REQUIRED", uninstallBlocked.ErrorCode);
+    }
 }

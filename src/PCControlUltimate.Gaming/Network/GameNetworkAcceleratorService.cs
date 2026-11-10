@@ -57,7 +57,7 @@ public record RelayNodeCandidate(
     string PublicKey,
     IReadOnlyList<string> GameTargetCidrs,
     bool IsCustomVps
-);
+) : IAccelerationNode;
 
 public record RouteComparisonEvaluation(
     string GameIdentifier,
