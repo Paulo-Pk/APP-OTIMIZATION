@@ -86,7 +86,7 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
             Measurements.Insert(0, result with { Label = _tunnelInstalled ? "Após instalar túnel (handshake não verificado)" : "Direta (sem túnel)" });
             while (Measurements.Count > 20) Measurements.RemoveAt(Measurements.Count - 1);
             Status = result.AverageMs.HasValue
-                ? $"Medição concluída: {result.AverageMs:F1} ms TCP, jitter {result.JitterMs?.ToString("F1") ?? "N/D"} ms, perda de conexão {result.PacketLossPercent:F1}%."
+                ? $"Medição concluída: {result.AverageMs:F1} ms TCP, jitter {result.JitterMs?.ToString("F1") ?? "N/D"} ms, perda de conexão {result.ConnectionFailurePercent:F1}%."
                 : result.Status;
         }
         catch (Exception ex) { Status = $"Falha na medição: {ex.Message}"; }
