@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano cirúrgico para corrigir as 3 falhas restantes nos 99 testes automatizados (RegistryStateLedger_RestoreWithoutTrustedHistory_MustBeBlocked e os 2 casos de ValidateHostHeader_EnforcesStrictLoopbackHost), preservando toda a validação de segurança, WireGuard IPv4/IPv6 e dependências SQLite/EF Core.",
-  "updatedAt":  "2026-11-10T21:36:02.420793466Z",
+  "summary":  "Plano de integração segura das correções da main na branch feature/game-network-accelerator, resolução dos avisos CS8602 em MainViewModel.cs (linhas 745 e 793) e CA1416 nas APIs do Registro do Windows via SupportedOSPlatform(\"windows\") + guardas OperatingSystem.IsWindows(), preservando 100% dos contratos de RegistryOptimizer, SQLite 3.0.5 e Game Network Accelerator.",
+  "updatedAt":  "2026-11-10T22:02:23.184582020Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

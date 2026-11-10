@@ -1,10 +1,14 @@
 using System;
+using System.Runtime.Versioning;
 using Microsoft.Win32;
 using PCControlUltimate.Windows.Services;
 using Xunit;
 
+[assembly: SupportedOSPlatform("windows")]
+
 namespace PCControlUltimate.Tests;
 
+[SupportedOSPlatform("windows")]
 public class RegistryOptimizerTests
 {
     [Theory]

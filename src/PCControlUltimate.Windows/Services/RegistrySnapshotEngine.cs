@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -160,6 +161,7 @@ public record SnapshotRestoreResult(
 }
 
 
+[SupportedOSPlatform("windows")]
 public static class RegistrySnapshotEngine
 {
     public const string CurrentFormatVersion = "2.1";
@@ -230,7 +232,7 @@ public static class RegistrySnapshotEngine
             var capturedEntries = new List<RegistryValueEntry>();
             var readFailures = new List<RegistryReadFailure>();
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 // Capture the exact state of every tweak in the closed catalog
                 foreach (var tweak in RegistryOptimizer.Catalog.Values)
@@ -691,7 +693,7 @@ public static class RegistrySnapshotEngine
     private static Dictionary<string, RegistryValueEntry> CaptureCurrentStateForRollback(IEnumerable<RegistryValueEntry> targetEntries)
     {
         var map = new Dictionary<string, RegistryValueEntry>(StringComparer.OrdinalIgnoreCase);
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
             return map;
 
         foreach (var entry in targetEntries)

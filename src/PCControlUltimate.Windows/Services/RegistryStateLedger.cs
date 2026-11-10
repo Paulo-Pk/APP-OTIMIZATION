@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -54,6 +55,7 @@ public record LedgerValidationResult(
 /// Protected by Windows DPAPI (CurrentUser), NTFS ACLs, and canonical HMAC-SHA256 authentication.
 /// Ensures the backend never trusts originalValue, valueKind, wasInitiallyAbsent, or keyCreatedByApp sent by the frontend.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public static class RegistryStateLedger
 {
     private static readonly object _syncRoot = new();

@@ -4,10 +4,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Win32;
+
+[assembly: SupportedOSPlatform("windows")]
 
 namespace PCControlUltimate.Windows.Services;
 
@@ -62,6 +65,7 @@ public record RegistryOperationResult(
 }
 
 
+[SupportedOSPlatform("windows")]
 public static class RegistryOptimizer
 {
     private static readonly ConcurrentQueue<RegistryAuditLogEntry> _auditHistory = new();
@@ -562,7 +566,7 @@ public static class RegistryOptimizer
         string fullKeyPath = $"{def.Hive}\\{def.SubKeyPath}";
         RegistryValueKind targetKind = def.ValueKind;
 
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
         {
             RecordAudit("APPLY_UNSUPPORTED_OS", def.TweakId, fullKeyPath, def.ValueName, targetKind.ToString(),
                 null, serializedTargetValue, null, false, "Operação de Registro requer plataforma Windows nativa.");
@@ -992,7 +996,7 @@ public static class RegistryOptimizer
 
         string fullKeyPath = $"{def.Hive}\\{def.SubKeyPath}";
 
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
         {
             // In non-Windows environments (e.g., automated xUnit verification of trusted ledger / snapshot state rules),
             // report verified logical restoration after passing all cryptographic and catalog validations.

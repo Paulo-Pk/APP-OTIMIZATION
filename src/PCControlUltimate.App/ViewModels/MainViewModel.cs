@@ -742,7 +742,7 @@ public class MainViewModel : INotifyPropertyChanged
             RestoreProgressPercent = 100;
             RestoreProgressStatus = Loc["RestoreProgressDone"];
 
-            foreach (var itemReport in report.ItemReports)
+            foreach (var itemReport in report.ItemReports ?? Array.Empty<SnapshotItemRestoreReport>())
             {
                 string statusTag = itemReport.RestoredAndVerified ? "[OK - VERIFICADO]" : "[FALHA]";
                 RestoreItemResults.Add($"{statusTag} {itemReport.TweakId} ({itemReport.KeyPath}\\{itemReport.ValueName}) -> {itemReport.Message}");
@@ -790,7 +790,7 @@ public class MainViewModel : INotifyPropertyChanged
             RestoreProgressStatus = Loc["RestoreProgressDone"];
 
             RestoreItemResults.Clear();
-            foreach (var itemReport in report.ItemReports)
+            foreach (var itemReport in report.ItemReports ?? Array.Empty<SnapshotItemRestoreReport>())
             {
                 string statusTag = itemReport.RestoredAndVerified ? "[OK - VERIFICADO]" : "[FALHA]";
                 RestoreItemResults.Add($"{statusTag} {itemReport.TweakId} ({itemReport.KeyPath}\\{itemReport.ValueName}) -> {itemReport.Message}");
