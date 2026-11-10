@@ -1,0 +1,204 @@
+import React, { useState } from 'react';
+import {
+  Gamepad2,
+  Zap,
+  SlidersHorizontal,
+  Plus,
+  Play,
+  RotateCcw,
+  CheckCircle2,
+  Clock,
+  Gauge,
+  Flame,
+  ShieldCheck,
+} from 'lucide-react';
+import { GameProfile } from '../../types';
+
+interface GameCenterViewProps {
+  games: GameProfile[];
+  onOpenProfileModal: (game: GameProfile) => void;
+  onToggleGameBoost: (gameId: string) => void;
+  onAddCustomGame: () => void;
+}
+
+export const GameCenterView: React.FC<GameCenterViewProps> = ({
+  games,
+  onOpenProfileModal,
+  onToggleGameBoost,
+  onAddCustomGame,
+}) => {
+  const [activePlatformFilter, setActivePlatformFilter] = useState<string>('all');
+  const [runningGameId, setRunningGameId] = useState<string | null>(null);
+
+  const filteredGames = games.filter((g) => {
+    if (activePlatformFilter === 'all') return true;
+    return g.platform.toLowerCase() === activePlatformFilter.toLowerCase();
+  });
+
+  const handleLaunchGame = (game: GameProfile) => {
+    setRunningGameId(game.id);
+    // Simulate game preparation (locking power plan, setting high priority, isolating affinity)
+  };
+
+  const handleStopGame = () => {
+    setRunningGameId(null);
+  };
+
+  return (
+    <div className="space-y-5 animate-fade-in">
+      {/* Top Banner */}
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#121522] via-[#161a29] to-[#0f111a] border border-purple-900/30">
+        <div>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
+            <Gamepad2 className="w-4 h-4" /> Hub de Jogos & Escalonamento de Threads
+          </div>
+          <h1 className="text-xl font-black text-white mt-0.5">GAME CENTER</h1>
+          <p className="text-xs text-slate-400 mt-1 max-w-xl">
+            Preparação temporária do sistema antes de jogar: afinidade em P-Cores, prioridade de processo e restauração automática ao fechar.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onAddCustomGame}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#141724] hover:bg-[#1b2033] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4 text-purple-400" />
+            <span>Adicionar Jogo (.exe)</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Platform Filter Tabs */}
+      <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-[#0f121b] border border-slate-800">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-400 font-semibold mr-1">Plataforma:</span>
+          {['all', 'Steam', 'Epic', 'Xbox', 'Manual'].map((platform) => {
+            const isActive = activePlatformFilter === platform;
+            return (
+              <button
+                key={platform}
+                onClick={() => setActivePlatformFilter(platform)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 border border-purple-400/40'
+                    : 'bg-[#151926] text-slate-400 hover:text-slate-200 hover:bg-[#1a2030] border border-slate-800'
+                }`}
+              >
+                {platform === 'all' ? 'Todos os Jogos' : platform}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <span className="hidden sm:inline">100% Compatível com EasyAntiCheat & BattlEye</span>
+        </div>
+      </div>
+
+      {/* Games Visual Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {filteredGames.map((game) => {
+          const isRunning = runningGameId === game.id;
+
+          return (
+            <div
+              key={game.id}
+              className={`rounded-xl overflow-hidden border transition-all flex flex-col justify-between ${
+                isRunning
+                  ? 'bg-[#141829] border-purple-500 shadow-lg shadow-purple-900/30'
+                  : 'bg-[#0f121b] border-slate-800 hover:border-purple-600/40'
+              }`}
+            >
+              {/* Cover Image & Platform Tag */}
+              <div className="relative h-40 bg-slate-900 overflow-hidden group">
+                <img
+                  src={game.coverImage}
+                  alt={game.title}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0f121b] via-transparent to-black/60" />
+
+                <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-bold text-slate-300 border border-slate-700/60 uppercase">
+                  {game.platform}
+                </div>
+
+                {game.boostEnabled && (
+                  <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded bg-purple-600/80 backdrop-blur-md text-[10px] font-bold text-white border border-purple-400/40 flex items-center gap-1">
+                    <Zap className="w-3 h-3 fill-current" /> Game Boost Ativo
+                  </div>
+                )}
+
+                {isRunning && (
+                  <div className="absolute inset-0 bg-purple-950/70 backdrop-blur-xs flex items-center justify-center flex-col gap-1">
+                    <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" /> Em Execução (Prioridade Alta)
+                    </span>
+                    <button
+                      onClick={handleStopGame}
+                      className="mt-2 px-3 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer"
+                    >
+                      Encerrar Sessão & Restaurar
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Body */}
+              <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
+                <div>
+                  <h3 className="font-bold text-sm text-white truncate" title={game.title}>
+                    {game.title}
+                  </h3>
+                  <div className="text-[11px] font-mono text-slate-500 truncate mt-0.5" title={game.executablePath}>
+                    {game.executablePath.split('\\').pop()}
+                  </div>
+                </div>
+
+                {/* Per-Game Config Badges */}
+                <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-800/80">
+                  <div className="p-2 rounded bg-[#0a0c13] border border-slate-900">
+                    <span className="text-slate-500 block text-[9px] uppercase">Prioridade CPU</span>
+                    <span className="font-semibold text-purple-300">{game.processPriority}</span>
+                  </div>
+                  <div className="p-2 rounded bg-[#0a0c13] border border-slate-900">
+                    <span className="text-slate-500 block text-[9px] uppercase">Afinidade</span>
+                    <span className="font-semibold text-cyan-300">{game.cpuAffinity}</span>
+                  </div>
+                </div>
+
+                {/* FPS History Metric */}
+                {game.averageFps && (
+                  <div className="flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg bg-[#0a0c13] border border-slate-800/60 font-mono">
+                    <span className="text-slate-400 text-[11px]">FPS Médio:</span>
+                    <span className="font-bold text-emerald-400">{game.averageFps} FPS</span>
+                  </div>
+                )}
+
+                {/* Actions: Iniciar / Perfil */}
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-800/60">
+                  <button
+                    onClick={() => onOpenProfileModal(game)}
+                    className="p-2 rounded-lg bg-[#141724] hover:bg-[#1a2032] border border-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Editar Perfil do Jogo"
+                  >
+                    <SlidersHorizontal className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    onClick={() => handleLaunchGame(game)}
+                    className="flex-1 py-2 px-3 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border border-purple-400/30 flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>GAME BOOST</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};

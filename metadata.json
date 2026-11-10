@@ -1,0 +1,6 @@
+{
+  "name": "PC CONTROL ULTIMATE - Windows Gaming Optimization Software",
+  "description": "Software profissional de otimização, gerenciamento, diagnóstico e monitoramento gamer para Windows 10 e 11 com arquitetura .NET 10 LTS C# e interface de controle.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
