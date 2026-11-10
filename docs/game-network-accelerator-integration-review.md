@@ -22,7 +22,7 @@ Os arquivos da branch histórica `feature/game-network-accelerator` em `PCContro
 
 ## Bloqueadores antes de uso em produção
 
-- **Proteção da chave privada:** foi implementado o endurecimento da ACL da pasta de túneis antes de gravar o perfil, permitindo acesso ao usuário atual, LocalSystem (serviço WireGuard) e Administradores. A instalação falha de forma fechada se o `icacls.exe` não aplicar as permissões. A CI do novo commit ainda precisa validar a compilação; também é necessário testar em Windows real se o serviço WireGuard instala e lê o perfil corretamente e definir a limpeza segura dos arquivos.
+- **Proteção da chave privada:** foi implementado o endurecimento da ACL da pasta de túneis antes de gravar o perfil, permitindo acesso ao usuário atual, LocalSystem (serviço WireGuard) e Administradores. A instalação falha de forma fechada se o `icacls.exe` retornar erro. A CI validou a compilação e os testes dessa implementação. Ainda falta verificar as ACLs efetivas e o comportamento do serviço WireGuard em Windows real, além de definir a limpeza segura dos arquivos.
 - **Restauração de rede:** implementar verificação explícita do estado de rotas/adaptadores após remover o túnel, sem tentar reproduzir cegamente uma saída textual de `route print`.
 - **Roteamento por processo:** `AllowedIPs` faz roteamento por destino IP/CIDR, não por PID/executável. A opção de roteamento WFP por processo continua desativada.
 - **Anti-cheat:** testar cada jogo/anti-cheat suportado e seguir as políticas do fornecedor. Não existe garantia universal.
@@ -33,4 +33,4 @@ Os arquivos da branch histórica `feature/game-network-accelerator` em `PCContro
 
 A branch histórica teve uma execução de CI que falhou na etapa de compilação, antes de executar os testes. Os erros registrados incluem incompatibilidades entre testes e APIs de Registry Snapshot/Optimizer, Disk Cleaner, PresentMon, HardwareSnapshot e MainViewModel. Esses erros não devem ser atribuídos exclusivamente ao módulo de rede.
 
-A integração só deve ser considerada pronta após o workflow Windows x64 desta branch concluir restore, auditoria NuGet, build Release, testes xUnit e publish. Até lá, mantenha o PR em rascunho e não faça merge em `main`.
+A validação automatizada foi concluída no workflow Windows x64 (run `42918239768`, commit `4f90ffa57d9cd983319699aa38c7f82972199a83`): restore, auditoria NuGet, build Release x64, **105 testes xUnit**, publish self-contained, verificação de dependências e empacotamento terminaram com sucesso. O artefato `PCControlUltimate-win-x64-Release` foi gerado. Isso ainda não substitui teste manual em Windows físico: inicialização WPF, sensores reais, ACL efetiva, instalação/remoção WireGuard, rotas e compatibilidade com jogos/anti-cheat continuam pendentes. Mantenha o PR em rascunho e não faça merge em `main` até concluir essa validação prática.
