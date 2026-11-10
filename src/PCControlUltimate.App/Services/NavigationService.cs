@@ -31,6 +31,7 @@ public class NavigationService : INavigationService
         RegisterModule("restore", () => new RestoreCenterViewModel(workspace));
         RegisterModule("debloat", () => new DebloatCleanerViewModel(workspace));
         RegisterModule("network", () => new NetworkLabViewModel(workspace));
+        RegisterModule("accelerator", () => new GameNetworkAcceleratorViewModel(workspace));
         RegisterModule("gaming", () => new GamingPresentMonViewModel(workspace));
         RegisterModule("diagnostics", () => new DiagnosticsViewModel(workspace));
         RegisterModule("drivers", () => new DriverCenterViewModel(workspace));

@@ -234,6 +234,7 @@ public class MainViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(IsRestoreVisible));
                 OnPropertyChanged(nameof(IsDebloatVisible));
                 OnPropertyChanged(nameof(IsNetworkVisible));
+                OnPropertyChanged(nameof(IsAcceleratorVisible));
                 OnPropertyChanged(nameof(IsGamingVisible));
                 OnPropertyChanged(nameof(IsDiagnosticsVisible));
                 OnPropertyChanged(nameof(IsDriversVisible));
@@ -247,6 +248,7 @@ public class MainViewModel : INotifyPropertyChanged
     public bool IsRestoreVisible => string.Equals(_currentTab, "restore", StringComparison.OrdinalIgnoreCase);
     public bool IsDebloatVisible => string.Equals(_currentTab, "debloat", StringComparison.OrdinalIgnoreCase);
     public bool IsNetworkVisible => string.Equals(_currentTab, "network", StringComparison.OrdinalIgnoreCase);
+    public bool IsAcceleratorVisible => string.Equals(_currentTab, "accelerator", StringComparison.OrdinalIgnoreCase);
     public bool IsGamingVisible => string.Equals(_currentTab, "gaming", StringComparison.OrdinalIgnoreCase);
     public bool IsDiagnosticsVisible => string.Equals(_currentTab, "diagnostics", StringComparison.OrdinalIgnoreCase);
     public bool IsDriversVisible => string.Equals(_currentTab, "drivers", StringComparison.OrdinalIgnoreCase);
