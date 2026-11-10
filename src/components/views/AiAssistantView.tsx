@@ -33,7 +33,7 @@ export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
     {
       role: 'assistant',
       text: t.aiAssistant.initialGreeting,
-      timestamp: 'Agora',
+      timestamp: t.common.now,
     },
   ]);
 
@@ -77,7 +77,7 @@ export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
 
       const data = await response.json();
       const replyText =
-        data.response || 'Não foi possível gerar uma resposta do assistente no momento.';
+        data.response || t.aiAssistant.genericError;
 
       const assistantMsg: Message = {
         role: 'assistant',
@@ -89,7 +89,7 @@ export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
     } catch (err) {
       const errorMsg: Message = {
         role: 'assistant',
-        text: 'Erro de comunicação local com o serviço de IA. Verifique sua conexão ou utilize o modo offline.',
+        text: t.aiAssistant.offlineError,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, errorMsg]);

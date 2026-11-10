@@ -42,6 +42,18 @@ export interface TranslationDictionary {
     english: string;
     mode: string;
     connectAgent: string;
+    agentDisconnectedAlert: string;
+    agentDisconnectedDesc: string;
+    agentConnectionError: string;
+    tweakAppliedSuccess: string;
+    tweakRestoredSuccess: string;
+    tweakExecutionFailed: string;
+    date: string;
+    versionLabel: string;
+    key: string;
+    now: string;
+    today: string;
+    none: string;
   };
   navigation: {
     modules: string;
@@ -101,6 +113,7 @@ export interface TranslationDictionary {
     riskLevel: string;
     zeroRisk: string;
     restorePointNotice: string;
+    restorePointLabel: string;
     executeBoost: string;
     motherboardSensors: string;
     vrmTemp: string;
@@ -158,6 +171,9 @@ export interface TranslationDictionary {
     safetyNotice: string;
     reportTitle: string;
     closeReport: string;
+    activeSiliconArch: string;
+    engineeringDirective: string;
+    nominalSpecification: string;
   };
   gameCenter: {
     title: string;
@@ -181,6 +197,46 @@ export interface TranslationDictionary {
     autoCapturePresentMon: string;
     autoGameBoost: string;
     saveProfile: string;
+    platformLabel: string;
+    priorityNormal: string;
+    priorityAboveNormal: string;
+    priorityHigh: string;
+    priorityRealtime: string;
+    affinityAll: string;
+    affinityPCoresOnly: string;
+    affinityNoECores: string;
+    powerPlanUltimate: string;
+    powerPlanHigh: string;
+    powerPlanBalanced: string;
+  };
+  hardwareMonitor: {
+    subtitle: string;
+    description: string;
+    pollingLabel: string;
+    vcoreVoltage: string;
+    pptPower: string;
+    perCoreLoad: string;
+    coreLabel: string;
+    gpuFans: string;
+    gpuCoreTemp: string;
+    gpuHotspotTemp: string;
+    gpuVramTemp: string;
+    gpuClock: string;
+    gpuPower: string;
+    vramAllocation: string;
+    ramConfigTitle: string;
+    ramCapacity: string;
+    ramSpeed: string;
+    ramAvailable: string;
+    diskDiagnosticsTitle: string;
+    drivesDetected: string;
+    health: string;
+    freeOf: string;
+    vendor: string;
+    interface: string;
+    boostActive: string;
+    tgpNormal: string;
+    of: string;
   };
   performanceLab: {
     title: string;
@@ -202,6 +258,11 @@ export interface TranslationDictionary {
     flatLineNotice: string;
     baselineSpikes: string;
     boostStable: string;
+    standardCondition: string;
+    better: string;
+    agentRequiredPresentMon: string;
+    captureSuccess: string;
+    initializingHook: string;
   };
   benchmarks: {
     title: string;
@@ -223,6 +284,8 @@ export interface TranslationDictionary {
     score: string;
     duration: string;
     peakTemp: string;
+    metricIpc: string;
+    justNow: string;
   };
   diagnostics: {
     title: string;
@@ -232,6 +295,30 @@ export interface TranslationDictionary {
     applyFix: string;
     fixApplied: string;
     recommendation: string;
+    issue1Component: string;
+    issue1Title: string;
+    issue1Desc: string;
+    issue1Rec: string;
+    issue2Component: string;
+    issue2Title: string;
+    issue2Desc: string;
+    issue2Rec: string;
+    issue3Component: string;
+    issue3Title: string;
+    issue3Desc: string;
+    issue3Rec: string;
+    issue4Component: string;
+    issue4Title: string;
+    issue4Desc: string;
+    issue4Rec: string;
+    issue5Component: string;
+    issue5Title: string;
+    issue5Desc: string;
+    issue5Rec: string;
+    issue6Component: string;
+    issue6Title: string;
+    issue6Desc: string;
+    issue6Rec: string;
   };
   windowsTweaks: {
     title: string;
@@ -241,6 +328,8 @@ export interface TranslationDictionary {
     modified: string;
     systemValue: string;
     enable: string;
+    keyLabel: string;
+    systemRegistryLabel: string;
   };
   debloat: {
     title: string;
@@ -252,6 +341,19 @@ export interface TranslationDictionary {
     cleanSuccess: string;
     itemsTitle: string;
     safeNotice: string;
+    agentRequiredNotice: string;
+    dxShaderTitle: string;
+    dxShaderDesc: string;
+    tempWindowsTitle: string;
+    tempWindowsDesc: string;
+    tempUserTitle: string;
+    tempUserDesc: string;
+    updateCacheTitle: string;
+    updateCacheDesc: string;
+    deliveryCacheTitle: string;
+    deliveryCacheDesc: string;
+    recycleBinTitle: string;
+    recycleBinDesc: string;
   };
   networkLab: {
     title: string;
@@ -268,6 +370,17 @@ export interface TranslationDictionary {
     gameServersTitle: string;
     destinationLabel: string;
     classification: string;
+    dnsTitle: string;
+    dnsNodeQuery: string;
+    resolutionTime: string;
+    serverSP: string;
+    serverSantiago: string;
+    serverMiami: string;
+    serverFrankfurt: string;
+    locationSP: string;
+    locationSantiago: string;
+    locationMiami: string;
+    locationFrankfurt: string;
   };
   peripherals: {
     title: string;
@@ -293,6 +406,16 @@ export interface TranslationDictionary {
     dpiScale: string;
     deadPixelTitle: string;
     clickToExit: string;
+    sensorGamerOk: string;
+    sensorStandard: string;
+    clickToTest: string;
+    opticalSwitch: string;
+    frameRate: string;
+    patternBlack: string;
+    patternWhite: string;
+    patternRed: string;
+    patternGreen: string;
+    patternBlue: string;
   };
   driverCenter: {
     title: string;
@@ -302,6 +425,8 @@ export interface TranslationDictionary {
     tableTitle: string;
     monitoredDrivers: string;
     officialPortal: string;
+    statusUpdated: string;
+    statusAvailable: string;
   };
   softwareHub: {
     title: string;
@@ -326,6 +451,7 @@ export interface TranslationDictionary {
     previousValue: string;
     appliedValue: string;
     rollbackButton: string;
+    userModified: string;
   };
   aiAssistant: {
     title: string;
@@ -339,6 +465,8 @@ export interface TranslationDictionary {
     quickPrompt2: string;
     quickPrompt3: string;
     quickPrompt4: string;
+    offlineError: string;
+    genericError: string;
   };
   dotnetSolution: {
     title: string;
@@ -351,5 +479,12 @@ export interface TranslationDictionary {
     copied: string;
     lines: string;
     readyForVs: string;
+  };
+  modalBoost: {
+    title: string;
+    subtitle: string;
+    restorePointScheduled: string;
+    tweaksIdentifiedDesc: string;
+    explicitConsent: string;
   };
 }

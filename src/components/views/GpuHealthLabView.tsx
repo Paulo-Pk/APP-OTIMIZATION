@@ -63,7 +63,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
           <div>
             <div className="text-sm font-bold text-white">{gpu.name}</div>
             <div className="text-xs text-slate-400">
-              Arquitetura de Silício Ativa · {gpu.pcieLane}
+              {t.gpuHealth.activeSiliconArch} · {gpu.pcieLane}
             </div>
           </div>
         </div>
@@ -203,7 +203,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
       <div className="p-4 rounded-xl bg-[#11131c] border border-slate-800 flex items-start gap-3 text-xs text-slate-400 leading-relaxed">
         <Info className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
         <div>
-          <span className="font-bold text-slate-200">Diretriz Técnica de Engenharia: </span>
+          <span className="font-bold text-slate-200">{t.gpuHealth.engineeringDirective} </span>
           {t.gpuHealth.safetyNotice}
         </div>
       </div>
@@ -239,7 +239,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <div>• GDDR6X Memory Temp: {gpu.memoryTemp.toFixed(1)}°C</div>
               <div>• VRAM Usage: {(gpu.vramUsedMB / 1024).toFixed(1)} GB / {(gpu.vramTotalMB / 1024).toFixed(0)} GB</div>
               <div>• Frequency: {gpu.clockMHz} MHz</div>
-              <div>• Status: OPERAÇÃO NOMINAL DENTRO DA ESPECIFICAÇÃO DO FABRICANTE</div>
+              <div>• Status: {t.gpuHealth.nominalSpecification}</div>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">

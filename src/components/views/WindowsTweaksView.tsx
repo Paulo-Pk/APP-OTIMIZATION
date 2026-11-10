@@ -101,7 +101,7 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
                 </div>
                 <p className="text-slate-400 leading-relaxed">{item.description}</p>
                 <div className="text-[11px] font-mono text-slate-500 pt-0.5">
-                  Chave: {item.registryKey || item.commandScript || 'Registro do Sistema'}
+                  {t.windowsTweaks.keyLabel} {item.registryKey || item.commandScript || t.windowsTweaks.systemRegistryLabel}
                 </div>
               </div>
 

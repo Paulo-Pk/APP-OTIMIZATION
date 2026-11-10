@@ -96,7 +96,7 @@ export const RestoreCenterView: React.FC<RestoreCenterViewProps> = ({
                     <span className="text-purple-400 text-xs font-mono">{item.component}</span>
                   </div>
                   <div className="text-slate-500 text-[11px] font-mono">
-                    Data: {item.timestamp} · Modificado pelo Usuário
+                    {t.common.date}: {item.timestamp} · {t.restoreCenter.userModified}
                   </div>
                 </div>
 

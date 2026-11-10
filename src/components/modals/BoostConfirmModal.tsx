@@ -38,10 +38,10 @@ export const BoostConfirmModal: React.FC<BoostConfirmModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-black text-white uppercase tracking-wider">
-                Análise Prévia & Autorização de Otimizações
+                {t.modalBoost.title}
               </h2>
               <span className="text-xs text-slate-400">
-                Auditoria do Sistema PC CONTROL ULTIMATE
+                {t.modalBoost.subtitle}
               </span>
             </div>
           </div>
@@ -57,10 +57,10 @@ export const BoostConfirmModal: React.FC<BoostConfirmModalProps> = ({
         {/* Audit Summary Notice */}
         <div className="p-3.5 rounded-lg bg-[#141828] border border-purple-900/40 text-xs text-slate-300 space-y-1.5 leading-relaxed">
           <div className="font-bold text-purple-300 flex items-center gap-1.5">
-            <History className="w-4 h-4" /> Ponto de Restauração Local Agendado
+            <History className="w-4 h-4" /> {t.modalBoost.restorePointScheduled}
           </div>
           <p className="text-slate-400">
-            Foram identificados <strong>{pendingTweaks.length} ajustes recomendados</strong> para seu hardware. Todos os valores prévios serão registrados no banco SQLite local para permitir reversão individual ou completa.
+            {t.modalBoost.tweaksIdentifiedDesc} ({pendingTweaks.length})
           </p>
         </div>
 
@@ -93,7 +93,7 @@ export const BoostConfirmModal: React.FC<BoostConfirmModalProps> = ({
         {/* Actions */}
         <div className="flex items-center justify-between pt-3 border-t border-slate-800">
           <span className="text-xs text-slate-500">
-            Requer autorização explícita do usuário
+            {t.modalBoost.explicitConsent}
           </span>
 
           <div className="flex items-center gap-3">

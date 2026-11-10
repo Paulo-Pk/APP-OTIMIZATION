@@ -53,14 +53,14 @@ export const PerformanceLabView: React.FC = () => {
 
   const handleStartCapture = async () => {
     setIsRecording(true);
-    setStatusMessage('Inicializando hook PresentMon-x64 no processo do jogo...');
+    setStatusMessage(t.performanceLab.initializingHook);
 
     // Attempt real PresentMon capture via Native Bridge if available
     const nativeResult = await nativeBridge.runPresentMonCapture(selectedGame, 10);
     if (nativeResult) {
       const newSession: PresentMonSession = {
         id: `session-${Date.now()}`,
-        gameTitle: `${selectedGame} (Captura Real PresentMon)`,
+        gameTitle: `${selectedGame} (PresentMon x64)`,
         date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         durationSeconds: 10,
         avgFps: Math.round(nativeResult.avgFps),
@@ -76,14 +76,10 @@ export const PerformanceLabView: React.FC = () => {
         isOptimized: true,
       };
       setSessions((prev) => [newSession, ...prev]);
-      setStatusMessage('Captura de telemetria PresentMon concluída com sucesso!');
+      setStatusMessage(t.performanceLab.captureSuccess);
     } else {
-      // In sandbox mode
-      setTimeout(() => {
-        setStatusMessage('Sessão processada através do subsistema PresentMon.');
-        setIsRecording(false);
-      }, 1500);
-      return;
+      // Real report: Agent not connected
+      setStatusMessage(t.performanceLab.agentRequiredPresentMon);
     }
 
     setIsRecording(false);
@@ -159,7 +155,7 @@ export const PerformanceLabView: React.FC = () => {
           <div className="flex items-center justify-between pb-2 border-b border-slate-800">
             <div>
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">
-                Condição Padrão
+                {t.performanceLab.standardCondition}
               </span>
               <h3 className="text-sm font-bold text-slate-300">
                 {t.performanceLab.baselineTitle}
@@ -245,7 +241,7 @@ export const PerformanceLabView: React.FC = () => {
             <div className="p-3 rounded-lg bg-[#0a0c13] border border-purple-950/60">
               <div className="flex justify-between items-start">
                 <span className="text-[10px] text-slate-400 uppercase block">{t.performanceLab.frametimeAvg}</span>
-                <span className="text-[10px] font-bold text-emerald-400">Melhor</span>
+                <span className="text-[10px] font-bold text-emerald-400">{t.performanceLab.better}</span>
               </div>
               <span className="text-xl font-bold font-mono text-purple-300">
                 {currentPair.optimized?.frametimeAvgMs} ms

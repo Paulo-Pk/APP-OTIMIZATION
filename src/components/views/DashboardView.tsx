@@ -428,7 +428,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="font-semibold text-emerald-400">{t.dashboard.zeroRisk}</span>
             </div>
             <div className="flex items-center justify-between text-slate-400">
-              <span>Ponto de Restauração:</span>
+              <span>{t.dashboard.restorePointLabel}</span>
               <span className="text-slate-300">{t.dashboard.restorePointNotice}</span>
             </div>
           </div>

@@ -73,7 +73,7 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
       {/* Platform Filter Tabs */}
       <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-[#0f121b] border border-slate-800">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400 font-semibold mr-1">Plataforma:</span>
+          <span className="text-xs text-slate-400 font-semibold mr-1">{t.gameCenter.platformLabel}</span>
           {['all', 'Steam', 'Epic', 'Xbox', 'Manual'].map((platform) => {
             const isActive = activePlatformFilter === platform;
             return (

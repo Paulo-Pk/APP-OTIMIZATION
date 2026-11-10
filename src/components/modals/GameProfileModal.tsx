@@ -80,10 +80,10 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
               onChange={(e) => setPriority(e.target.value as any)}
               className="w-full bg-[#0a0c13] border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
-              <option value="Normal">Normal</option>
-              <option value="Acima do Normal">Acima do Normal (Above Normal)</option>
-              <option value="Alta">Alta (High - Competitivo)</option>
-              <option value="Tempo Real">Tempo Real (Realtime)</option>
+              <option value="Normal">{t.gameCenter.priorityNormal}</option>
+              <option value="Acima do Normal">{t.gameCenter.priorityAboveNormal}</option>
+              <option value="Alta">{t.gameCenter.priorityHigh}</option>
+              <option value="Tempo Real">{t.gameCenter.priorityRealtime}</option>
             </select>
           </div>
 
@@ -96,9 +96,9 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
               onChange={(e) => setAffinity(e.target.value as any)}
               className="w-full bg-[#0a0c13] border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
-              <option value="Todos">Todos os Núcleos e Threads</option>
-              <option value="P-Cores Apenas">P-Cores Apenas (Isola E-Cores / Híbridos)</option>
-              <option value="Sem E-Cores">Sem E-Cores (Desativa threads secundárias)</option>
+              <option value="Todos">{t.gameCenter.affinityAll}</option>
+              <option value="P-Cores Apenas">{t.gameCenter.affinityPCoresOnly}</option>
+              <option value="Sem E-Cores">{t.gameCenter.affinityNoECores}</option>
             </select>
           </div>
 
@@ -111,9 +111,9 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
               onChange={(e) => setPowerProfile(e.target.value as any)}
               className="w-full bg-[#0a0c13] border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
-              <option value="Desempenho Máximo PC Control">Desempenho Máximo PC Control</option>
-              <option value="Alto Desempenho">Alto Desempenho Windows</option>
-              <option value="Equilibrado">Equilibrado</option>
+              <option value="Desempenho Máximo PC Control">{t.gameCenter.powerPlanUltimate}</option>
+              <option value="Alto Desempenho">{t.gameCenter.powerPlanHigh}</option>
+              <option value="Equilibrado">{t.gameCenter.powerPlanBalanced}</option>
             </select>
           </div>
 

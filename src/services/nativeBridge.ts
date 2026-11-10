@@ -103,9 +103,10 @@ class NativeBridgeService {
   ): Promise<{ success: boolean; previousValue: string; verifiedValue: string; error?: string }> {
     if (!this.agentStatus.isConnected) {
       return {
-        success: true,
-        previousValue: 'Padrão Windows',
-        verifiedValue: String(targetValue),
+        success: false,
+        previousValue: '',
+        verifiedValue: '',
+        error: 'AGENT_DISCONNECTED',
       };
     }
 
@@ -115,13 +116,19 @@ class NativeBridgeService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tweakId, keyPath, valueName, targetValue }),
       });
-      return await res.json();
+      const data = await res.json();
+      return {
+        success: !!data.success,
+        previousValue: data.previousValue || '',
+        verifiedValue: data.verifiedValue || '',
+        error: data.error,
+      };
     } catch (err: any) {
       return {
         success: false,
         previousValue: '',
         verifiedValue: '',
-        error: err.message,
+        error: err.message || 'Falha na comunicação com o agente Windows',
       };
     }
   }
@@ -133,7 +140,11 @@ class NativeBridgeService {
     originalValue: string | number
   ): Promise<{ success: boolean; verified: boolean; error?: string }> {
     if (!this.agentStatus.isConnected) {
-      return { success: true, verified: true };
+      return {
+        success: false,
+        verified: false,
+        error: 'AGENT_DISCONNECTED',
+      };
     }
 
     try {
@@ -142,9 +153,18 @@ class NativeBridgeService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyPath, valueName, originalValue }),
       });
-      return await res.json();
+      const data = await res.json();
+      return {
+        success: !!data.success,
+        verified: !!data.verified,
+        error: data.error,
+      };
     } catch (err: any) {
-      return { success: false, verified: false, error: err.message };
+      return {
+        success: false,
+        verified: false,
+        error: err.message || 'Falha na restauração com o agente Windows',
+      };
     }
   }
 

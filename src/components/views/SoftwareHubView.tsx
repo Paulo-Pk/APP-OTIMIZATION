@@ -61,7 +61,7 @@ export const SoftwareHubView: React.FC = () => {
               </p>
 
               <div className="text-[11px] font-mono text-slate-500 pt-1">
-                Versão: {app.version}
+                {t.common.versionLabel}: {app.version}
               </div>
             </div>
 

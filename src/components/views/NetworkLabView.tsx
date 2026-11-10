@@ -16,7 +16,7 @@ interface PingResult {
   location: string;
   pingMs: number;
   jitterMs: number;
-  status: 'Excelente' | 'Bom' | 'Alto';
+  statusKey: 'excellent' | 'good' | 'warning';
 }
 
 interface DnsResult {
@@ -33,17 +33,17 @@ export const NetworkLabView: React.FC = () => {
   const [currentJitter, setCurrentJitter] = useState<number | null>(null);
   const [downloadMbps, setDownloadMbps] = useState<number | null>(null);
   const [dnsResults, setDnsResults] = useState<DnsResult[]>([
-    { provider: 'Cloudflare Gaming DNS (1.1.1.1)', dnsIp: '1.1.1.1', resolveTimeMs: 6, status: 'Ativo' },
-    { provider: 'Google Public DNS (8.8.8.8)', dnsIp: '8.8.8.8', resolveTimeMs: 9, status: 'Ativo' },
-    { provider: 'Quad9 Security DNS (9.9.9.9)', dnsIp: '9.9.9.9', resolveTimeMs: 14, status: 'Ativo' },
+    { provider: 'Cloudflare Gaming DNS (1.1.1.1)', dnsIp: '1.1.1.1', resolveTimeMs: 6, status: 'OK' },
+    { provider: 'Google Public DNS (8.8.8.8)', dnsIp: '8.8.8.8', resolveTimeMs: 9, status: 'OK' },
+    { provider: 'Quad9 Security DNS (9.9.9.9)', dnsIp: '9.9.9.9', resolveTimeMs: 14, status: 'OK' },
   ]);
 
-  const [servers, setServers] = useState<PingResult[]>([
-    { server: 'São Paulo (Brasil Sul)', location: 'Valve CS2 / Riot BR (ICMP / TCP: 27015)', pingMs: 12, jitterMs: 0.8, status: 'Excelente' },
-    { server: 'Santiago (Chile)', location: 'AWS South America (TCP: 443)', pingMs: 38, jitterMs: 1.4, status: 'Excelente' },
-    { server: 'Miami (US East)', location: 'Cloudflare Edge Anycast (TCP: 443)', pingMs: 112, jitterMs: 2.1, status: 'Bom' },
-    { server: 'Frankfurt (Europa Central)', location: 'G-Core Labs Gaming Network', pingMs: 198, jitterMs: 3.5, status: 'Alto' },
-  ]);
+  const servers: PingResult[] = [
+    { server: t.networkLab.serverSP, location: t.networkLab.locationSP, pingMs: 12, jitterMs: 0.8, statusKey: 'excellent' },
+    { server: t.networkLab.serverSantiago, location: t.networkLab.locationSantiago, pingMs: 38, jitterMs: 1.4, statusKey: 'excellent' },
+    { server: t.networkLab.serverMiami, location: t.networkLab.locationMiami, pingMs: 112, jitterMs: 2.1, statusKey: 'good' },
+    { server: t.networkLab.serverFrankfurt, location: t.networkLab.locationFrankfurt, pingMs: 198, jitterMs: 3.5, statusKey: 'warning' },
+  ];
 
   const runNetworkAudit = async () => {
     setIsRunning(true);
@@ -53,7 +53,7 @@ export const NetworkLabView: React.FC = () => {
 
     const pingSamples: number[] = [];
 
-    // Perform 6 real ping requests to /api/network/ping
+    // Perform real ping requests to /api/network/ping
     for (let i = 0; i < 6; i++) {
       const start = performance.now();
       try {
@@ -74,7 +74,7 @@ export const NetworkLabView: React.FC = () => {
     setCurrentPing(Math.round(avg));
     setCurrentJitter(parseFloat(jitter.toFixed(1)));
 
-    // Speed test payload fetch (512KB)
+    // Speed test payload fetch
     try {
       const dlStart = performance.now();
       const res = await fetch(`/api/network/payload?size=1024&t=${Date.now()}`);
@@ -165,10 +165,10 @@ export const NetworkLabView: React.FC = () => {
           <div className="flex items-center gap-2">
             <Server className="w-4 h-4 text-purple-400" />
             <span className="font-bold text-white uppercase tracking-wider">
-              Resolução de Nomes DNS para Jogos (Velocidade de Consulta UDP 53)
+              {t.networkLab.dnsTitle}
             </span>
           </div>
-          <span className="text-slate-500 font-mono">Consulta Real Node/C#</span>
+          <span className="text-slate-500 font-mono">{t.networkLab.dnsNodeQuery}</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -176,7 +176,7 @@ export const NetworkLabView: React.FC = () => {
             <div key={i} className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800 space-y-1 text-xs">
               <span className="font-bold text-white block">{d.provider}</span>
               <div className="flex justify-between items-center text-slate-400 font-mono pt-1">
-                <span>Tempo de Resolução:</span>
+                <span>{t.networkLab.resolutionTime}</span>
                 <span className="text-emerald-400 font-bold">{d.resolveTimeMs} ms</span>
               </div>
             </div>
@@ -227,7 +227,9 @@ export const NetworkLabView: React.FC = () => {
                   <span className="text-slate-500 block text-[9px] uppercase">
                     {t.networkLab.classification}
                   </span>
-                  <span className="text-slate-400 text-xs font-sans">{s.status}</span>
+                  <span className="text-slate-400 text-xs font-sans">
+                    {s.statusKey === 'excellent' ? t.common.excellent : s.statusKey === 'good' ? t.common.good : t.common.warning}
+                  </span>
                 </div>
               </div>
             </div>

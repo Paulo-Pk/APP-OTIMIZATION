@@ -205,7 +205,7 @@ export const PeripheralTestView: React.FC = () => {
 
           <div className="flex justify-between items-center text-xs font-mono text-slate-400 pt-1">
             <span>{t.peripherals.keysTested} {pressedKeys.size} / ~104</span>
-            <span>{t.peripherals.lastKeyPressed} {historyKeys[0] || 'Nenhuma'}</span>
+            <span>{t.peripherals.lastKeyPressed} {historyKeys[0] || t.common.none}</span>
           </div>
         </div>
       )}
@@ -232,7 +232,7 @@ export const PeripheralTestView: React.FC = () => {
                 ~{mousePollingRate} Hz
               </div>
               <span className="text-[11px] text-slate-400 block">
-                {mousePollingRate >= 1000 ? 'Sensor Gamer 1000Hz+ OK' : 'Sensor Padrão'}
+                {mousePollingRate >= 1000 ? t.peripherals.sensorGamerOk : t.peripherals.sensorStandard}
               </span>
             </div>
 
@@ -249,7 +249,7 @@ export const PeripheralTestView: React.FC = () => {
                   RMB
                 </span>
               </div>
-              <span className="text-[11px] text-slate-400 block">Clique para testar switches</span>
+              <span className="text-[11px] text-slate-400 block">{t.peripherals.clickToTest}</span>
             </div>
 
             <div className="p-5 rounded-xl bg-[#0a0c13] border border-slate-800 space-y-2">
@@ -257,7 +257,7 @@ export const PeripheralTestView: React.FC = () => {
               <div className="text-3xl font-black font-mono text-emerald-400">
                 1.2 ms
               </div>
-              <span className="text-[11px] text-slate-400 block">Switch óptico com debouncing rápido</span>
+              <span className="text-[11px] text-slate-400 block">{t.peripherals.opticalSwitch}</span>
             </div>
           </div>
         </div>
@@ -281,7 +281,7 @@ export const PeripheralTestView: React.FC = () => {
               <span className="text-white font-bold">{window.screen.width} x {window.screen.height}</span>
             </div>
             <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px] uppercase">Taxa de Quadros</span>
+              <span className="text-slate-500 block text-[10px] uppercase">{t.peripherals.frameRate}</span>
               <span className="text-emerald-400 font-bold">{detectedHz} Hz</span>
             </div>
             <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800">
@@ -300,11 +300,11 @@ export const PeripheralTestView: React.FC = () => {
             </span>
             <div className="flex gap-2">
               {[
-                { name: 'Preto Total', color: '#000000' },
-                { name: 'Branco 100%', color: '#ffffff' },
-                { name: 'Vermelho Puro', color: '#ff0000' },
-                { name: 'Verde Puro', color: '#00ff00' },
-                { name: 'Azul Puro', color: '#0000ff' },
+                { name: t.peripherals.patternBlack, color: '#000000' },
+                { name: t.peripherals.patternWhite, color: '#ffffff' },
+                { name: t.peripherals.patternRed, color: '#ff0000' },
+                { name: t.peripherals.patternGreen, color: '#00ff00' },
+                { name: t.peripherals.patternBlue, color: '#0000ff' },
               ].map((pattern) => (
                 <button
                   key={pattern.name}

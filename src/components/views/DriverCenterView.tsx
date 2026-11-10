@@ -75,11 +75,11 @@ export const DriverCenterView: React.FC = () => {
                           : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                       }`}
                     >
-                      {driver.status}
+                      {isUpToDate ? t.driverCenter.statusUpdated : t.driverCenter.statusAvailable}
                     </span>
                   </div>
                   <div className="text-slate-400 text-[11px]">
-                    Fabricante: {driver.vendor} · Versão: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate})
+                    {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate})
                   </div>
                 </div>
 

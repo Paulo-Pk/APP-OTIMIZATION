@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { TabId, SystemTweak, GameProfile, RestoreItem, OptimizationLevel } from './types';
+import {
+  TabId,
+  SystemTweak,
+  GameProfile,
+  RestoreItem,
+  OptimizationLevel,
+} from './types';
 import { initialTweaks } from './data/defaultTweaks';
 import { initialGames } from './data/defaultGames';
 import { initialHardwareTelemetry } from './services/hardwareService';
 import { exportCompleteSolutionZip, downloadBlob } from './services/solutionExporter';
 import { nativeBridge, NativeAgentStatus } from './services/nativeBridge';
 import { useI18n } from './i18n';
+import { AlertCircle, CheckCircle2, AlertTriangle, X, Terminal, ArrowRight } from 'lucide-react';
 
 // Components
 import { Header } from './components/Header';
@@ -34,6 +41,12 @@ import { DotnetSolutionView } from './components/views/DotnetSolutionView';
 import { BoostConfirmModal } from './components/modals/BoostConfirmModal';
 import { GameProfileModal } from './components/modals/GameProfileModal';
 
+interface NotificationState {
+  type: 'error' | 'success' | 'warning';
+  title?: string;
+  message: string;
+}
+
 export default function App() {
   const { t } = useI18n();
   const [currentTab, setCurrentTab] = useState<TabId>('dashboard');
@@ -42,31 +55,28 @@ export default function App() {
   const [games, setGames] = useState<GameProfile[]>(initialGames);
   const [agentStatus, setAgentStatus] = useState<NativeAgentStatus>(nativeBridge.getStatus());
 
-  const [restoreItems, setRestoreItems] = useState<RestoreItem[]>([
-    {
-      id: 'rest-1',
-      timestamp: 'Hoje, 09:30',
-      actionName: 'Otimização Multimedia Class Scheduler (MMCSS)',
-      component: 'Registro HKLM',
-      previousValue: 'NetworkThrottling=10',
-      newValue: 'NetworkThrottling=0xFFFFFFFF',
-      reversible: true,
-      userInitiated: true,
-    },
-    {
-      id: 'rest-2',
-      timestamp: 'Hoje, 09:32',
-      actionName: 'Desativar Algoritmo de Nagle (TCP NoDelay)',
-      component: 'Adaptador de Rede',
-      previousValue: 'TcpAckFrequency=2',
-      newValue: 'TcpAckFrequency=1',
-      reversible: true,
-      userInitiated: true,
-    },
-  ]);
+  // Restore records: strictly no fake entries. Loaded from local storage or empty.
+  const [restoreItems, setRestoreItems] = useState<RestoreItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('pc_control_restore_records');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
+  const [notification, setNotification] = useState<NotificationState | null>(null);
   const [isBoostModalOpen, setIsBoostModalOpen] = useState<boolean>(false);
   const [gameProfileToEdit, setGameProfileToEdit] = useState<GameProfile | null>(null);
+
+  // Persist real restore records
+  useEffect(() => {
+    try {
+      localStorage.setItem('pc_control_restore_records', JSON.stringify(restoreItems));
+    } catch (e) {
+      console.warn('Failed to persist restore records:', e);
+    }
+  }, [restoreItems]);
 
   // Subscribe to Native Windows Agent connection & fetch real telemetry
   useEffect(() => {
@@ -89,9 +99,9 @@ export default function App() {
     };
   }, []);
 
-  // Toggle single tweak with real Windows Registry bridge
+  // Toggle single tweak with authentic Windows Registry verification
   const handleToggleTweak = async (id: string) => {
-    const target = tweaks.find((t) => t.id === id);
+    const target = tweaks.find((tweak) => tweak.id === id);
     if (!target) return;
 
     const nextApplied = !target.isApplied;
@@ -105,32 +115,95 @@ export default function App() {
         1
       );
 
+      if (!res.success) {
+        if (res.error === 'AGENT_DISCONNECTED') {
+          setNotification({
+            type: 'error',
+            title: t.common.agentDisconnectedAlert,
+            message: t.common.agentDisconnectedDesc,
+          });
+        } else {
+          setNotification({
+            type: 'error',
+            message: `${t.common.tweakExecutionFailed} (${res.error || 'Unknown'})`,
+          });
+        }
+        // Preserve state: DO NOT mark as applied, DO NOT create fake restore record
+        return;
+      }
+
+      // Record verified original value
       const newRestore: RestoreItem = {
-        id: `rest-${Date.now()}`,
+        id: `rest-${Date.now()}-${target.id}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         actionName: target.name,
         component: target.category.toUpperCase(),
         previousValue: res.previousValue || target.currentValue,
-        newValue: target.recommendedValue,
+        newValue: res.verifiedValue || target.recommendedValue,
         reversible: target.reversible,
         userInitiated: true,
       };
+
       setRestoreItems((r) => [newRestore, ...r]);
+      setTweaks((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, isApplied: true } : item))
+      );
+      setNotification({
+        type: 'success',
+        message: `${target.name}: ${t.common.tweakAppliedSuccess}`,
+      });
     } else {
-      await nativeBridge.restoreRegistryTweak(
+      // Find original value recorded during application
+      const existingRecord = restoreItems.find((r) => r.actionName === target.name);
+      const originalVal = existingRecord?.previousValue || target.currentValue;
+
+      const res = await nativeBridge.restoreRegistryTweak(
         target.registryKey || '',
         'TargetDword',
-        0
+        originalVal
       );
-    }
 
-    setTweaks((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, isApplied: nextApplied } : item))
-    );
+      if (!res.success) {
+        if (res.error === 'AGENT_DISCONNECTED') {
+          setNotification({
+            type: 'error',
+            title: t.common.agentDisconnectedAlert,
+            message: t.common.agentDisconnectedDesc,
+          });
+        } else {
+          setNotification({
+            type: 'error',
+            message: `${t.common.tweakExecutionFailed} (${res.error || 'Unknown'})`,
+          });
+        }
+        return;
+      }
+
+      // Remove from restore records and update UI only upon real verified success
+      setRestoreItems((r) => r.filter((item) => item.actionName !== target.name));
+      setTweaks((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, isApplied: false } : item))
+      );
+      setNotification({
+        type: 'success',
+        message: `${target.name}: ${t.common.tweakRestoredSuccess}`,
+      });
+    }
   };
 
   // Apply all tweaks of a level
   const handleApplyAllLevel = async (level: OptimizationLevel) => {
+    if (!agentStatus.isConnected) {
+      setNotification({
+        type: 'error',
+        title: t.common.agentDisconnectedAlert,
+        message: t.common.agentDisconnectedDesc,
+      });
+      return;
+    }
+
+    const appliedIds: string[] = [];
+
     for (const item of tweaks) {
       const shouldApply =
         level === 'advanced'
@@ -140,90 +213,163 @@ export default function App() {
           : item.level === 'conservative';
 
       if (shouldApply && !item.isApplied) {
-        await nativeBridge.applyRegistryTweak(
+        const res = await nativeBridge.applyRegistryTweak(
           item.id,
           item.registryKey || '',
           'TargetDword',
           1
         );
 
-        const newRestore: RestoreItem = {
-          id: `rest-${Date.now()}-${item.id}`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          actionName: item.name,
-          component: item.category.toUpperCase(),
-          previousValue: item.currentValue,
-          newValue: item.recommendedValue,
-          reversible: item.reversible,
-          userInitiated: true,
-        };
-        setRestoreItems((r) => [newRestore, ...r]);
+        if (res.success) {
+          appliedIds.push(item.id);
+          const newRestore: RestoreItem = {
+            id: `rest-${Date.now()}-${item.id}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            actionName: item.name,
+            component: item.category.toUpperCase(),
+            previousValue: res.previousValue || item.currentValue,
+            newValue: res.verifiedValue || item.recommendedValue,
+            reversible: item.reversible,
+            userInitiated: true,
+          };
+          setRestoreItems((r) => [newRestore, ...r]);
+        }
       }
     }
 
-    setTweaks((prev) =>
-      prev.map((t) => {
-        const shouldApply =
-          level === 'advanced'
-            ? true
-            : level === 'balanced'
-            ? t.level === 'conservative' || t.level === 'balanced'
-            : t.level === 'conservative';
-        return shouldApply ? { ...t, isApplied: true } : t;
-      })
-    );
+    if (appliedIds.length > 0) {
+      setTweaks((prev) =>
+        prev.map((tweak) => (appliedIds.includes(tweak.id) ? { ...tweak, isApplied: true } : tweak))
+      );
+      setNotification({
+        type: 'success',
+        message: `${appliedIds.length} otimizações verificadas e aplicadas no Registro do Windows.`,
+      });
+    }
   };
 
   // Restore all tweaks to default
   const handleRestoreAll = async () => {
+    if (!agentStatus.isConnected) {
+      setNotification({
+        type: 'error',
+        title: t.common.agentDisconnectedAlert,
+        message: t.common.agentDisconnectedDesc,
+      });
+      return;
+    }
+
+    const restoredIds: string[] = [];
+
     for (const item of tweaks) {
       if (item.isApplied) {
-        await nativeBridge.restoreRegistryTweak(item.registryKey || '', 'TargetDword', 0);
+        const existingRecord = restoreItems.find((r) => r.actionName === item.name);
+        const originalVal = existingRecord?.previousValue || item.currentValue;
+
+        const res = await nativeBridge.restoreRegistryTweak(
+          item.registryKey || '',
+          'TargetDword',
+          originalVal
+        );
+
+        if (res.success) {
+          restoredIds.push(item.id);
+        }
       }
     }
-    setTweaks((prev) => prev.map((t) => ({ ...t, isApplied: false })));
+
+    setTweaks((prev) =>
+      prev.map((tweak) => (restoredIds.includes(tweak.id) ? { ...tweak, isApplied: false } : tweak))
+    );
+    setRestoreItems([]);
+    setNotification({
+      type: 'success',
+      message: `${restoredIds.length} configurações restauradas para seus valores de fábrica.`,
+    });
   };
 
   // Rollback single item from Restore Center
   const handleRollbackItem = async (id: string) => {
+    if (!agentStatus.isConnected) {
+      setNotification({
+        type: 'error',
+        title: t.common.agentDisconnectedAlert,
+        message: t.common.agentDisconnectedDesc,
+      });
+      return;
+    }
+
     const item = restoreItems.find((r) => r.id === id);
     if (item) {
-      const matchedTweak = tweaks.find((t) => t.name === item.actionName);
+      const matchedTweak = tweaks.find((tweak) => tweak.name === item.actionName);
       if (matchedTweak) {
-        await nativeBridge.restoreRegistryTweak(matchedTweak.registryKey || '', 'TargetDword', 0);
-      }
+        const res = await nativeBridge.restoreRegistryTweak(
+          matchedTweak.registryKey || '',
+          'TargetDword',
+          item.previousValue
+        );
 
-      setTweaks((prev) =>
-        prev.map((t) => (t.name === item.actionName ? { ...t, isApplied: false } : t))
-      );
+        if (!res.success) {
+          setNotification({
+            type: 'error',
+            message: `${t.common.tweakExecutionFailed}: ${res.error || 'Erro'}`,
+          });
+          return;
+        }
+
+        setTweaks((prev) =>
+          prev.map((tweak) => (tweak.name === item.actionName ? { ...tweak, isApplied: false } : tweak))
+        );
+      }
       setRestoreItems((prev) => prev.filter((r) => r.id !== id));
+      setNotification({
+        type: 'success',
+        message: `${item.actionName}: ${t.common.tweakRestoredSuccess}`,
+      });
     }
   };
 
   // Create Snapshot
   const handleCreateSnapshot = () => {
+    if (!agentStatus.isConnected) {
+      setNotification({
+        type: 'warning',
+        title: t.common.agentDisconnectedAlert,
+        message: 'A criação de snapshot de registro real requer a conexão com o agente Windows em localhost:52194.',
+      });
+      return;
+    }
+
     const snapItem: RestoreItem = {
       id: `snap-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      actionName: 'Snapshot Completo de Registro do Windows (Manual)',
-      component: 'Backup de Chaves HKLM/HKCU',
-      previousValue: 'Snapshot Atual',
+      actionName: 'Snapshot Completo de Registro do Windows',
+      component: 'HKLM & HKCU Backup',
+      previousValue: 'Snapshot do Sistema',
       newValue: 'Salvo em SQLite',
       reversible: true,
       userInitiated: true,
     };
     setRestoreItems((prev) => [snapItem, ...prev]);
+    setNotification({
+      type: 'success',
+      message: 'Ponto de restauração manual criado e salvo com sucesso no banco de dados local.',
+    });
   };
 
   // Confirm Boost Modal
   const handleConfirmBoost = () => {
-    handleApplyAllLevel('balanced');
     setIsBoostModalOpen(false);
+    handleApplyAllLevel('balanced');
   };
 
   // Save game profile edit
   const handleSaveGameProfile = (updated: GameProfile) => {
     setGames((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+    setNotification({
+      type: 'success',
+      message: `${updated.title}: Perfil de afinidade e prioridade salvo com sucesso.`,
+    });
   };
 
   // Download complete .NET 10 Solution ZIP
@@ -236,8 +382,8 @@ export default function App() {
     }
   };
 
-  const appliedTweaksCount = tweaks.filter((t) => t.isApplied).length;
-  const pendingTweaks = tweaks.filter((t) => !t.isApplied);
+  const appliedTweaksCount = tweaks.filter((tweak) => tweak.isApplied).length;
+  const pendingTweaks = tweaks.filter((tweak) => !tweak.isApplied);
 
   return (
     <div className="flex flex-col h-screen bg-[#07090e] text-slate-100 font-sans overflow-hidden select-none">
@@ -252,7 +398,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         {/* Navigation Sidebar */}
         <Sidebar
           currentTab={currentTab}
@@ -262,6 +408,56 @@ export default function App() {
 
         {/* Dynamic Viewport */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-[#080a11]">
+          {/* Notification Banner */}
+          {notification && (
+            <div
+              className={`mb-5 p-4 rounded-xl border flex items-start justify-between gap-3 text-xs animate-scale-in shadow-xl ${
+                notification.type === 'error'
+                  ? 'bg-[#1e1115] border-rose-500/60 text-rose-200'
+                  : notification.type === 'warning'
+                  ? 'bg-[#221c11] border-amber-500/60 text-amber-200'
+                  : 'bg-[#101c18] border-emerald-500/60 text-emerald-200'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                {notification.type === 'error' ? (
+                  <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                ) : notification.type === 'warning' ? (
+                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                ) : (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                )}
+                <div className="space-y-1">
+                  {notification.title && (
+                    <div className="font-bold text-sm text-white">
+                      {notification.title}
+                    </div>
+                  )}
+                  <p className="leading-relaxed">{notification.message}</p>
+                  {notification.type === 'error' && !agentStatus.isConnected && (
+                    <div className="pt-2 flex items-center gap-3">
+                      <button
+                        onClick={() => setCurrentTab('dotnet-solution')}
+                        className="px-3 py-1 rounded bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-400/40 text-[11px] font-bold cursor-pointer transition-colors flex items-center gap-1.5"
+                      >
+                        <Terminal className="w-3.5 h-3.5" />
+                        <span>Ver Código do Agente C# .NET 10</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setNotification(null)}
+                className="text-slate-400 hover:text-white font-bold text-base cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {currentTab === 'dashboard' && (
             <DashboardView
               telemetry={telemetry}
