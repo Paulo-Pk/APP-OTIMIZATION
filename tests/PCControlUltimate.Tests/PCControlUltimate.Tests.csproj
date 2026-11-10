@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
+    <ProjectReference Include="../../src/PCControlUltimate.Diagnostics/PCControlUltimate.Diagnostics.csproj" />
+    <ProjectReference Include="../../src/PCControlUltimate.Security/PCControlUltimate.Security.csproj" />
+    <ProjectReference Include="../../src/PCControlUltimate.Windows/PCControlUltimate.Windows.csproj" />
+    <ProjectReference Include="../../src/PCControlUltimate.Gaming/PCControlUltimate.Gaming.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+</Project>

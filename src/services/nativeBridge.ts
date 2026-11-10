@@ -22,6 +22,8 @@ class NativeBridgeService {
 
   private listeners: ((status: NativeAgentStatus) => void)[] = [];
 
+  private sessionToken: string | null = null;
+
   constructor() {
     this.checkConnection();
   }
@@ -38,6 +40,16 @@ class NativeBridgeService {
     this.listeners.forEach((l) => l(this.agentStatus));
   }
 
+  private getAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.sessionToken) {
+      headers['Authorization'] = `Bearer ${this.sessionToken}`;
+    }
+    return headers;
+  }
+
   public async checkConnection(): Promise<boolean> {
     try {
       const controller = new AbortController();
@@ -50,6 +62,18 @@ class NativeBridgeService {
 
       if (res.ok) {
         const data = await res.json();
+        
+        // Fetch session token for loopback authorized calls
+        try {
+          const authRes = await fetch(`${LOCAL_AGENT_URL}/api/auth/token`);
+          if (authRes.ok) {
+            const authData = await authRes.json();
+            this.sessionToken = authData.token || null;
+          }
+        } catch {
+          // Token endpoint may not be active in mock
+        }
+
         this.agentStatus = {
           isConnected: true,
           version: data.version || '2.4.0',
@@ -63,6 +87,8 @@ class NativeBridgeService {
     } catch {
       // In web sandbox or service not started yet
     }
+
+    this.sessionToken = null;
 
     this.agentStatus = {
       isConnected: false,
@@ -113,7 +139,7 @@ class NativeBridgeService {
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/apply`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: JSON.stringify({ tweakId, keyPath, valueName, targetValue }),
       });
       const data = await res.json();
@@ -150,7 +176,7 @@ class NativeBridgeService {
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/restore`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: JSON.stringify({ keyPath, valueName, originalValue }),
       });
       const data = await res.json();
@@ -184,7 +210,7 @@ class NativeBridgeService {
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/presentmon/capture`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: JSON.stringify({ processName, durationSeconds }),
       });
       if (res.ok) {
@@ -219,7 +245,7 @@ class NativeBridgeService {
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/debloat/purge`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: JSON.stringify({ categoryKey }),
       });
       if (res.ok) {
@@ -286,7 +312,7 @@ class NativeBridgeService {
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/create`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
       });
       const data = await res.json();
       return {
@@ -306,7 +332,7 @@ class NativeBridgeService {
   }
 
   // Real Windows Registry Snapshot Restoration
-  public async restoreRegistrySnapshot(snapshotId: string): Promise<{
+  public async restoreRegistrySnapshot(filePathOrId: string): Promise<{
     success: boolean;
     restoredKeysCount?: number;
     error?: string;
@@ -321,8 +347,8 @@ class NativeBridgeService {
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/restore`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshotId }),
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ filePath: filePathOrId }),
       });
       const data = await res.json();
       return {
@@ -339,7 +365,7 @@ class NativeBridgeService {
   }
 
   // Verify Snapshot File Integrity
-  public async verifySnapshotIntegrity(snapshotId: string): Promise<{
+  public async verifySnapshotIntegrity(filePathOrId: string): Promise<{
     success: boolean;
     isValid: boolean;
     checksum?: string;
@@ -354,7 +380,7 @@ class NativeBridgeService {
     }
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/verify?id=${encodeURIComponent(snapshotId)}`);
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/verify?path=${encodeURIComponent(filePathOrId)}`);
       const data = await res.json();
       return {
         success: !!data.success,

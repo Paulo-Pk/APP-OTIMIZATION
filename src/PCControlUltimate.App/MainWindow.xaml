@@ -1,0 +1,230 @@
+<Window x:Class="PCControlUltimate.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PC CONTROL ULTIMATE v2.4.0 — Professional Windows Optimization"
+        Height="840" Width="1300"
+        MinHeight="720" MinWidth="1024"
+        WindowStartupLocation="CenterScreen"
+        Background="#07090E">
+
+    <Window.Resources>
+        <!-- Modern Gamer Brushes -->
+        <SolidColorBrush x:Key="SidebarBackground" Color="#0B0E17" />
+        <SolidColorBrush x:Key="HeaderBackground" Color="#0F121B" />
+        <SolidColorBrush x:Key="CardBackground" Color="#131722" />
+        <SolidColorBrush x:Key="BorderDark" Color="#1E2333" />
+        <SolidColorBrush x:Key="PrimaryPurple" Color="#A855F7" />
+        <SolidColorBrush x:Key="AccentCyan" Color="#06B6D4" />
+        <SolidColorBrush x:Key="SuccessGreen" Color="#22C55E" />
+        <SolidColorBrush x:Key="WarningAmber" Color="#F59E0B" />
+        <SolidColorBrush x:Key="TextMuted" Color="#94A3B8" />
+
+        <Style x:Key="NavButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#94A3B8" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="16,12" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#1E1B4B" />
+                    <Setter Property="Foreground" Value="#C084FC" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="ActionPrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#A855F7" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="18,10" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#9333EA" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="68" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="36" />
+        </Grid.RowDefinitions>
+
+        <!-- Top Header -->
+        <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="0,0,0,1">
+            <Grid Margin="24,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Brand -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="PC CONTROL " Foreground="#FFFFFF" FontWeight="Black" FontSize="20" />
+                    <TextBlock Text="ULTIMATE" Foreground="{StaticResource PrimaryPurple}" FontWeight="Black" FontSize="20" />
+                    <Border Background="#201533" CornerRadius="4" Margin="14,0,0,0" Padding="8,3">
+                        <TextBlock Text="v2.4.0 PRO" Foreground="#C084FC" FontSize="11" FontWeight="Bold" />
+                    </Border>
+                </StackPanel>
+
+                <!-- Status Pill -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="#0D1F15" BorderBrush="#14532D" BorderThickness="1" CornerRadius="6" Padding="12,6" Margin="0,0,12,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessGreen}" Margin="0,0,8,0" />
+                            <TextBlock Text="{Binding StatusMessage}" Foreground="#86EFAC" FontSize="12" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Border>
+
+                    <Button Style="{StaticResource ActionPrimaryButton}" Content="Criar Ponto de Restauração" Command="{Binding CreateSnapshotCommand}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Main Body -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Navigation Sidebar -->
+            <Border Grid.Column="0" Background="{StaticResource SidebarBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="0,0,1,0" Padding="16,20">
+                <StackPanel>
+                    <TextBlock Text="MÓDULOS DE PERFORMANCE" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,10" />
+
+                    <Button Style="{StaticResource NavButtonStyle}" Content="📊 Painel Principal" Command="{Binding SelectTabCommand}" CommandParameter="dashboard" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="⚡ Boost Center" Command="{Binding SelectTabCommand}" CommandParameter="boost" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="🎮 Game Center &amp; FPS" Command="{Binding SelectTabCommand}" CommandParameter="game" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="🌡️ Monitor de Hardware" Command="{Binding SelectTabCommand}" CommandParameter="hardware" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="🛠️ Windows Tweaks" Command="{Binding SelectTabCommand}" CommandParameter="tweaks" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="🧹 Debloat &amp; Limpeza" Command="{Binding SelectTabCommand}" CommandParameter="debloat" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="🌐 Network Lab" Command="{Binding SelectTabCommand}" CommandParameter="network" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="🛡️ Restore Center" Command="{Binding SelectTabCommand}" CommandParameter="restore" />
+
+                    <Separator Background="{StaticResource BorderDark}" Margin="0,16" />
+
+                    <TextBlock Text="PERFIL ATIVO" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,6" />
+                    <Border Background="#171329" BorderBrush="{StaticResource PrimaryPurple}" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                        <StackPanel>
+                            <TextBlock Text="{Binding ActiveProfile}" Foreground="#FFFFFF" FontWeight="Bold" FontSize="13" />
+                            <TextBlock Text="Otimizações do Registro verificadas" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Workspace / Cards View -->
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="32">
+                <StackPanel>
+                    <!-- Hero Banner -->
+                    <Border Background="#0F121C" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="10" Padding="24" Margin="0,0,0,24">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="SISTEMA PRONTO PARA ALTA PERFORMANCE" Foreground="#FFFFFF" FontSize="20" FontWeight="Black" />
+                                <TextBlock Text="Agente nativo Windows com elevação de privilégios e monitoramento em tempo real." Foreground="{StaticResource TextMuted}" FontSize="13" Margin="0,6,0,0" />
+                            </StackPanel>
+
+                            <Button Grid.Column="1" Style="{StaticResource ActionPrimaryButton}" Content="🔄 Atualizar Telemetria" Command="{Binding RefreshStatusCommand}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Telemetry Cards -->
+                    <UniformGrid Columns="4" Margin="0,0,0,24">
+                        <!-- Card CPU -->
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,12,0">
+                            <StackPanel>
+                                <TextBlock Text="CPU TEMPERATURE" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
+                                <TextBlock Text="{Binding CpuTemp}" Foreground="#38BDF8" FontSize="24" FontWeight="Black" Margin="0,8,0,4" />
+                                <TextBlock Text="LibreHardwareMonitorLib" Foreground="#64748B" FontSize="10" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Card GPU -->
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,12,0">
+                            <StackPanel>
+                                <TextBlock Text="GPU TEMPERATURE" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
+                                <TextBlock Text="{Binding GpuTemp}" Foreground="#EC4899" FontSize="24" FontWeight="Black" Margin="0,8,0,4" />
+                                <TextBlock Text="Auditoria Térmica / Hotspot" Foreground="#64748B" FontSize="10" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Card RAM -->
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,12,0">
+                            <StackPanel>
+                                <TextBlock Text="MEMÓRIA RAM" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
+                                <TextBlock Text="{Binding RamUsage}" Foreground="#A855F7" FontSize="24" FontWeight="Black" Margin="0,8,0,4" />
+                                <TextBlock Text="Uso do Sistema" Foreground="#64748B" FontSize="10" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Card PresentMon -->
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="PRESENTMON STATS" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
+                                <TextBlock Text="1% Low Real" Foreground="#22C55E" FontSize="24" FontWeight="Black" Margin="0,8,0,4" />
+                                <TextBlock Text="Header dinâmico msBetweenPresents" Foreground="#64748B" FontSize="10" />
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+
+                    <!-- Safety & Features Section -->
+                    <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel>
+                            <TextBlock Text="GARANTIAS DE SEGURANÇA E CONFORMIDADE" Foreground="#FFFFFF" FontSize="15" FontWeight="Bold" Margin="0,0,0,12" />
+                            <TextBlock Text="• Nenhuma modificação no Registro é efetuada sem verificação pós-escrita e backup automático." Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,0,0,6" />
+                            <TextBlock Text="• Windows Defender, Firewall e atualizações de segurança permanecem 100% intactos e inviolados." Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,0,0,6" />
+                            <TextBlock Text="• O agente local opera estritamente em loopback (127.0.0.1) com validação de origem e token de sessão criptográfico." Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,0,0,6" />
+                            <TextBlock Text="• Ponto de restauração com assinatura digital SHA-256 e reversão individual ou completa de ajustes." Foreground="{StaticResource TextMuted}" FontSize="12" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Bottom Status Bar -->
+        <Border Grid.Row="2" Background="{StaticResource HeaderBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="0,1,0,0" Padding="20,0">
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="PC Control Ultimate v2.4.0 — Solução Física .NET 10 WPF + Agente Privilegiado" Foreground="#64748B" FontSize="11" />
+                <TextBlock Grid.Column="1" Text="Porta IPC: 52194 | Loopback Seguro" Foreground="#64748B" FontSize="11" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
