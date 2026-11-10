@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Security.Principal;
 
 namespace PCControlUltimate.Gaming.NetworkAcceleration;
 
@@ -149,7 +148,6 @@ public sealed class WireGuardWindowsProvider : ITunnelProvider
     public async Task<TunnelOperationResult> InstallAsync(string configurationPath, CancellationToken cancellationToken = default)
     {
         if (!OperatingSystem.IsWindows()) return new(false, "WireGuard para Windows só pode ser controlado no Windows.");
-        if (!IsAdministrator()) return new(false, "A instalação do túnel exige elevação UAC. Nenhuma alteração foi feita.");
         if (!IsAvailable) return new(false, "WireGuard for Windows não foi encontrado. Instale-o pela fonte oficial.");
         if (string.IsNullOrWhiteSpace(configurationPath) || !File.Exists(configurationPath))
             return new(false, "Selecione um arquivo de configuração WireGuard existente.");
@@ -187,7 +185,6 @@ public sealed class WireGuardWindowsProvider : ITunnelProvider
     public async Task<TunnelOperationResult> RemoveAsync(string tunnelName, CancellationToken cancellationToken = default)
     {
         if (!OperatingSystem.IsWindows()) return new(false, "Disponível somente no Windows.");
-        if (!IsAdministrator()) return new(false, "Remover o túnel exige elevação UAC. Nenhuma alteração foi feita.");
         if (!IsAvailable) return new(false, "WireGuard for Windows não foi encontrado.");
         if (string.IsNullOrWhiteSpace(tunnelName) || tunnelName.Length > 15 ||
             tunnelName.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '_' && c != '-'))
@@ -201,34 +198,27 @@ public sealed class WireGuardWindowsProvider : ITunnelProvider
         {
             var start = new ProcessStartInfo(ExecutablePath!)
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
+                // ShellExecute + runas displays the real Windows UAC consent prompt.
+                // Output redirection is intentionally disabled for elevated ShellExecute.
+                UseShellExecute = true,
+                Verb = "runas",
+                Arguments = string.Join(" ", args.Select(arg => "\"" + arg.Replace("\"", "\\\\\"") + "\""))
             };
-            foreach (string arg in args) start.ArgumentList.Add(arg);
             using var process = Process.Start(start);
-            if (process == null) return new(false, "Não foi possível iniciar o WireGuard.");
+            if (process == null) return new(false, "O Windows não iniciou o processo WireGuard.");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            timeout.CancelAfter(TimeSpan.FromSeconds(45));
             await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
-            string stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-            string stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             return process.ExitCode == 0
-                ? new(true, string.IsNullOrWhiteSpace(stdout) ? "Comando WireGuard concluído." : stdout.Trim())
-                : new(false, $"WireGuard retornou código {process.ExitCode}: {stderr.Trim()}");
+                ? new(true, "O comando WireGuard foi concluído com código de saída 0.")
+                : new(false, $"WireGuard retornou código de saída {process.ExitCode}.");
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            return new(false, "A solicitação de elevação UAC foi cancelada. Nenhuma alteração foi confirmada.");
         }
         catch (OperationCanceledException) { return new(false, "Operação WireGuard cancelada ou excedeu o tempo limite."); }
         catch (Exception ex) { return new(false, $"Falha ao executar WireGuard: {ex.Message}"); }
     }
 
-    private static bool IsAdministrator()
-    {
-        try
-        {
-            using var identity = WindowsIdentity.GetCurrent();
-            return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
-        }
-        catch { return false; }
-    }
 }
