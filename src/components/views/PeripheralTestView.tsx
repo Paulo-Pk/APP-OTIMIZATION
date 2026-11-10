@@ -8,8 +8,10 @@ import {
   Maximize2,
   CheckCircle2,
 } from 'lucide-react';
+import { useI18n } from '../../i18n';
 
 export const PeripheralTestView: React.FC = () => {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'keyboard' | 'mouse' | 'monitor'>('keyboard');
 
   // KEYBOARD STATE
@@ -22,11 +24,6 @@ export const PeripheralTestView: React.FC = () => {
       const code = e.code;
       setPressedKeys((prev) => new Set(prev).add(code));
       setHistoryKeys((prev) => [code, ...prev.slice(0, 19)]);
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      e.preventDefault();
-      // Keep key in pressed set to show it was tested
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -90,7 +87,6 @@ export const PeripheralTestView: React.FC = () => {
         const avg = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
         const hz = Math.round(1000 / avg);
         if (hz >= 50 && hz <= 540) {
-          // Normalize to common gaming refresh rates
           if (Math.abs(hz - 60) < 4) setDetectedHz(60);
           else if (Math.abs(hz - 144) < 6) setDetectedHz(144);
           else if (Math.abs(hz - 165) < 6) setDetectedHz(165);
@@ -106,7 +102,6 @@ export const PeripheralTestView: React.FC = () => {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  // Keyboard Rows layout representation
   const keyboardRows = [
     ['Escape', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'],
     ['Backquote', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal', 'Backspace'],
@@ -122,11 +117,11 @@ export const PeripheralTestView: React.FC = () => {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#121522] via-[#161a29] to-[#0f111a] border border-purple-900/30">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
-            <KeyboardIcon className="w-4 h-4" /> Bateria de Validação de Periféricos Gamer
+            <KeyboardIcon className="w-4 h-4" /> {t.peripherals.subtitle}
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">PERIPHERAL TEST</h1>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Teste de ghosting e rolagem de teclas de teclado mecânico, taxa de amostragem de mouse (polling rate) e tela para detecção de dead pixels.
+          <h1 className="text-xl font-black text-white mt-0.5">{t.peripherals.title}</h1>
+          <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
+            {t.peripherals.description}
           </p>
         </div>
 
@@ -138,7 +133,7 @@ export const PeripheralTestView: React.FC = () => {
               activeTab === 'keyboard' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
             }`}
           >
-            <KeyboardIcon className="w-3.5 h-3.5" /> Teclado
+            <KeyboardIcon className="w-3.5 h-3.5" /> {t.peripherals.tabKeyboard}
           </button>
           <button
             onClick={() => setActiveTab('mouse')}
@@ -146,7 +141,7 @@ export const PeripheralTestView: React.FC = () => {
               activeTab === 'mouse' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Mouse className="w-3.5 h-3.5" /> Mouse
+            <Mouse className="w-3.5 h-3.5" /> {t.peripherals.tabMouse}
           </button>
           <button
             onClick={() => setActiveTab('monitor')}
@@ -154,7 +149,7 @@ export const PeripheralTestView: React.FC = () => {
               activeTab === 'monitor' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Monitor className="w-3.5 h-3.5" /> Monitor
+            <Monitor className="w-3.5 h-3.5" /> {t.peripherals.tabMonitor}
           </button>
         </div>
       </div>
@@ -165,21 +160,20 @@ export const PeripheralTestView: React.FC = () => {
           <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
             <div>
               <span className="font-bold text-white uppercase tracking-wider">
-                Matriz de Teclas (Pressione as teclas físicas para testar)
+                {t.peripherals.keyboardTitle}
               </span>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Teclas testadas permanecem iluminadas em roxo neon para detectar chaves quebradas ou ghosting.
+                {t.peripherals.keyboardDesc}
               </p>
             </div>
             <button
               onClick={resetKeyboard}
               className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold cursor-pointer flex items-center gap-1.5 text-xs"
             >
-              <RotateCcw className="w-3.5 h-3.5" /> Resetar Teclado
+              <RotateCcw className="w-3.5 h-3.5" /> {t.peripherals.resetKeyboard}
             </button>
           </div>
 
-          {/* Visual Keyboard Rows */}
           <div className="space-y-2 p-3 bg-[#0a0c13] rounded-xl border border-slate-900 overflow-x-auto">
             {keyboardRows.map((row, rIdx) => (
               <div key={rIdx} className="flex gap-1.5 justify-center min-w-[700px]">
@@ -210,8 +204,8 @@ export const PeripheralTestView: React.FC = () => {
           </div>
 
           <div className="flex justify-between items-center text-xs font-mono text-slate-400 pt-1">
-            <span>Teclas testadas: {pressedKeys.size} de ~104</span>
-            <span>Última tecla registrada: {historyKeys[0] || 'Nenhuma'}</span>
+            <span>{t.peripherals.keysTested} {pressedKeys.size} / ~104</span>
+            <span>{t.peripherals.lastKeyPressed} {historyKeys[0] || 'Nenhuma'}</span>
           </div>
         </div>
       )}
@@ -226,44 +220,44 @@ export const PeripheralTestView: React.FC = () => {
         >
           <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
             <span className="font-bold text-white uppercase tracking-wider">
-              Área de Teste de Movimento e Polling Rate (Mova e Clique Aqui)
+              {t.peripherals.mouseAreaTitle}
             </span>
-            <span className="text-slate-400 font-mono">Total de Cliques: {mouseClicksCount}</span>
+            <span className="text-slate-400 font-mono">{t.peripherals.mouseClicks} {mouseClicksCount}</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
             <div className="p-5 rounded-xl bg-[#0a0c13] border border-slate-800 space-y-2">
-              <span className="text-xs text-slate-500 uppercase font-bold">Taxa de Amostragem (Hz)</span>
+              <span className="text-xs text-slate-500 uppercase font-bold">{t.peripherals.pollingRateTitle}</span>
               <div className="text-3xl font-black font-mono text-purple-400">
                 ~{mousePollingRate} Hz
               </div>
               <span className="text-[11px] text-slate-400 block">
-                {mousePollingRate >= 1000 ? 'Sensor Gamer 1000Hz+ OK' : 'Taxa Padrão de Escritório'}
+                {mousePollingRate >= 1000 ? 'Sensor Gamer 1000Hz+ OK' : 'Sensor Padrão'}
               </span>
             </div>
 
             <div className="p-5 rounded-xl bg-[#0a0c13] border border-slate-800 space-y-2">
-              <span className="text-xs text-slate-500 uppercase font-bold">Botões Principais</span>
+              <span className="text-xs text-slate-500 uppercase font-bold">{t.peripherals.mouseButtonsTitle}</span>
               <div className="flex justify-center gap-2 pt-1">
                 <span className={`px-3 py-1 rounded text-xs font-bold ${mouseButtons.left ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                  Esq (LMB)
+                  LMB
                 </span>
                 <span className={`px-3 py-1 rounded text-xs font-bold ${mouseButtons.middle ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                  Meio (Scroll)
+                  Wheel
                 </span>
                 <span className={`px-3 py-1 rounded text-xs font-bold ${mouseButtons.right ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                  Dir (RMB)
+                  RMB
                 </span>
               </div>
-              <span className="text-[11px] text-slate-400 block">Clique dentro da área</span>
+              <span className="text-[11px] text-slate-400 block">Clique para testar switches</span>
             </div>
 
             <div className="p-5 rounded-xl bg-[#0a0c13] border border-slate-800 space-y-2">
-              <span className="text-xs text-slate-500 uppercase font-bold">Latência de Cliques</span>
+              <span className="text-xs text-slate-500 uppercase font-bold">{t.peripherals.clickLatencyTitle}</span>
               <div className="text-3xl font-black font-mono text-emerald-400">
                 1.2 ms
               </div>
-              <span className="text-[11px] text-slate-400 block">Micro-switch óptico instantâneo</span>
+              <span className="text-[11px] text-slate-400 block">Switch óptico com debouncing rápido</span>
             </div>
           </div>
         </div>
@@ -274,35 +268,35 @@ export const PeripheralTestView: React.FC = () => {
         <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4">
           <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
             <span className="font-bold text-white uppercase tracking-wider">
-              Diagnóstico do Display & Teste de Pixels Mortos
+              {t.peripherals.monitorTitle}
             </span>
             <span className="text-purple-400 font-mono font-bold">
-              Taxa Detectada: {detectedHz} Hz
+              {t.peripherals.detectedRefreshRate} {detectedHz} Hz
             </span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
             <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px] uppercase">Resolução Ativa</span>
+              <span className="text-slate-500 block text-[10px] uppercase">{t.peripherals.activeResolution}</span>
               <span className="text-white font-bold">{window.screen.width} x {window.screen.height}</span>
             </div>
             <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px] uppercase">Taxa de Atualização</span>
+              <span className="text-slate-500 block text-[10px] uppercase">Taxa de Quadros</span>
               <span className="text-emerald-400 font-bold">{detectedHz} Hz</span>
             </div>
             <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px] uppercase">Profundidade de Cor</span>
+              <span className="text-slate-500 block text-[10px] uppercase">{t.peripherals.colorDepth}</span>
               <span className="text-white font-bold">{window.screen.colorDepth}-bit RGB</span>
             </div>
             <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px] uppercase">Escala de DPI</span>
+              <span className="text-slate-500 block text-[10px] uppercase">{t.peripherals.dpiScale}</span>
               <span className="text-white font-bold">{(window.devicePixelRatio * 100).toFixed(0)}%</span>
             </div>
           </div>
 
           <div className="space-y-2 pt-2">
             <span className="text-xs font-bold text-slate-300 uppercase block">
-              Padrões para Verificação de Dead Pixels (Clique para Tela Cheia)
+              {t.peripherals.deadPixelTitle}
             </span>
             <div className="flex gap-2">
               {[
@@ -326,7 +320,7 @@ export const PeripheralTestView: React.FC = () => {
         </div>
       )}
 
-      {/* Fullscreen color modal for dead pixel inspection */}
+      {/* Fullscreen color modal */}
       {fullscreenColor && (
         <div
           onClick={() => setFullscreenColor(null)}
@@ -334,7 +328,7 @@ export const PeripheralTestView: React.FC = () => {
           style={{ backgroundColor: fullscreenColor }}
         >
           <div className="bg-black/80 px-4 py-2 rounded text-white text-xs font-bold backdrop-blur-md opacity-70 hover:opacity-100 transition-opacity">
-            Clique em qualquer lugar para sair do teste de dead pixel
+            {t.peripherals.clickToExit}
           </div>
         </div>
       )}

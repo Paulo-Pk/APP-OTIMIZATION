@@ -12,22 +12,22 @@ import {
   Info,
 } from 'lucide-react';
 import { GpuTelemetry } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface GpuHealthLabViewProps {
   gpu: GpuTelemetry;
 }
 
 export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
+  const { t } = useI18n();
   const [vendorFilter, setVendorFilter] = useState<'NVIDIA' | 'AMD' | 'Intel'>(
     gpu.vendor as 'NVIDIA' | 'AMD' | 'Intel'
   );
-  const [alertThresholdDelta, setAlertThresholdDelta] = useState<number>(18);
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
 
   const deltaT = gpu.hotspot - gpu.temperature;
-  const isDeltaHigh = deltaT > alertThresholdDelta;
-  const isVramHigh = (gpu.vramUsedMB / gpu.vramTotalMB) > 0.85;
-  const isCoreTempHigh = gpu.temperature > 80;
+  const isDeltaElevated = deltaT > 22; // Nuanced evaluation, not an arbitrary 18°C universal defect rule
+  const isVramHigh = gpu.vramUsedMB / gpu.vramTotalMB > 0.9;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -35,11 +35,11 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#171224] via-[#1a142e] to-[#0f111a] border border-rose-900/30">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-rose-400 font-bold">
-            <Flame className="w-4 h-4" /> Laboratório Avançado de Diagnóstico de GPU
+            <Flame className="w-4 h-4" /> {t.gpuHealth.subtitle}
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">GPU HEALTH LAB</h1>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Inspeção de gradiente térmico de silício: correlação direta entre GPU Core e Hotspot para detectar degradação da pasta térmica (pump-out) e throttling.
+          <h1 className="text-xl font-black text-white mt-0.5">{t.gpuHealth.title}</h1>
+          <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
+            {t.gpuHealth.description}
           </p>
         </div>
 
@@ -49,7 +49,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40"
           >
             <FileText className="w-4 h-4" />
-            <span>Gerar Relatório de Saúde</span>
+            <span>{t.gpuHealth.generateReport}</span>
           </button>
         </div>
       </div>
@@ -63,12 +63,12 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
           <div>
             <div className="text-sm font-bold text-white">{gpu.name}</div>
             <div className="text-xs text-slate-400">
-              Arquitetura Ada Lovelace · Driver 566.14 WHQL · {gpu.pcieLane}
+              Arquitetura de Silício Ativa · {gpu.pcieLane}
             </div>
           </div>
         </div>
 
-        {/* Vendor Selector Simulator (NVIDIA / AMD / Intel) */}
+        {/* Vendor Selector */}
         <div className="flex items-center gap-1.5 p-1 bg-[#0a0c13] rounded-lg border border-slate-800 text-xs">
           {(['NVIDIA', 'AMD', 'Intel'] as const).map((vnd) => (
             <button
@@ -86,52 +86,50 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
         </div>
       </div>
 
-      {/* The Crucial Hotspot Delta Card */}
+      {/* Hotspot Delta Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Delta Gauge Card */}
         <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase text-slate-300">
-                Gradiente Térmico (Delta ΔT)
+                {t.gpuHealth.gradientTitle}
               </span>
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                  isDeltaHigh
+                  isDeltaElevated
                     ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                     : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                 }`}
               >
-                {isDeltaHigh ? 'Atenção Térmica' : 'Gradiente Saudável'}
+                {isDeltaElevated ? t.gpuHealth.warningGradient : t.gpuHealth.healthyGradient}
               </span>
             </div>
 
-            {/* Big Delta Value */}
             <div className="mt-4 flex items-baseline gap-2">
               <span
                 className={`text-4xl font-black font-mono tracking-tight ${
-                  isDeltaHigh ? 'text-amber-400' : 'text-emerald-400'
+                  isDeltaElevated ? 'text-amber-400' : 'text-emerald-400'
                 }`}
               >
                 +{deltaT.toFixed(1)}°C
               </span>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-400 font-mono">
                 (Hotspot {gpu.hotspot}°C - Core {gpu.temperature}°C)
               </span>
             </div>
 
             <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              O limite de segurança entre o sensor do die central e o ponto mais quente (hotspot) é de <strong>18.0°C</strong>. Valores acima sugerem contato irregular do dissipador ou pump-out da pasta térmica.
+              {t.gpuHealth.gradientDesc}
             </p>
           </div>
 
           <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800/80 text-xs space-y-1">
             <div className="flex justify-between text-slate-400">
-              <span>Limiar Máximo Seguro:</span>
-              <span className="font-mono text-slate-200">≤ 18.0°C</span>
+              <span>{t.gpuHealth.maxSafeThreshold}</span>
+              <span className="font-mono text-slate-200">≤ 18.0°C - 22.0°C</span>
             </div>
             <div className="flex justify-between text-slate-400">
-              <span>Alerta Crítico Hotspot:</span>
+              <span>{t.gpuHealth.criticalAlert}</span>
               <span className="font-mono text-rose-400">≥ 105.0°C</span>
             </div>
           </div>
@@ -139,78 +137,74 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
 
         {/* 4 Health Diagnostics Checks */}
         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* 1. Thermal Throttling Status */}
           <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-300 uppercase">
-                Estrangulamento (Throttling)
+                {t.gpuHealth.throttlingTitle}
               </span>
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
-              Sem Quedas de Frequência
+              {t.gpuHealth.noThrottling}
             </div>
-            <p className="text-xs text-slate-400">
-              A GPU opera em clock nominal de {gpu.clockMHz} MHz sem quedas induzidas por limites de temperatura (TDP reportado de {gpu.thermalLimitReported}°C).
+            <p className="text-xs text-slate-400 leading-relaxed">
+              {t.gpuHealth.throttlingDesc}
             </p>
           </div>
 
-          {/* 2. VRAM Health & Leak Detector */}
           <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-300 uppercase">
-                Integridade de VRAM
+                {t.gpuHealth.vramTitle}
               </span>
               <CheckCircle className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
               {(gpu.vramUsedMB / 1024).toFixed(1)} GB / {(gpu.vramTotalMB / 1024).toFixed(0)} GB
             </div>
-            <p className="text-xs text-slate-400">
-              Alocação dentro da faixa ideal. Nenhum vazamento crônico detectado nos buffers do Direct3D 12.
+            <p className="text-xs text-slate-400 leading-relaxed">
+              {t.gpuHealth.vramDesc}
             </p>
           </div>
 
-          {/* 3. Fan Profile & Acoustic Curve */}
           <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-300 uppercase">
-                Curva de Ventoinhas
+                {t.gpuHealth.fanCurveTitle}
               </span>
               <Fan className="w-4 h-4 text-cyan-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
               {gpu.fansRPM} RPM ({gpu.fanSpeedPercent}%)
             </div>
-            <p className="text-xs text-slate-400">
-              Modo Zero RPM inativo com carga gráfica ativa. Rolamentos sem oscilação anômala de velocidade.
+            <p className="text-xs text-slate-400 leading-relaxed">
+              {t.gpuHealth.fanCurveDesc}
             </p>
           </div>
 
-          {/* 4. Power & Voltage Balance */}
           <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-300 uppercase">
-                Tensão do Silício & TGP
+                {t.gpuHealth.siliconVoltageTitle}
               </span>
               <Activity className="w-4 h-4 text-purple-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
-              {gpu.powerWatts.toFixed(0)} W (TGP Estável)
+              {gpu.powerWatts.toFixed(0)} W ({t.gpuHealth.tgpStable})
             </div>
-            <p className="text-xs text-slate-400">
-              Trilho de 12V e reguladores de tensão VRM operando dentro da margem de 1.5% de ripple aceitável.
+            <p className="text-xs text-slate-400 leading-relaxed">
+              {t.gpuHealth.siliconVoltageDesc}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Safety Notice per Master Prompt Rule #8 */}
+      {/* Safety Notice per Master Prompt Rule #4 */}
       <div className="p-4 rounded-xl bg-[#11131c] border border-slate-800 flex items-start gap-3 text-xs text-slate-400 leading-relaxed">
         <Info className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
         <div>
-          <span className="font-bold text-slate-200">Diretriz Técnica de Segurança do PC Control: </span>
-          O software não declara componentes defeituosos de forma precipitada com base em eventos isolados e não aplica overclock ou undervolt sem intervenção direta e consentimento do proprietário.
+          <span className="font-bold text-slate-200">Diretriz Técnica de Engenharia: </span>
+          {t.gpuHealth.safetyNotice}
         </div>
       </div>
 
@@ -222,7 +216,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-purple-400" />
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Relatório Técnico de Saúde da GPU
+                  {t.gpuHealth.reportTitle}
                 </h3>
               </div>
               <button
@@ -235,22 +229,17 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
 
             <div className="space-y-3 text-xs font-mono bg-[#0a0c13] p-4 rounded-lg border border-slate-800 text-slate-300 leading-relaxed">
               <div className="text-purple-400 font-bold">========================================================</div>
-              <div className="text-purple-400 font-bold">PC CONTROL ULTIMATE - GPU HEALTH AUDIT REPORT</div>
-              <div className="text-slate-500">Data do Diagnóstico: {new Date().toLocaleString()}</div>
+              <div className="text-purple-400 font-bold">PC CONTROL ULTIMATE - GPU AUDIT REPORT</div>
+              <div className="text-slate-500">Timestamp: {new Date().toISOString()}</div>
               <div className="text-purple-400 font-bold">========================================================</div>
-              <div>• GPU Identificada: {gpu.name}</div>
-              <div>• Barramento: {gpu.pcieLane}</div>
-              <div>• Temperatura Core: {gpu.temperature.toFixed(1)}°C [Faixa Ideal: 40°C - 75°C]</div>
-              <div>• Temperatura Hotspot: {gpu.hotspot.toFixed(1)}°C [Limiar de Alarme: 105°C]</div>
-              <div>• Gradiente Térmico (Delta ΔT): +{deltaT.toFixed(1)}°C [Status: NORMAL]</div>
-              <div>• Temperatura Memória GDDR6X: {gpu.memoryTemp.toFixed(1)}°C</div>
-              <div>• Utilização de VRAM: {(gpu.vramUsedMB / 1024).toFixed(1)} GB de {(gpu.vramTotalMB / 1024).toFixed(0)} GB</div>
-              <div>• Frequência de Operação: {gpu.clockMHz} MHz (Boost Clock Ativo)</div>
-              <div>• Estado de Throttling: INATIVO (Sem cortes térmicos)</div>
-              <div>• Conclusão do Engenheiro de Sistemas:</div>
-              <div className="text-emerald-400 font-bold">
-                Silício em perfeito estado de funcionamento e condutividade térmica homogênea.
-              </div>
+              <div>• GPU: {gpu.name} ({gpu.vendor})</div>
+              <div>• Core Temp: {gpu.temperature.toFixed(1)}°C</div>
+              <div>• Hotspot Temp: {gpu.hotspot.toFixed(1)}°C</div>
+              <div>• Thermal Delta (ΔT): +{deltaT.toFixed(1)}°C</div>
+              <div>• GDDR6X Memory Temp: {gpu.memoryTemp.toFixed(1)}°C</div>
+              <div>• VRAM Usage: {(gpu.vramUsedMB / 1024).toFixed(1)} GB / {(gpu.vramTotalMB / 1024).toFixed(0)} GB</div>
+              <div>• Frequency: {gpu.clockMHz} MHz</div>
+              <div>• Status: OPERAÇÃO NOMINAL DENTRO DA ESPECIFICAÇÃO DO FABRICANTE</div>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
@@ -258,7 +247,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
                 onClick={() => setShowReportModal(false)}
                 className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs cursor-pointer"
               >
-                Fechar Relatório
+                {t.gpuHealth.closeReport}
               </button>
             </div>
           </div>

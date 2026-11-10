@@ -8,6 +8,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { SystemTweak } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface BoostConfirmModalProps {
   isOpen: boolean;
@@ -22,6 +23,8 @@ export const BoostConfirmModal: React.FC<BoostConfirmModalProps> = ({
   onConfirm,
   pendingTweaks,
 }) => {
+  const { t } = useI18n();
+
   if (!isOpen) return null;
 
   return (
@@ -81,7 +84,7 @@ export const BoostConfirmModal: React.FC<BoostConfirmModalProps> = ({
               </div>
 
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
-                Risco: {tweak.risk}
+                {t.common.risk}: {tweak.risk}
               </span>
             </div>
           ))}
@@ -98,7 +101,7 @@ export const BoostConfirmModal: React.FC<BoostConfirmModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
             >
-              Cancelar
+              {t.common.cancel}
             </button>
 
             <button
@@ -106,7 +109,7 @@ export const BoostConfirmModal: React.FC<BoostConfirmModalProps> = ({
               className="px-5 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40 flex items-center gap-2"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Autorizar e Aplicar Agora</span>
+              <span>{t.common.confirm}</span>
             </button>
           </div>
         </div>

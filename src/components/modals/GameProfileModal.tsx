@@ -9,6 +9,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { GameProfile } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface GameProfileModalProps {
   game: GameProfile | null;
@@ -23,6 +24,8 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
   onClose,
   onSave,
 }) => {
+  const { t } = useI18n();
+
   if (!isOpen || !game) return null;
 
   const [priority, setPriority] = useState(game.processPriority);
@@ -52,7 +55,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
             <Gamepad2 className="w-5 h-5 text-purple-400" />
             <div>
               <h2 className="text-sm font-black text-white uppercase tracking-wider">
-                Perfil Gamer Individual
+                {t.gameCenter.modalTitle}
               </h2>
               <span className="text-xs text-purple-300 font-semibold">{game.title}</span>
             </div>
@@ -68,27 +71,25 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
 
         {/* Form Options */}
         <div className="space-y-4 text-xs">
-          {/* Process Priority */}
           <div className="space-y-1.5">
             <label className="text-slate-300 font-bold block uppercase text-[11px]">
-              Prioridade do Processo no Windows
+              {t.gameCenter.priorityLabel}
             </label>
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value as any)}
               className="w-full bg-[#0a0c13] border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
-              <option value="Normal">Normal (Padrão)</option>
-              <option value="Acima do Normal">Acima do Normal</option>
-              <option value="Alta">Alta (Recomendado para Jogos Competitivos)</option>
-              <option value="Tempo Real">Tempo Real (Win32 Exclusivo)</option>
+              <option value="Normal">Normal</option>
+              <option value="Acima do Normal">Acima do Normal (Above Normal)</option>
+              <option value="Alta">Alta (High - Competitivo)</option>
+              <option value="Tempo Real">Tempo Real (Realtime)</option>
             </select>
           </div>
 
-          {/* CPU Affinity */}
           <div className="space-y-1.5">
             <label className="text-slate-300 font-bold block uppercase text-[11px]">
-              Afinidade de Núcleos (CPU Affinity)
+              {t.gameCenter.affinityLabel}
             </label>
             <select
               value={affinity}
@@ -97,27 +98,25 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
             >
               <option value="Todos">Todos os Núcleos e Threads</option>
               <option value="P-Cores Apenas">P-Cores Apenas (Isola E-Cores / Híbridos)</option>
-              <option value="Sem E-Cores">Sem E-Cores (Desativa threads de segundo plano)</option>
+              <option value="Sem E-Cores">Sem E-Cores (Desativa threads secundárias)</option>
             </select>
           </div>
 
-          {/* Power Plan */}
           <div className="space-y-1.5">
             <label className="text-slate-300 font-bold block uppercase text-[11px]">
-              Esquema de Energia Durante a Partida
+              {t.gameCenter.powerPlanLabel}
             </label>
             <select
               value={powerProfile}
               onChange={(e) => setPowerProfile(e.target.value as any)}
               className="w-full bg-[#0a0c13] border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
-              <option value="Desempenho Máximo PC Control">Desempenho Máximo PC Control (Trava Clocks)</option>
+              <option value="Desempenho Máximo PC Control">Desempenho Máximo PC Control</option>
               <option value="Alto Desempenho">Alto Desempenho Windows</option>
-              <option value="Equilibrado">Equilibrado (Balanceado)</option>
+              <option value="Equilibrado">Equilibrado</option>
             </select>
           </div>
 
-          {/* Toggles */}
           <div className="space-y-2 pt-2 border-t border-slate-800/80">
             <label className="flex items-center gap-2 cursor-pointer text-slate-300">
               <input
@@ -126,7 +125,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
                 onChange={(e) => setMonitorFps(e.target.checked)}
                 className="w-4 h-4 rounded text-purple-600 bg-[#0a0c13] border-slate-700"
               />
-              <span>Ativar captura automática de telemetria PresentMon ao iniciar</span>
+              <span>{t.gameCenter.autoCapturePresentMon}</span>
             </label>
 
             <label className="flex items-center gap-2 cursor-pointer text-slate-300">
@@ -136,25 +135,24 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
                 onChange={(e) => setBoostEnabled(e.target.checked)}
                 className="w-4 h-4 rounded text-purple-600 bg-[#0a0c13] border-slate-700"
               />
-              <span>Ativar Game Boost temporário antes de inicializar</span>
+              <span>{t.gameCenter.autoGameBoost}</span>
             </label>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
           >
-            Cancelar
+            {t.common.cancel}
           </button>
           <button
             onClick={handleSave}
             className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider cursor-pointer flex items-center gap-1.5"
           >
             <Check className="w-4 h-4" />
-            <span>Salvar Perfil</span>
+            <span>{t.gameCenter.saveProfile}</span>
           </button>
         </div>
       </div>

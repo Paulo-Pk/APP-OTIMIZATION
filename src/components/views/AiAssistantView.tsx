@@ -12,6 +12,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { HardwareTelemetry } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface Message {
   role: 'assistant' | 'user';
@@ -26,16 +27,12 @@ interface AiAssistantViewProps {
 export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
   telemetry,
 }) => {
+  const { t } = useI18n();
+
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      text: `Olá! Sou o Assistente Inteligente do **PC CONTROL ULTIMATE**.
-Estou monitorando seu hardware em tempo real:
-• Processador: **${telemetry.cpu.name}** a ${telemetry.cpu.temperature.toFixed(1)}°C
-• Placa de Vídeo: **${telemetry.gpu.name}** a ${telemetry.gpu.temperature.toFixed(0)}°C (Hotspot a ${telemetry.gpu.hotspot.toFixed(0)}°C, Delta de +${(telemetry.gpu.hotspot - telemetry.gpu.temperature).toFixed(1)}°C)
-• Memória RAM: **${telemetry.ram.totalGB} GB ${telemetry.ram.type}** (${telemetry.ram.percentage}% em uso)
-
-Como posso ajudar você a otimizar a estabilidade, taxas de 1% Low de FPS ou fluxo térmico do seu computador hoje?`,
+      text: t.aiAssistant.initialGreeting,
       timestamp: 'Agora',
     },
   ]);
@@ -44,10 +41,10 @@ Como posso ajudar você a otimizar a estabilidade, taxas de 1% Low de FPS ou flu
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const quickPrompts = [
-    'Avalie se a temperatura do Hotspot da GPU está segura',
-    'Como eliminar micro-stuttering no Counter-Strike 2?',
-    'Explique o benefício de desativar o Algoritmo de Nagle no TCP',
-    'Quais serviços do Windows posso suspender com segurança?',
+    t.aiAssistant.quickPrompt1,
+    t.aiAssistant.quickPrompt2,
+    t.aiAssistant.quickPrompt3,
+    t.aiAssistant.quickPrompt4,
   ];
 
   const handleSendMessage = async (customText?: string) => {
@@ -107,16 +104,16 @@ Como posso ajudar você a otimizar a estabilidade, taxas de 1% Low de FPS ou flu
       <div className="p-4 rounded-xl bg-gradient-to-r from-[#171228] via-[#1a1430] to-[#0f111a] border border-purple-900/40 flex items-center justify-between shrink-0">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
-            <Brain className="w-4 h-4" /> Inteligência Computacional x86 / DirectX
+            <Brain className="w-4 h-4" /> {t.aiAssistant.subtitle}
           </div>
           <h1 className="text-lg font-black text-white mt-0.5">
-            INTELLIGENT PC ASSISTANT
+            {t.aiAssistant.title}
           </h1>
         </div>
 
         <div className="flex items-center gap-2 text-xs text-purple-300 font-mono bg-[#0c0e17] px-3 py-1.5 rounded-lg border border-purple-900/50">
           <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-          <span>Gemini 3.8 Flash Engine</span>
+          <span>{t.aiAssistant.engineNotice}</span>
         </div>
       </div>
 
@@ -170,7 +167,7 @@ Como posso ajudar você a otimizar a estabilidade, taxas de 1% Low de FPS ou flu
             </div>
             <div className="p-3 bg-[#121624] rounded-xl text-xs text-purple-300 font-mono flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
-              <span>Analisando telemetria e gerando parecer técnico...</span>
+              <span>{t.aiAssistant.analyzingNotice}</span>
             </div>
           </div>
         )}
@@ -194,7 +191,7 @@ Como posso ajudar você a otimizar a estabilidade, taxas de 1% Low de FPS ou flu
       <div className="flex gap-2 shrink-0">
         <input
           type="text"
-          placeholder="Pergunte ao assistente sobre gargalos, temperaturas, clocks e otimização..."
+          placeholder={t.aiAssistant.inputPlaceholder}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -210,7 +207,7 @@ Como posso ajudar você a otimizar a estabilidade, taxas de 1% Low de FPS ou flu
           className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40 disabled:opacity-50 flex items-center gap-2"
         >
           <Send className="w-3.5 h-3.5" />
-          <span>Enviar</span>
+          <span>{t.aiAssistant.sendButton}</span>
         </button>
       </div>
     </div>

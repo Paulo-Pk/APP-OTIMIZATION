@@ -11,6 +11,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { HardwareTelemetry } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface HardwareMonitorViewProps {
   telemetry: HardwareTelemetry;
@@ -19,16 +20,18 @@ interface HardwareMonitorViewProps {
 export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
   telemetry,
 }) => {
+  const { t } = useI18n();
+
   return (
     <div className="space-y-5 animate-fade-in">
       {/* Title Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#121522] via-[#161a29] to-[#0f111a] border border-purple-900/30">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
-            <Cpu className="w-4 h-4" /> Monitoramento Contínuo de Hardware
+            <Cpu className="w-4 h-4" /> {t.navigation.hardwareMonitor}
           </div>
           <h1 className="text-xl font-black text-white mt-0.5">HARDWARE MONITOR</h1>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
+          <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
             Inspeção detalhada de sensores físicos via LibreHardwareMonitor: clocks por núcleo, tensões de trilho e sensores SMART.
           </p>
         </div>
@@ -46,7 +49,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
             <Cpu className="w-5 h-5 text-purple-400" />
             <div>
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                {telemetry.cpu.name}
+                {telemetry.cpu.name || t.common.sensorNotAvailable}
               </h2>
               <span className="text-xs font-mono text-slate-500">
                 Socket {telemetry.cpu.socket} · {telemetry.cpu.cores} Cores / {telemetry.cpu.threads} Threads
@@ -57,11 +60,15 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           <div className="flex items-center gap-4 text-xs font-mono">
             <div>
               <span className="text-slate-500">Tensão VCore: </span>
-              <span className="text-slate-200 font-semibold">{telemetry.cpu.voltageV.toFixed(3)} V</span>
+              <span className="text-slate-200 font-semibold">
+                {telemetry.cpu.voltageV ? `${telemetry.cpu.voltageV.toFixed(3)} V` : t.common.sensorNotAvailable}
+              </span>
             </div>
             <div>
               <span className="text-slate-500">Consumo PPT: </span>
-              <span className="text-slate-200 font-semibold">{telemetry.cpu.powerWatts.toFixed(1)} W</span>
+              <span className="text-slate-200 font-semibold">
+                {telemetry.cpu.powerWatts ? `${telemetry.cpu.powerWatts.toFixed(1)} W` : t.common.sensorNotAvailable}
+              </span>
             </div>
           </div>
         </div>
@@ -89,7 +96,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
                   <span>{core.frequencyGHz.toFixed(2)}GHz</span>
-                  <span>{core.temp.toFixed(0)}°C</span>
+                  <span>{core.temp ? `${core.temp.toFixed(0)}°C` : '--'}</span>
                 </div>
               </div>
             ))}
@@ -104,7 +111,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
             <Flame className="w-5 h-5 text-rose-400" />
             <div>
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                {telemetry.gpu.name}
+                {telemetry.gpu.name || t.common.sensorNotAvailable}
               </h2>
               <span className="text-xs font-mono text-slate-500">
                 Fabricante: {telemetry.gpu.vendor} · Interface: {telemetry.gpu.pcieLane}
@@ -119,20 +126,19 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           </div>
         </div>
 
-        {/* Detailed GPU Sensors */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Temperatura Core</span>
             <span className="text-base font-mono font-bold text-white">
-              {telemetry.gpu.temperature.toFixed(1)}°C
+              {telemetry.gpu.temperature ? `${telemetry.gpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
             </span>
-            <span className="text-[10px] text-emerald-400 block mt-0.5">Seguro</span>
+            <span className="text-[10px] text-emerald-400 block mt-0.5">{t.common.good}</span>
           </div>
 
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Hotspot Temp</span>
             <span className="text-base font-mono font-bold text-amber-400">
-              {telemetry.gpu.hotspot.toFixed(1)}°C
+              {telemetry.gpu.hotspot ? `${telemetry.gpu.hotspot.toFixed(1)}°C` : t.common.sensorNotAvailable}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">
               Delta: +{(telemetry.gpu.hotspot - telemetry.gpu.temperature).toFixed(1)}°C
@@ -142,7 +148,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Memória VRAM Temp</span>
             <span className="text-base font-mono font-bold text-slate-200">
-              {telemetry.gpu.memoryTemp.toFixed(1)}°C
+              {telemetry.gpu.memoryTemp ? `${telemetry.gpu.memoryTemp.toFixed(1)}°C` : t.common.sensorNotAvailable}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">GDDR6X</span>
           </div>
@@ -158,7 +164,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Consumo da Placa</span>
             <span className="text-base font-mono font-bold text-slate-200">
-              {telemetry.gpu.powerWatts.toFixed(0)} W
+              {telemetry.gpu.powerWatts ? `${telemetry.gpu.powerWatts.toFixed(0)} W` : t.common.sensorNotAvailable}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">TGP Normal</span>
           </div>
@@ -175,7 +181,6 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
 
       {/* Memory & Storage Health Detail */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* RAM Section */}
         <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
             <div className="flex items-center gap-2">
@@ -200,14 +205,9 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               <span>Memória Física Disponível:</span>
               <span className="font-mono text-slate-200">{telemetry.ram.availableGB.toFixed(1)} GB</span>
             </div>
-            <div className="flex justify-between text-slate-300">
-              <span>Lista de Espera (Standby Cache):</span>
-              <span className="font-mono text-emerald-400">4.2 GB (Limpeza Automática Pronta)</span>
-            </div>
           </div>
         </div>
 
-        {/* Disks SMART Section */}
         <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
             <div className="flex items-center gap-2">
@@ -216,7 +216,9 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                 Diagnóstico de Discos & SMART
               </h3>
             </div>
-            <span className="text-xs font-mono text-emerald-400">2 Unidades Detectadas</span>
+            <span className="text-xs font-mono text-emerald-400">
+              {telemetry.disks.length} Unidades Detectadas
+            </span>
           </div>
 
           <div className="space-y-3 text-xs">
@@ -228,7 +230,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                 </div>
                 <div className="flex justify-between text-slate-400 text-[11px] font-mono">
                   <span>{disk.freeSpaceGB} GB livres de {disk.capacityGB} GB</span>
-                  <span>Temp: {disk.temperature}°C · SMART: {disk.smartStatus}</span>
+                  <span>Temp: {disk.temperature ? `${disk.temperature}°C` : t.common.sensorNotAvailable} · SMART: {disk.smartStatus}</span>
                 </div>
               </div>
             ))}

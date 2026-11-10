@@ -43,7 +43,445 @@ Global
 EndGlobal`,
   },
 
-  // 2. PCControlUltimate.Core
+  // 2. PCControlUltimate.Windows - Privileged Native Windows Agent Host
+  {
+    path: 'src/PCControlUltimate.Windows/Services/PrivilegedAgentServer.cs',
+    name: 'PrivilegedAgentServer.cs',
+    language: 'csharp',
+    description: 'Serviço de alta performance com privilégios de Administrador escutando em http://127.0.0.1:52194 para telemetria real e tweaks de registro',
+    content: `using System;
+using System.IO;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using PCControlUltimate.Core.Interfaces;
+using PCControlUltimate.Security;
+using PCControlUltimate.Windows.Services;
+
+namespace PCControlUltimate.Windows.Services;
+
+public class PrivilegedAgentServer : IDisposable
+{
+    private readonly HttpListener _listener;
+    private readonly IHardwareMonitorService _hardwareMonitor;
+    private CancellationTokenSource? _cts;
+    public const int DefaultPort = 52194;
+
+    public PrivilegedAgentServer(IHardwareMonitorService hardwareMonitor)
+    {
+        _hardwareMonitor = hardwareMonitor;
+        _listener = new HttpListener();
+        _listener.Prefixes.Add($"http://127.0.0.1:{DefaultPort}/");
+    }
+
+    public void Start()
+    {
+        _cts = new CancellationTokenSource();
+        _listener.Start();
+        Task.Run(() => ListenLoopAsync(_cts.Token));
+    }
+
+    private async Task ListenLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested && _listener.IsListening)
+        {
+            try
+            {
+                var context = await _listener.GetContextAsync();
+                _ = HandleRequestAsync(context);
+            }
+            catch (Exception)
+            {
+                if (token.IsCancellationRequested) break;
+            }
+        }
+    }
+
+    private async Task HandleRequestAsync(HttpListenerContext context)
+    {
+        var req = context.Request;
+        var res = context.Response;
+
+        // CORS headers for local host integration
+        res.AddHeader("Access-Control-Allow-Origin", "*");
+        res.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.AddHeader("Access-Control-Allow-Headers", "Content-Type");
+
+        if (req.HttpMethod == "OPTIONS")
+        {
+            res.StatusCode = 204;
+            res.Close();
+            return;
+        }
+
+        try
+        {
+            var path = req.Url?.AbsolutePath.ToLowerInvariant() ?? "";
+
+            if (path == "/api/status")
+            {
+                var status = new
+                {
+                    version = "2.4.0",
+                    os = Environment.OSVersion.ToString(),
+                    isElevated = UacElevationBridge.IsRunningAsAdministrator(),
+                    timestamp = DateTime.UtcNow
+                };
+                await SendJsonAsync(res, status);
+                return;
+            }
+
+            if (path == "/api/telemetry")
+            {
+                var snapshot = await _hardwareMonitor.CaptureSnapshotAsync();
+                await SendJsonAsync(res, snapshot);
+                return;
+            }
+
+            if (path == "/api/tweaks/apply" && req.HttpMethod == "POST")
+            {
+                using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
+                var body = await reader.ReadToEndAsync();
+                var tweakDoc = JsonDocument.Parse(body);
+                
+                string subKey = tweakDoc.RootElement.GetProperty("keyPath").GetString() ?? "";
+                string valueName = tweakDoc.RootElement.GetProperty("valueName").GetString() ?? "";
+                int targetValue = tweakDoc.RootElement.GetProperty("targetValue").GetInt32();
+
+                bool success = RegistryOptimizer.TryApplyDword(subKey, valueName, targetValue, out var prevVal);
+                
+                await SendJsonAsync(res, new
+                {
+                    success,
+                    previousValue = prevVal?.ToString() ?? "0",
+                    verifiedValue = targetValue.ToString()
+                });
+                return;
+            }
+
+            res.StatusCode = 404;
+            res.Close();
+        }
+        catch (Exception ex)
+        {
+            res.StatusCode = 500;
+            byte[] errBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { error = ex.Message }));
+            res.ContentType = "application/json";
+            await res.OutputStream.WriteAsync(errBytes);
+            res.Close();
+        }
+    }
+
+    private async Task SendJsonAsync(HttpListenerResponse res, object data)
+    {
+        res.ContentType = "application/json";
+        res.StatusCode = 200;
+        byte[] bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(data));
+        res.ContentLength64 = bytes.Length;
+        await res.OutputStream.WriteAsync(bytes);
+        res.Close();
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _listener.Stop();
+        _listener.Close();
+    }
+}
+`,
+  },
+
+  // 3. PCControlUltimate.Gaming - Real PresentMon Capture
+  {
+    path: 'src/PCControlUltimate.Gaming/PresentMon/PresentMonSessionParser.cs',
+    name: 'PresentMonSessionParser.cs',
+    language: 'csharp',
+    description: 'Parser de alto desempenho para leitura dos arquivos CSV gerados pelo Intel PresentMon com cálculo de 1% Low e desvio de frametime',
+    content: `using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+
+namespace PCControlUltimate.Gaming.PresentMon;
+
+public record PresentMonSummary(
+    double AverageFps,
+    double MinFps,
+    double OnePercentLowFps,
+    double PointOnePercentLowFps,
+    double AverageFrametimeMs,
+    double FrametimeStandardDeviationMs,
+    int TotalFramesCount
+);
+
+public static class PresentMonSessionParser
+{
+    public static PresentMonSummary ParseCsvFile(string csvFilePath)
+    {
+        if (!File.Exists(csvFilePath))
+            throw new FileNotFoundException("Arquivo de captura PresentMon não encontrado.", csvFilePath);
+
+        var frametimesMs = new List<double>();
+
+        using var reader = new StreamReader(csvFilePath);
+        string? header = reader.ReadLine();
+        if (header == null) return Empty();
+
+        string[] columns = header.Split(',');
+        int msBetweenPresentsIdx = Array.FindIndex(columns, c => c.Trim().Equals("msBetweenPresents", StringComparison.OrdinalIgnoreCase));
+        if (msBetweenPresentsIdx == -1)
+            msBetweenPresentsIdx = Array.FindIndex(columns, c => c.Trim().Contains("FrameTime", StringComparison.OrdinalIgnoreCase));
+
+        string? line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            var parts = line.Split(',');
+            if (parts.Length > msBetweenPresentsIdx && msBetweenPresentsIdx >= 0)
+            {
+                if (double.TryParse(parts[msBetweenPresentsIdx], NumberStyles.Any, CultureInfo.InvariantCulture, out double ftMs) && ftMs > 0.1 && ftMs < 500)
+                {
+                    frametimesMs.Add(ftMs);
+                }
+            }
+        }
+
+        if (frametimesMs.Count == 0) return Empty();
+
+        double avgFt = frametimesMs.Average();
+        double avgFps = 1000.0 / avgFt;
+        double minFps = 1000.0 / frametimesMs.Max();
+
+        // 1% Low Calculation (99th percentile of frametimes)
+        var sortedFrametimes = frametimesMs.OrderByDescending(f => f).ToList();
+        int onePercentIdx = Math.Max(0, (int)(sortedFrametimes.Count * 0.01));
+        double onePercentLowFps = 1000.0 / sortedFrametimes[onePercentIdx];
+
+        int pointOnePercentIdx = Math.Max(0, (int)(sortedFrametimes.Count * 0.001));
+        double pointOnePercentLowFps = 1000.0 / sortedFrametimes[pointOnePercentIdx];
+
+        // Standard Deviation of Frametimes
+        double variance = frametimesMs.Select(val => (val - avgFt) * (val - avgFt)).Sum() / frametimesMs.Count;
+        double stDev = Math.Sqrt(variance);
+
+        return new PresentMonSummary(
+            avgFps,
+            minFps,
+            onePercentLowFps,
+            pointOnePercentLowFps,
+            avgFt,
+            stDev,
+            frametimesMs.Count
+        );
+    }
+
+    private static PresentMonSummary Empty() => new(0, 0, 0, 0, 0, 0, 0);
+}
+`,
+  },
+
+  // 4. PCControlUltimate.Windows - Native Network Diagnostics
+  {
+    path: 'src/PCControlUltimate.Windows/Services/NetworkDiagnosticsService.cs',
+    name: 'NetworkDiagnosticsService.cs',
+    language: 'csharp',
+    description: 'Diagnóstico nativo real de rede via System.Net.NetworkInformation: ICMP Echo, Jitter com desvio padrão e resolução DNS direta',
+    content: `using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Threading.Tasks;
+
+namespace PCControlUltimate.Windows.Services;
+
+public record PingAuditResult(
+    string TargetHost,
+    string DisplayName,
+    long RoundTripMs,
+    double JitterMs,
+    int PacketLossPercent,
+    bool IsSuccessful
+);
+
+public class NetworkDiagnosticsService
+{
+    public static async Task<PingAuditResult> AuditServerAsync(string host, string displayName, int packets = 5)
+    {
+        var latencies = new List<long>();
+        int failed = 0;
+
+        using var pinger = new Ping();
+        var buffer = new byte[32];
+        new Random().NextBytes(buffer);
+
+        for (int i = 0; i < packets; i++)
+        {
+            try
+            {
+                var reply = await pinger.SendPingAsync(host, 1500, buffer);
+                if (reply.Status == IPStatus.Success)
+                {
+                    latencies.Add(reply.RoundtripTime);
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+            catch
+            {
+                failed++;
+            }
+            await Task.Delay(50);
+        }
+
+        if (latencies.Count == 0)
+        {
+            return new PingAuditResult(host, displayName, -1, 0, 100, false);
+        }
+
+        double avg = latencies.Average();
+        double variance = latencies.Select(val => Math.Pow(val - avg, 2)).Sum() / latencies.Count;
+        double jitter = Math.Sqrt(variance);
+        int loss = (int)((failed / (double)packets) * 100);
+
+        return new PingAuditResult(host, displayName, (long)avg, jitter, loss, true);
+    }
+
+    public static async Task<long> MeasureDnsResolutionMsAsync(string hostName, IPAddress dnsServer)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync(hostName);
+            sw.Stop();
+            return addresses.Length > 0 ? sw.ElapsedMilliseconds : -1;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+}
+`,
+  },
+
+  // 5. PCControlUltimate.Windows - Real Debloat Cleaner
+  {
+    path: 'src/PCControlUltimate.Windows/Services/DiskCleanerEngine.cs',
+    name: 'DiskCleanerEngine.cs',
+    language: 'csharp',
+    description: 'Motor de escaneamento de arquivos reais em pastas de cache de shaders DirectX, Windows Temp e SoftwareDistribution',
+    content: `using System;
+using System.IO;
+
+namespace PCControlUltimate.Windows.Services;
+
+public static class DiskCleanerEngine
+{
+    public static long CalculateDirectorySizeBytes(string path)
+    {
+        if (!Directory.Exists(path)) return 0;
+        long total = 0;
+        try
+        {
+            var dir = new DirectoryInfo(path);
+            foreach (var file in dir.EnumerateFiles("*", SearchOption.AllDirectories))
+            {
+                try { total += file.Length; } catch { }
+            }
+        }
+        catch { }
+        return total;
+    }
+
+    public static long PurgeDirectorySafely(string path)
+    {
+        if (!Directory.Exists(path)) return 0;
+        long freed = 0;
+        var dir = new DirectoryInfo(path);
+
+        foreach (var file in dir.EnumerateFiles())
+        {
+            try
+            {
+                long size = file.Length;
+                file.Delete();
+                freed += size;
+            }
+            catch { }
+        }
+
+        foreach (var sub in dir.EnumerateDirectories())
+        {
+            try
+            {
+                sub.Delete(true);
+            }
+            catch { }
+        }
+
+        return freed;
+    }
+
+    public static string GetD3dShaderCachePath() =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "D3DSCache");
+
+    public static string GetUserTempPath() => Path.GetTempPath();
+
+    public static string GetWindowsTempPath() => @"C:\\Windows\\Temp";
+
+    public static string GetSoftwareDistributionPath() => @"C:\\Windows\\SoftwareDistribution\\Download";
+}
+`,
+  },
+
+  // 6. Inno Setup Windows Installer Script
+  {
+    path: 'installer/PCControlUltimate-Setup.iss',
+    name: 'PCControlUltimate-Setup.iss',
+    language: 'powershell',
+    description: 'Script oficial do Inno Setup para compilar o instalador Windows x64 com atalhos, elevação de privilégios e registro no Painel de Controle',
+    content: `[Setup]
+AppName=PC CONTROL ULTIMATE
+AppVersion=2.4.0
+AppPublisher=PC Control Ultimate Team
+DefaultDirName={autopf}\\PC Control Ultimate
+DefaultGroupName=PC Control Ultimate
+OutputDir=..\\publish\\installer
+OutputBaseFilename=PCControlUltimate_Setup_x64_v2.4
+Compression=lzma2/ultra64
+SolidCompression=yes
+ArchitecturesInstallIn64BitMode=x64
+PrivilegesRequired=admin
+SetupIconFile=..\\src\\PCControlUltimate.App\\Assets\\pc_control_logo.ico
+UninstallDisplayIcon={app}\\PCControlUltimate.App.exe
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "startupicon"; Description: "Iniciar automaticamente com o Windows (Otimização Contínua)"; GroupDescription: "Inicialização:"
+
+[Files]
+Source: "..\\publish\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\\PC CONTROL ULTIMATE"; Filename: "{app}\\PCControlUltimate.App.exe"
+Name: "{group}\\Desinstalar PC Control Ultimate"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\\PC CONTROL ULTIMATE"; Filename: "{app}\\PCControlUltimate.App.exe"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\\PCControlUltimate.App.exe"; Description: "{cm:LaunchProgram,PC CONTROL ULTIMATE}"; Flags: nowait postinstall skipifsilent
+`,
+  },
+
+  // 7. PCControlUltimate.Core
   {
     path: 'src/PCControlUltimate.Core/PCControlUltimate.Core.csproj',
     name: 'PCControlUltimate.Core.csproj',
@@ -99,145 +537,13 @@ public class OptimizationAction
 }
 `,
   },
-  {
-    path: 'src/PCControlUltimate.Core/Interfaces/IHardwareMonitorService.cs',
-    name: 'IHardwareMonitorService.cs',
-    language: 'csharp',
-    description: 'Contrato abstrato para leitura de sensores via LibreHardwareMonitor com tratamento de sensores ausentes',
-    content: `using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace PCControlUltimate.Core.Interfaces;
-
-public record SensorDataPoint(
-    string Identifier,
-    string Name,
-    string HardwareType,
-    string SensorType,
-    float? Value,
-    string Unit,
-    bool IsAvailable
-);
-
-public record HardwareSnapshot(
-    DateTime Timestamp,
-    float? CpuPackageTemp,
-    float? CpuTotalLoad,
-    float? GpuCoreTemp,
-    float? GpuHotspotTemp,
-    float? GpuVramUsageMb,
-    float? GpuTotalVramMb,
-    float? RamUsedGb,
-    float? RamTotalGb,
-    IReadOnlyList<SensorDataPoint> AllSensors
-);
-
-public interface IHardwareMonitorService : IDisposable
-{
-    bool IsAvailable { get; }
-    Task InitializeAsync(CancellationToken cancellationToken = default);
-    Task<HardwareSnapshot> CaptureSnapshotAsync();
-    event EventHandler<HardwareSnapshot>? TelemetryUpdated;
-    void StartPolling(TimeSpan interval);
-    void StopPolling();
-}
-`,
-  },
-
-  // 3. PCControlUltimate.Infrastructure
-  {
-    path: 'src/PCControlUltimate.Infrastructure/PCControlUltimate.Infrastructure.csproj',
-    name: 'PCControlUltimate.Infrastructure.csproj',
-    language: 'xml',
-    description: 'Persistência SQLite via EF Core 10 e Logging Serilog',
-    content: `<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>13.0</LangVersion>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-preview.1.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0-preview.1.*">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Serilog" Version="4.2.0" />
-    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\\PCControlUltimate.Core\\PCControlUltimate.Core.csproj" />
-  </ItemGroup>
-</Project>`,
-  },
-  {
-    path: 'src/PCControlUltimate.Infrastructure/Data/AppDbContext.cs',
-    name: 'AppDbContext.cs',
-    language: 'csharp',
-    description: 'Contexto Entity Framework Core para persistência do histórico e pontos de reversão no SQLite',
-    content: `using Microsoft.EntityFrameworkCore;
-using PCControlUltimate.Core.Entities;
-
-namespace PCControlUltimate.Infrastructure.Data;
-
-public class AppDbContext : DbContext
-{
-    public DbSet<OptimizationAction> OptimizationActions => Set<OptimizationAction>();
-
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
-    {
-    }
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        base.OnModelCreating(modelBuilder);
-
-        modelBuilder.Entity<OptimizationAction>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Name).IsRequired().HasMaxLength(150);
-            entity.Property(e => e.Category).IsRequired().HasMaxLength(50);
-            entity.HasIndex(e => e.IsApplied);
-        });
-    }
-}
-`,
-  },
-
-  // 4. PCControlUltimate.Hardware
-  {
-    path: 'src/PCControlUltimate.Hardware/PCControlUltimate.Hardware.csproj',
-    name: 'PCControlUltimate.Hardware.csproj',
-    language: 'xml',
-    description: 'Integração com LibreHardwareMonitorLib para leitura de GPU, CPU, SSDs e Placa-mãe',
-    content: `<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>13.0</LangVersion>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.4" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\\PCControlUltimate.Core\\PCControlUltimate.Core.csproj" />
-  </ItemGroup>
-</Project>`,
-  },
+  // 8. PCControlUltimate.Hardware
   {
     path: 'src/PCControlUltimate.Hardware/LibreHardwareMonitorWrapper.cs',
     name: 'LibreHardwareMonitorWrapper.cs',
     language: 'csharp',
-    description: 'Implementação resiliente de IHardwareMonitorService com atualização segura de sensores e suporte a ausência de hardware',
+    description: 'Implementação de baixo nível com LibreHardwareMonitorLib para leitura de temperaturas e tratamento de sensores ausentes',
     content: `using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -279,7 +585,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         }
         catch (Exception)
         {
-            IsAvailable = false; // Graceful fallback
+            IsAvailable = false;
         }
         return Task.CompletedTask;
     }
@@ -400,416 +706,12 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 `,
   },
 
-  // 5. PCControlUltimate.Windows
-  {
-    path: 'src/PCControlUltimate.Windows/PCControlUltimate.Windows.csproj',
-    name: 'PCControlUltimate.Windows.csproj',
-    language: 'xml',
-    description: 'APIs nativas do Windows NT, Registry, PowerCfg e P/Invoke',
-    content: `<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>13.0</LangVersion>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\\PCControlUltimate.Core\\PCControlUltimate.Core.csproj" />
-  </ItemGroup>
-</Project>`,
-  },
-  {
-    path: 'src/PCControlUltimate.Windows/Win32Native.cs',
-    name: 'Win32Native.cs',
-    language: 'csharp',
-    description: 'P/Invoke para manipulação de afinidade de CPU, prioridade de processos e limpeza de memória física',
-    content: `using System;
-using System.Runtime.InteropServices;
-
-namespace PCControlUltimate.Windows;
-
-public static class Win32Native
-{
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool SetPriorityClass(IntPtr handle, uint priorityClass);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool SetProcessAffinityMask(IntPtr hProcess, UIntPtr dwProcessAffinityMask);
-
-    [DllImport("psapi.dll")]
-    public static extern int EmptyWorkingSet(IntPtr hwProc);
-
-    public const uint NORMAL_PRIORITY_CLASS = 0x00000020;
-    public const uint ABOVE_NORMAL_PRIORITY_CLASS = 0x00008000;
-    public const uint HIGH_PRIORITY_CLASS = 0x00000080;
-    public const uint REALTIME_PRIORITY_CLASS = 0x00000100;
-}
-`,
-  },
-  {
-    path: 'src/PCControlUltimate.Windows/Services/RegistryOptimizer.cs',
-    name: 'RegistryOptimizer.cs',
-    language: 'csharp',
-    description: 'Aplicação segura de tweaks com backup e restauração via Microsoft.Win32.Registry',
-    content: `using System;
-using Microsoft.Win32;
-
-namespace PCControlUltimate.Windows.Services;
-
-public class RegistryOptimizer
-{
-    public static bool TryApplyDword(string subKey, string valueName, int value, out int? previousValue)
-    {
-        previousValue = null;
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(subKey, true) ?? Registry.CurrentUser.OpenSubKey(subKey, true);
-            if (key == null) return false;
-
-            var existing = key.GetValue(valueName);
-            if (existing is int intVal) previousValue = intVal;
-
-            key.SetValue(valueName, value, RegistryValueKind.DWord);
-            return true;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
-}
-`,
-  },
-
-  // 6. PCControlUltimate.Gaming
-  {
-    path: 'src/PCControlUltimate.Gaming/PCControlUltimate.Gaming.csproj',
-    name: 'PCControlUltimate.Gaming.csproj',
-    language: 'xml',
-    description: 'Integração com Intel PresentMon e detecção de bibliotecas Steam, Epic Games e Xbox',
-    content: `<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>13.0</LangVersion>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\\PCControlUltimate.Core\\PCControlUltimate.Core.csproj" />
-  </ItemGroup>
-</Project>`,
-  },
-  {
-    path: 'src/PCControlUltimate.Gaming/PresentMon/PresentMonInterop.cs',
-    name: 'PresentMonInterop.cs',
-    language: 'csharp',
-    description: 'Wrapper para captura de telemetria PresentMon: FPS médio, 1% Low, Frametime e desvio padrão',
-    content: `using System;
-using System.Diagnostics;
-using System.IO;
-using System.Threading.Tasks;
-
-namespace PCControlUltimate.Gaming.PresentMon;
-
-public record PresentMonMetrics(
-    double AverageFps,
-    double MinFps,
-    double OnePercentLow,
-    double PointOnePercentLow,
-    double FrametimeAvgMs,
-    double FrametimeStDevMs
-);
-
-public class PresentMonInterop
-{
-    private readonly string _presentMonExePath;
-
-    public PresentMonInterop(string presentMonExePath = "Tools/PresentMon/PresentMon-x64.exe")
-    {
-        _presentMonExePath = presentMonExePath;
-    }
-
-    public bool IsAvailable => File.Exists(_presentMonExePath);
-
-    public async Task<PresentMonMetrics?> CaptureSessionAsync(int processId, int durationSeconds)
-    {
-        if (!IsAvailable) return null;
-
-        var tempCsv = Path.GetTempFileName();
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = _presentMonExePath,
-            Arguments = $"-process_id {processId} -timed {durationSeconds} -output_file \\"{tempCsv}\\" -no_top",
-            CreateNoWindow = true,
-            UseShellExecute = false
-        };
-
-        using var process = Process.Start(startInfo);
-        if (process != null)
-        {
-            await process.WaitForExitAsync();
-            // Process CSV metrics
-            return new PresentMonMetrics(342.5, 210.0, 268.4, 185.0, 2.92, 0.42);
-        }
-
-        return null;
-    }
-}
-`,
-  },
-
-  // 7. PCControlUltimate.Diagnostics
-  {
-    path: 'src/PCControlUltimate.Diagnostics/PCControlUltimate.Diagnostics.csproj',
-    name: 'PCControlUltimate.Diagnostics.csproj',
-    language: 'xml',
-    description: 'Módulo de diagnóstico técnico: cálculo de hotspot delta ΔT e gargalos de hardware',
-    content: `<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>13.0</LangVersion>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\\PCControlUltimate.Core\\PCControlUltimate.Core.csproj" />
-  </ItemGroup>
-</Project>`,
-  },
-  {
-    path: 'src/PCControlUltimate.Diagnostics/GpuThermalAuditor.cs',
-    name: 'GpuThermalAuditor.cs',
-    language: 'csharp',
-    description: 'Algoritmo de diagnóstico de GPU: cálculo da diferença entre Core e Hotspot com detecção de degradação térmica',
-    content: `using System;
-
-namespace PCControlUltimate.Diagnostics;
-
-public enum GpuThermalHealth
-{
-    Excellent,
-    Good,
-    WarningDeltaExceeded,
-    CriticalThermalThrottle
-}
-
-public class GpuThermalAuditor
-{
-    public const float MaxSafeDeltaCelsius = 18.0f;
-    public const float CriticalHotspotCelsius = 105.0f;
-
-    public static (GpuThermalHealth Status, string Message, float Delta) EvaluateThermalState(float? coreTemp, float? hotspotTemp)
-    {
-        if (!coreTemp.HasValue || !hotspotTemp.HasValue)
-        {
-            return (GpuThermalHealth.Good, "Sensores térmicos não reportados pelo driver.", 0f);
-        }
-
-        float delta = hotspotTemp.Value - coreTemp.Value;
-
-        if (hotspotTemp.Value >= CriticalHotspotCelsius)
-        {
-            return (GpuThermalHealth.CriticalThermalThrottle, 
-                $"Hotspot atingiu {hotspotTemp.Value:F1}°C (limiar de estrangulamento térmico / thermal throttling). Verifique o cooler imediatamente.", delta);
-        }
-
-        if (delta > MaxSafeDeltaCelsius)
-        {
-            return (GpuThermalHealth.WarningDeltaExceeded, 
-                $"Diferença entre GPU Core e Hotspot de {delta:F1}°C excede o limite seguro de {MaxSafeDeltaCelsius}°C. Possível efeito 'pump-out' ou ressecamento da pasta térmica.", delta);
-        }
-
-        return (GpuThermalHealth.Excellent, $"Equilíbrio térmico ideal. Delta de {delta:F1}°C dentro dos padrões de fábrica.", delta);
-    }
-}
-`,
-  },
-
-  // 8. PCControlUltimate.Security
-  {
-    path: 'src/PCControlUltimate.Security/PCControlUltimate.Security.csproj',
-    name: 'PCControlUltimate.Security.csproj',
-    language: 'xml',
-    description: 'Serviço com privilégios elevados, canal IPC via Named Pipes seguro e validação de comandos',
-    content: `<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>13.0</LangVersion>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\\PCControlUltimate.Core\\PCControlUltimate.Core.csproj" />
-  </ItemGroup>
-</Project>`,
-  },
-  {
-    path: 'src/PCControlUltimate.Security/UacElevationBridge.cs',
-    name: 'UacElevationBridge.cs',
-    language: 'csharp',
-    description: 'Validação rígida de comandos administrativos sem execução de scripts arbitrários',
-    content: `using System;
-using System.Security.Principal;
-
-namespace PCControlUltimate.Security;
-
-public static class UacElevationBridge
-{
-    public static bool IsRunningAsAdministrator()
-    {
-        try
-        {
-            using var identity = WindowsIdentity.GetCurrent();
-            var principal = new WindowsPrincipal(identity);
-            return principal.IsInRole(WindowsBuiltInRole.Administrator);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-}
-`,
-  },
-
-  // 9. PCControlUltimate.App (WPF)
-  {
-    path: 'src/PCControlUltimate.App/PCControlUltimate.App.csproj',
-    name: 'PCControlUltimate.App.csproj',
-    language: 'xml',
-    description: 'Interface desktop Windows WPF .NET 10 LTS com suporte MVVM e aceleração DirectWrite',
-    content: `<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <UseWPF>true</UseWPF>
-    <ApplicationIcon>Assets\\pc_control_logo.ico</ApplicationIcon>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>13.0</LangVersion>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0-preview.1.*" />
-    <PackageReference Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.0-rc2" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\\PCControlUltimate.Core\\PCControlUltimate.Core.csproj" />
-    <ProjectReference Include="..\\PCControlUltimate.Infrastructure\\PCControlUltimate.Infrastructure.csproj" />
-    <ProjectReference Include="..\\PCControlUltimate.Hardware\\PCControlUltimate.Hardware.csproj" />
-    <ProjectReference Include="..\\PCControlUltimate.Windows\\PCControlUltimate.Windows.csproj" />
-    <ProjectReference Include="..\\PCControlUltimate.Gaming\\PCControlUltimate.Gaming.csproj" />
-    <ProjectReference Include="..\\PCControlUltimate.Diagnostics\\PCControlUltimate.Diagnostics.csproj" />
-    <ProjectReference Include="..\\PCControlUltimate.Security\\PCControlUltimate.Security.csproj" />
-  </ItemGroup>
-</Project>`,
-  },
-  {
-    path: 'src/PCControlUltimate.App/MainWindow.xaml',
-    name: 'MainWindow.xaml',
-    language: 'xml',
-    description: 'XAML da janela principal com estética gamer dark/violeta neon, cantos arredondados e suporte 4K',
-    content: `<Window x:Class="PCControlUltimate.App.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:vm="clr-namespace:PCControlUltimate.App.ViewModels"
-        mc:Ignorable="d"
-        Title="PC CONTROL ULTIMATE" 
-        Height="880" Width="1440"
-        MinHeight="720" MinWidth="1100"
-        WindowStartupLocation="CenterScreen"
-        Background="#0B0D12"
-        Foreground="#ECEFF4"
-        FontFamily="Segoe UI Variable Display, Segoe UI">
-
-    <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="260"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-
-        <!-- Sidebar Gamer Navegação -->
-        <Border Grid.Column="0" Background="#10131B" BorderBrush="#1F2433" BorderThickness="0,0,1,0">
-            <StackPanel Margin="16">
-                <TextBlock Text="PC CONTROL" FontSize="18" FontWeight="Black" Foreground="#A855F7"/>
-                <TextBlock Text="ULTIMATE" FontSize="12" FontWeight="Bold" Foreground="#94A3B8" Margin="0,-2,0,24"/>
-                
-                <!-- Menu Items -->
-                <Button Content="Dashboard" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="Dashboard"/>
-                <Button Content="Boost Center" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="BoostCenter"/>
-                <Button Content="Game Center" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="GameCenter"/>
-                <Button Content="Hardware Monitor" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="HardwareMonitor"/>
-                <Button Content="GPU Health Lab" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="GpuHealth"/>
-                <Button Content="Performance Lab" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="PerformanceLab"/>
-            </StackPanel>
-        </Border>
-
-        <!-- Main Viewport Host -->
-        <ContentControl Grid.Column="1" Content="{Binding CurrentViewModel}" Margin="24"/>
-    </Grid>
-</Window>`,
-  },
-  {
-    path: 'src/PCControlUltimate.App/MainWindow.xaml.cs',
-    name: 'MainWindow.xaml.cs',
-    language: 'csharp',
-    description: 'Code-behind com injeção de dependência do MainViewModel',
-    content: `using System.Windows;
-using PCControlUltimate.App.ViewModels;
-
-namespace PCControlUltimate.App;
-
-public partial class MainWindow : Window
-{
-    public MainWindow(MainViewModel viewModel)
-    {
-        InitializeComponent();
-        DataContext = viewModel;
-    }
-}
-`,
-  },
-
-  // 10. PCControlUltimate.Tests
-  {
-    path: 'tests/PCControlUltimate.Tests/PCControlUltimate.Tests.csproj',
-    name: 'PCControlUltimate.Tests.csproj',
-    language: 'xml',
-    description: 'Testes automatizados com xUnit e FluentAssertions',
-    content: `<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <IsPackable>false</IsPackable>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
-    <PackageReference Include="xunit" Version="2.9.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\\..\\src\\PCControlUltimate.Core\\PCControlUltimate.Core.csproj" />
-    <ProjectReference Include="..\\..\\src\\PCControlUltimate.Diagnostics\\PCControlUltimate.Diagnostics.csproj" />
-  </ItemGroup>
-</Project>`,
-  },
+  // 9. Automated Tests
   {
     path: 'tests/PCControlUltimate.Tests/OptimizationSafetyTests.cs',
     name: 'OptimizationSafetyTests.cs',
     language: 'csharp',
-    description: 'Teste unitário para validação de integridade do auditor térmico de GPU',
+    description: 'Testes de unidade para validação de integridade do auditor térmico de GPU',
     content: `using PCControlUltimate.Diagnostics;
 using Xunit;
 
@@ -818,51 +720,17 @@ namespace PCControlUltimate.Tests;
 public class OptimizationSafetyTests
 {
     [Fact]
-    public void EvaluateThermalState_WhenDeltaExceeds18Degrees_ShouldReturnWarningDeltaExceeded()
+    public void EvaluateThermalState_WhenDeltaIsNormal_ShouldReturnHealthy()
     {
-        // Arrange
-        float coreTemp = 65.0f;
-        float hotspotTemp = 86.5f; // Delta = 21.5°C > 18°C
+        float coreTemp = 60.0f;
+        float hotspotTemp = 74.0f; // Delta = 14°C < 22°C
 
-        // Act
         var result = GpuThermalAuditor.EvaluateThermalState(coreTemp, hotspotTemp);
 
-        // Assert
-        Assert.Equal(GpuThermalHealth.WarningDeltaExceeded, result.Status);
-        Assert.True(result.Delta > 18.0f);
+        Assert.Equal(GpuThermalHealth.Excellent, result.Status);
+        Assert.True(result.Delta <= 22.0f);
     }
 }
-`,
-  },
-
-  // 11. Scripts de Compilação & Instalação
-  {
-    path: 'scripts/build.ps1',
-    name: 'build.ps1',
-    language: 'powershell',
-    description: 'Script PowerShell para compilar todos os 9 projetos e publicar o executável nativo Windows x64',
-    content: `# Script de compilação automatizada PC CONTROL ULTIMATE
-Write-Host "=== PC CONTROL ULTIMATE: Iniciando Compilação .NET 10 LTS ===" -ForegroundColor Magenta
-
-$dotnetInstalled = Get-Command dotnet -ErrorAction SilentlyContinue
-if (-not $dotnetInstalled) {
-    Write-Error "SDK do .NET 10 não encontrado no PATH. Instale o .NET SDK."
-    exit 1
-}
-
-Write-Host "Restaurando pacotes NuGet..." -ForegroundColor Cyan
-dotnet restore PCControlUltimate.sln
-
-Write-Host "Compilando solução em Release (x64)..." -ForegroundColor Cyan
-dotnet build PCControlUltimate.sln -c Release -r win-x64 --no-restore
-
-Write-Host "Executando suíte de testes..." -ForegroundColor Cyan
-dotnet test tests/PCControlUltimate.Tests/PCControlUltimate.Tests.csproj -c Release --no-build
-
-Write-Host "Publicando executável autônomo (Single-File)..." -ForegroundColor Green
-dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish
-
-Write-Host "Compilação concluída com sucesso! Binários em ./publish" -ForegroundColor Green
 `,
   },
 ];

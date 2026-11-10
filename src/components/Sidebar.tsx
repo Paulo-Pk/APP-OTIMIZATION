@@ -17,8 +17,10 @@ import {
   History,
   Brain,
   Code2,
+  Globe,
 } from 'lucide-react';
 import { TabId } from '../types';
+import { useI18n } from '../i18n';
 
 interface SidebarProps {
   currentTab: TabId;
@@ -28,10 +30,9 @@ interface SidebarProps {
 
 interface NavItem {
   id: TabId;
-  label: string;
+  labelKey: string;
   icon: React.ElementType;
   badge?: string;
-  category?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -39,48 +40,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   appliedTweaksCount,
 }) => {
-  const navItems: NavItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  const { language, setLanguage, t } = useI18n();
+
+  const navItems: { id: TabId; label: string; icon: React.ElementType; badge?: string }[] = [
+    { id: 'dashboard', label: t.navigation.dashboard, icon: LayoutDashboard },
     {
       id: 'boost-center',
-      label: 'Boost Center',
+      label: t.navigation.boostCenter,
       icon: Zap,
-      badge: `${appliedTweaksCount} ativos`,
+      badge: `${appliedTweaksCount} ${t.common.active}`,
     },
-    { id: 'game-center', label: 'Game Center', icon: Gamepad2 },
-    { id: 'hardware-monitor', label: 'Hardware Monitor', icon: Cpu },
+    { id: 'game-center', label: t.navigation.gameCenter, icon: Gamepad2 },
+    { id: 'hardware-monitor', label: t.navigation.hardwareMonitor, icon: Cpu },
     {
       id: 'gpu-health',
-      label: 'GPU Health Lab',
+      label: t.navigation.gpuHealthLab,
       icon: Flame,
       badge: 'Hotspot ΔT',
     },
     {
       id: 'performance-lab',
-      label: 'Performance Lab',
+      label: t.navigation.performanceLab,
       icon: Gauge,
       badge: 'PresentMon',
     },
-    { id: 'benchmarks', label: 'Benchmark Center', icon: BarChart3 },
-    { id: 'diagnostics', label: 'PC Diagnostics', icon: Stethoscope },
-    { id: 'windows-tweaks', label: 'Windows Tweaks', icon: Sliders },
-    { id: 'debloat', label: 'Debloat & Cleaner', icon: Trash2 },
-    { id: 'network-lab', label: 'Network Lab', icon: Wifi },
-    { id: 'peripherals', label: 'Peripheral Test', icon: Keyboard },
-    { id: 'drivers', label: 'Driver Center', icon: Layers },
-    { id: 'software-hub', label: 'Software Hub', icon: DownloadCloud },
-    { id: 'restore-center', label: 'Restore Center', icon: History },
+    { id: 'benchmarks', label: t.navigation.benchmarkCenter, icon: BarChart3 },
+    { id: 'diagnostics', label: t.navigation.pcDiagnostics, icon: Stethoscope },
+    { id: 'windows-tweaks', label: t.navigation.windowsTweaks, icon: Sliders },
+    { id: 'debloat', label: t.navigation.debloatCleaner, icon: Trash2 },
+    { id: 'network-lab', label: t.navigation.networkLab, icon: Wifi },
+    { id: 'peripherals', label: t.navigation.peripheralTest, icon: Keyboard },
+    { id: 'drivers', label: t.navigation.driverCenter, icon: Layers },
+    { id: 'software-hub', label: t.navigation.softwareHub, icon: DownloadCloud },
+    { id: 'restore-center', label: t.navigation.restoreCenter, icon: History },
     {
       id: 'ai-assistant',
-      label: 'Intelligent Assistant',
+      label: t.navigation.aiAssistant,
       icon: Brain,
       badge: 'Gemini AI',
     },
     {
       id: 'dotnet-solution',
-      label: 'Solução .NET 10 (C#)',
+      label: t.navigation.dotnetSolution,
       icon: Code2,
-      badge: 'Código C#',
+      badge: 'C# .NET 10',
     },
   ];
 
@@ -89,7 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Top Navigation List */}
       <div className="p-3 space-y-1">
         <div className="px-3 py-2 text-[10px] font-bold tracking-wider text-purple-400/80 uppercase">
-          Módulos do Sistema
+          {t.navigation.modules}
         </div>
 
         <nav className="space-y-0.5">
@@ -131,14 +134,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      {/* Footer System Status */}
-      <div className="p-3 m-2 rounded-lg bg-[#0e111a] border border-slate-800/80 text-[11px] space-y-1.5">
+      {/* Footer System Status & Language Selector */}
+      <div className="p-3 m-2 rounded-lg bg-[#0e111a] border border-slate-800/80 text-[11px] space-y-2">
+        {/* Language selector option inside sidebar */}
+        <div className="flex items-center justify-between text-slate-400 pb-1.5 border-b border-slate-800/60">
+          <span className="flex items-center gap-1.5 text-xs text-slate-300">
+            <Globe className="w-3.5 h-3.5 text-purple-400" />
+            <span>{t.common.language}</span>
+          </span>
+          <div className="flex items-center gap-1 bg-[#141724] p-0.5 rounded border border-slate-800">
+            <button
+              onClick={() => setLanguage('pt-BR')}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                language === 'pt-BR'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              PT
+            </button>
+            <button
+              onClick={() => setLanguage('en-US')}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                language === 'en-US'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              EN
+            </button>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between text-slate-400">
-          <span>Perfil Ativo:</span>
-          <span className="font-semibold text-purple-300">Gamer Equilibrado</span>
+          <span>{t.navigation.activeProfile}</span>
+          <span className="font-semibold text-purple-300">{t.navigation.profileGamer}</span>
         </div>
         <div className="flex items-center justify-between text-slate-400">
-          <span>Memória RAM:</span>
+          <span>{t.navigation.ramUsage}</span>
           <span className="font-mono text-slate-300">35.6% (11.4 / 32 GB)</span>
         </div>
         <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">

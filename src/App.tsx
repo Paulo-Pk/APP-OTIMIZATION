@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TabId, SystemTweak, GameProfile, RestoreItem, OptimizationLevel } from './types';
 import { initialTweaks } from './data/defaultTweaks';
 import { initialGames } from './data/defaultGames';
 import { initialHardwareTelemetry } from './services/hardwareService';
 import { exportCompleteSolutionZip, downloadBlob } from './services/solutionExporter';
+import { nativeBridge, NativeAgentStatus } from './services/nativeBridge';
+import { useI18n } from './i18n';
 
 // Components
 import { Header } from './components/Header';
@@ -33,10 +35,13 @@ import { BoostConfirmModal } from './components/modals/BoostConfirmModal';
 import { GameProfileModal } from './components/modals/GameProfileModal';
 
 export default function App() {
+  const { t } = useI18n();
   const [currentTab, setCurrentTab] = useState<TabId>('dashboard');
   const [telemetry, setTelemetry] = useState(initialHardwareTelemetry);
   const [tweaks, setTweaks] = useState<SystemTweak[]>(initialTweaks);
   const [games, setGames] = useState<GameProfile[]>(initialGames);
+  const [agentStatus, setAgentStatus] = useState<NativeAgentStatus>(nativeBridge.getStatus());
+
   const [restoreItems, setRestoreItems] = useState<RestoreItem[]>([
     {
       id: 'rest-1',
@@ -63,35 +68,99 @@ export default function App() {
   const [isBoostModalOpen, setIsBoostModalOpen] = useState<boolean>(false);
   const [gameProfileToEdit, setGameProfileToEdit] = useState<GameProfile | null>(null);
 
-  // Toggle single tweak
-  const handleToggleTweak = (id: string) => {
-    setTweaks((prev) =>
-      prev.map((t) => {
-        if (t.id === id) {
-          const nextApplied = !t.isApplied;
-          if (nextApplied) {
-            // Record restore point
-            const newRestore: RestoreItem = {
-              id: `rest-${Date.now()}`,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              actionName: t.name,
-              component: t.category.toUpperCase(),
-              previousValue: t.currentValue,
-              newValue: t.recommendedValue,
-              reversible: t.reversible,
-              userInitiated: true,
-            };
-            setRestoreItems((r) => [newRestore, ...r]);
-          }
-          return { ...t, isApplied: nextApplied };
+  // Subscribe to Native Windows Agent connection & fetch real telemetry
+  useEffect(() => {
+    const unsubscribe = nativeBridge.subscribe((status) => {
+      setAgentStatus(status);
+    });
+
+    const interval = setInterval(async () => {
+      if (nativeBridge.getStatus().isConnected) {
+        const real = await nativeBridge.fetchRealTelemetry();
+        if (real) {
+          setTelemetry(real);
         }
-        return t;
-      })
+      }
+    }, 2000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Toggle single tweak with real Windows Registry bridge
+  const handleToggleTweak = async (id: string) => {
+    const target = tweaks.find((t) => t.id === id);
+    if (!target) return;
+
+    const nextApplied = !target.isApplied;
+
+    if (nextApplied) {
+      // Execute via Native Bridge
+      const res = await nativeBridge.applyRegistryTweak(
+        target.id,
+        target.registryKey || '',
+        'TargetDword',
+        1
+      );
+
+      const newRestore: RestoreItem = {
+        id: `rest-${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        actionName: target.name,
+        component: target.category.toUpperCase(),
+        previousValue: res.previousValue || target.currentValue,
+        newValue: target.recommendedValue,
+        reversible: target.reversible,
+        userInitiated: true,
+      };
+      setRestoreItems((r) => [newRestore, ...r]);
+    } else {
+      await nativeBridge.restoreRegistryTweak(
+        target.registryKey || '',
+        'TargetDword',
+        0
+      );
+    }
+
+    setTweaks((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, isApplied: nextApplied } : item))
     );
   };
 
   // Apply all tweaks of a level
-  const handleApplyAllLevel = (level: OptimizationLevel) => {
+  const handleApplyAllLevel = async (level: OptimizationLevel) => {
+    for (const item of tweaks) {
+      const shouldApply =
+        level === 'advanced'
+          ? true
+          : level === 'balanced'
+          ? item.level === 'conservative' || item.level === 'balanced'
+          : item.level === 'conservative';
+
+      if (shouldApply && !item.isApplied) {
+        await nativeBridge.applyRegistryTweak(
+          item.id,
+          item.registryKey || '',
+          'TargetDword',
+          1
+        );
+
+        const newRestore: RestoreItem = {
+          id: `rest-${Date.now()}-${item.id}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          actionName: item.name,
+          component: item.category.toUpperCase(),
+          previousValue: item.currentValue,
+          newValue: item.recommendedValue,
+          reversible: item.reversible,
+          userInitiated: true,
+        };
+        setRestoreItems((r) => [newRestore, ...r]);
+      }
+    }
+
     setTweaks((prev) =>
       prev.map((t) => {
         const shouldApply =
@@ -100,35 +169,30 @@ export default function App() {
             : level === 'balanced'
             ? t.level === 'conservative' || t.level === 'balanced'
             : t.level === 'conservative';
-
-        if (shouldApply && !t.isApplied) {
-          const newRestore: RestoreItem = {
-            id: `rest-${Date.now()}-${t.id}`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            actionName: t.name,
-            component: t.category.toUpperCase(),
-            previousValue: t.currentValue,
-            newValue: t.recommendedValue,
-            reversible: t.reversible,
-            userInitiated: true,
-          };
-          setRestoreItems((r) => [newRestore, ...r]);
-          return { ...t, isApplied: true };
-        }
-        return t;
+        return shouldApply ? { ...t, isApplied: true } : t;
       })
     );
   };
 
   // Restore all tweaks to default
-  const handleRestoreAll = () => {
+  const handleRestoreAll = async () => {
+    for (const item of tweaks) {
+      if (item.isApplied) {
+        await nativeBridge.restoreRegistryTweak(item.registryKey || '', 'TargetDword', 0);
+      }
+    }
     setTweaks((prev) => prev.map((t) => ({ ...t, isApplied: false })));
   };
 
   // Rollback single item from Restore Center
-  const handleRollbackItem = (id: string) => {
+  const handleRollbackItem = async (id: string) => {
     const item = restoreItems.find((r) => r.id === id);
     if (item) {
+      const matchedTweak = tweaks.find((t) => t.name === item.actionName);
+      if (matchedTweak) {
+        await nativeBridge.restoreRegistryTweak(matchedTweak.registryKey || '', 'TargetDword', 0);
+      }
+
       setTweaks((prev) =>
         prev.map((t) => (t.name === item.actionName ? { ...t, isApplied: false } : t))
       );
@@ -182,7 +246,7 @@ export default function App() {
         currentTab={currentTab}
         onNavigate={setCurrentTab}
         onOpenBoostModal={() => setIsBoostModalOpen(true)}
-        isSimulatedMode={telemetry.isSimulatedMode}
+        isSimulatedMode={!agentStatus.isConnected}
         onDownloadSolution={handleDownloadSolution}
         overallScore={telemetry.overallScore}
       />

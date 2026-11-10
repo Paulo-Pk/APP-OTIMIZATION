@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { dotnetSolutionFiles } from '../../data/solutionFiles';
 import { DotnetProjectFile } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface DotnetSolutionViewProps {
   onDownloadSolution: () => void;
@@ -20,6 +21,7 @@ interface DotnetSolutionViewProps {
 export const DotnetSolutionView: React.FC<DotnetSolutionViewProps> = ({
   onDownloadSolution,
 }) => {
+  const { t } = useI18n();
   const [selectedFile, setSelectedFile] = useState<DotnetProjectFile>(dotnetSolutionFiles[0]);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -35,13 +37,13 @@ export const DotnetSolutionView: React.FC<DotnetSolutionViewProps> = ({
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#121522] via-[#161a29] to-[#0f111a] border border-purple-900/30">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
-            <Code2 className="w-4 h-4" /> Solução Visual Studio .NET 10 LTS (C# 13 & WPF)
+            <Code2 className="w-4 h-4" /> {t.dotnetSolution.subtitle}
           </div>
           <h1 className="text-xl font-black text-white mt-0.5">
-            EXPLORADOR DA SOLUÇÃO .NET 10
+            {t.dotnetSolution.title}
           </h1>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Solução completa modularizada nos 9 projetos arquiteturais solicitados, com código C# compilável, testes automatizados e script PowerShell.
+          <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
+            {t.dotnetSolution.description}
           </p>
         </div>
 
@@ -50,18 +52,18 @@ export const DotnetSolutionView: React.FC<DotnetSolutionViewProps> = ({
           className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/40 transition-all cursor-pointer border border-purple-400/40 active:scale-95"
         >
           <Download className="w-4 h-4" />
-          <span>Baixar Solução Completa (.zip)</span>
+          <span>{t.dotnetSolution.downloadZip}</span>
         </button>
       </div>
 
-      {/* Code Explorer Layout: Sidebar files list + Editor */}
+      {/* Code Explorer Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[650px]">
         {/* Solution Tree */}
         <div className="bg-[#0f121b] border border-slate-800 rounded-xl p-3 flex flex-col justify-between overflow-hidden">
           <div className="space-y-1 overflow-y-auto pr-1">
             <div className="px-2 py-1 text-[11px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
               <Folder className="w-3.5 h-3.5" />
-              <span>PCControlUltimate.sln (9 Projetos)</span>
+              <span>{t.dotnetSolution.projectsLabel}</span>
             </div>
 
             <div className="space-y-0.5 pt-1">
@@ -91,7 +93,7 @@ export const DotnetSolutionView: React.FC<DotnetSolutionViewProps> = ({
           </div>
 
           <div className="p-3 mt-2 bg-[#0a0c13] rounded-lg border border-slate-800/80 text-[11px] text-slate-400 space-y-1">
-            <div className="font-bold text-white">Como Compilar no Windows:</div>
+            <div className="font-bold text-white">{t.dotnetSolution.howToBuild}</div>
             <div className="font-mono text-[10px] text-purple-300">
               dotnet build PCControlUltimate.sln -c Release
             </div>
@@ -119,7 +121,7 @@ export const DotnetSolutionView: React.FC<DotnetSolutionViewProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141829] hover:bg-[#1b223d] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold cursor-pointer transition-colors"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Copiado!' : 'Copiar Código'}</span>
+              <span>{copied ? t.dotnetSolution.copied : t.dotnetSolution.copyCode}</span>
             </button>
           </div>
 
@@ -130,8 +132,8 @@ export const DotnetSolutionView: React.FC<DotnetSolutionViewProps> = ({
 
           {/* File Footer */}
           <div className="p-2.5 bg-[#0d1017] border-t border-slate-800 text-[11px] text-slate-500 font-mono flex items-center justify-between">
-            <span>{selectedFile.content.split('\n').length} linhas</span>
-            <span>Pronto para Visual Studio 2025 & .NET 10 SDK</span>
+            <span>{selectedFile.content.split('\n').length} {t.dotnetSolution.lines}</span>
+            <span>{t.dotnetSolution.readyForVs}</span>
           </div>
         </div>
       </div>

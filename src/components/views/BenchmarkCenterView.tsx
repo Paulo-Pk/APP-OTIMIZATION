@@ -18,6 +18,7 @@ import {
   runRamBenchmark,
   BenchmarkProgress,
 } from '../../services/benchmarkEngine';
+import { useI18n } from '../../i18n';
 
 interface BenchmarkCenterViewProps {
   telemetry: HardwareTelemetry;
@@ -26,6 +27,8 @@ interface BenchmarkCenterViewProps {
 export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
   telemetry,
 }) => {
+  const { t } = useI18n();
+
   const [records, setRecords] = useState<BenchmarkRecord[]>([
     {
       id: 'bm-1',
@@ -134,24 +137,22 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#121522] via-[#161a29] to-[#0f111a] border border-purple-900/30">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
-            <BarChart3 className="w-4 h-4" /> Bateria Real de Testes & Estresse
+            <BarChart3 className="w-4 h-4" /> {t.benchmarks.subtitle}
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">BENCHMARK CENTER</h1>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Execução de cálculos reais de ponto flutuante, renderização computacional de shaders e largura de banda de memória para quantificar ganhos com precisão.
+          <h1 className="text-xl font-black text-white mt-0.5">{t.benchmarks.title}</h1>
+          <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
+            {t.benchmarks.description}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              handleRunCpu();
-            }}
+            onClick={() => handleRunCpu()}
             disabled={isRunning}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40 disabled:opacity-50"
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Executar Benchmark</span>
+            <span>{t.benchmarks.runBenchmark}</span>
           </button>
         </div>
       </div>
@@ -161,7 +162,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         <div className="p-4 rounded-xl bg-[#141829] border border-purple-500 space-y-2 animate-scale-in">
           <div className="flex justify-between items-center text-xs">
             <span className="font-bold text-purple-300">
-              Executando Teste de {activeTest}: {progressState.currentTest}
+              {t.benchmarks.runningTest} {activeTest}: {progressState.currentTest}
             </span>
             <span className="font-mono text-white font-bold">{progressState.progress}%</span>
           </div>
@@ -183,9 +184,9 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
               <Cpu className="w-5 h-5 text-purple-400" />
               <span className="text-[10px] font-mono text-slate-500">60k Primes & AVX</span>
             </div>
-            <h3 className="font-bold text-sm text-white">Benchmark de CPU</h3>
+            <h3 className="font-bold text-sm text-white">{t.benchmarks.cpuTestTitle}</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Calcula 60 iterações do Crivo de Eratóstenes e operações de ponto flutuante avaliando o IPC e latência de instrução.
+              {t.benchmarks.cpuTestDesc}
             </p>
           </div>
           <button
@@ -193,7 +194,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
             disabled={isRunning}
             className="w-full py-2 px-3 rounded-lg bg-[#141726] hover:bg-[#1c2238] border border-purple-500/30 text-purple-200 text-xs font-semibold cursor-pointer transition-colors disabled:opacity-50"
           >
-            Testar CPU
+            {t.benchmarks.testCpu}
           </button>
         </div>
 
@@ -204,9 +205,9 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
               <Flame className="w-5 h-5 text-rose-400" />
               <span className="text-[10px] font-mono text-slate-500">WebGL2 Raymarching</span>
             </div>
-            <h3 className="font-bold text-sm text-white">Benchmark de GPU</h3>
+            <h3 className="font-bold text-sm text-white">{t.benchmarks.gpuTestTitle}</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Renderiza 80 quadros com shader fractal dinâmico medindo vazão de triângulos, taxa de preenchimento e coerência de pipeline.
+              {t.benchmarks.gpuTestDesc}
             </p>
           </div>
           <button
@@ -214,7 +215,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
             disabled={isRunning}
             className="w-full py-2 px-3 rounded-lg bg-[#141726] hover:bg-[#1c2238] border border-rose-500/30 text-rose-200 text-xs font-semibold cursor-pointer transition-colors disabled:opacity-50"
           >
-            Testar GPU
+            {t.benchmarks.testGpu}
           </button>
         </div>
 
@@ -225,9 +226,9 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
               <CircuitBoard className="w-5 h-5 text-cyan-400" />
               <span className="text-[10px] font-mono text-slate-500">32MB Block Transfer</span>
             </div>
-            <h3 className="font-bold text-sm text-white">Benchmark de RAM</h3>
+            <h3 className="font-bold text-sm text-white">{t.benchmarks.ramTestTitle}</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Mede a largura de banda de cópia e leitura contínua sequencial em buffers de memória de alta densidade.
+              {t.benchmarks.ramTestDesc}
             </p>
           </div>
           <button
@@ -235,7 +236,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
             disabled={isRunning}
             className="w-full py-2 px-3 rounded-lg bg-[#141726] hover:bg-[#1c2238] border border-cyan-500/30 text-cyan-200 text-xs font-semibold cursor-pointer transition-colors disabled:opacity-50"
           >
-            Testar RAM
+            {t.benchmarks.testRam}
           </button>
         </div>
       </div>
@@ -246,10 +247,12 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-purple-400" />
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-              Histórico de Resultados Registrados
+              {t.benchmarks.historyTitle}
             </h3>
           </div>
-          <span className="text-xs font-mono text-slate-500">{records.length} Testes Realizados</span>
+          <span className="text-xs font-mono text-slate-500">
+            {records.length} {t.benchmarks.totalTests}
+          </span>
         </div>
 
         <div className="divide-y divide-slate-800/60">
@@ -268,17 +271,17 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
               <div className="flex items-center gap-6 shrink-0 font-mono">
                 <div>
-                  <span className="text-slate-500 block text-[9px] uppercase">Pontuação</span>
+                  <span className="text-slate-500 block text-[9px] uppercase">{t.benchmarks.score}</span>
                   <span className="text-base font-bold text-purple-300">
                     {r.score.toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">{r.metric}</span>
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block text-[9px] uppercase">Duração</span>
+                  <span className="text-slate-500 block text-[9px] uppercase">{t.benchmarks.duration}</span>
                   <span className="text-slate-300">{r.durationMs}ms</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block text-[9px] uppercase">Pico Térmico</span>
+                  <span className="text-slate-500 block text-[9px] uppercase">{t.benchmarks.peakTemp}</span>
                   <span className="text-slate-300">CPU {r.cpuTempPeak}°C / GPU {r.gpuTempPeak}°C</span>
                 </div>
               </div>

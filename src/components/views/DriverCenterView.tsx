@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Layers,
   ExternalLink,
@@ -8,25 +8,40 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { systemDrivers } from '../../data/softwareHub';
+import { useI18n } from '../../i18n';
+import { nativeBridge } from '../../services/nativeBridge';
+import { DriverInfo } from '../../types';
 
 export const DriverCenterView: React.FC = () => {
+  const { t } = useI18n();
+  const [drivers, setDrivers] = useState<DriverInfo[]>(systemDrivers);
+
+  useEffect(() => {
+    // If native agent is connected, query real drivers via WMI
+    nativeBridge.queryInstalledDrivers().then((realDrivers) => {
+      if (realDrivers && realDrivers.length > 0) {
+        setDrivers(realDrivers);
+      }
+    });
+  }, []);
+
   return (
     <div className="space-y-5 animate-fade-in">
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#121522] via-[#161a29] to-[#0f111a] border border-purple-900/30">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
-            <Layers className="w-4 h-4" /> Gestão de Controladores e Firmware
+            <Layers className="w-4 h-4" /> {t.driverCenter.subtitle}
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">DRIVER CENTER</h1>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Identificação de versões de drivers instalados de GPU, Chipset e áudio com redirecionamento exclusivo para portais oficiais dos fabricantes.
+          <h1 className="text-xl font-black text-white mt-0.5">{t.driverCenter.title}</h1>
+          <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
+            {t.driverCenter.description}
           </p>
         </div>
 
         <div className="flex items-center gap-2 text-xs text-emerald-400 bg-[#0f1420] px-3 py-1.5 rounded-lg border border-emerald-500/30 font-semibold">
           <ShieldCheck className="w-4 h-4" />
-          <span>Fontes Oficiais Verificadas</span>
+          <span>{t.driverCenter.verifiedOfficial}</span>
         </div>
       </div>
 
@@ -34,15 +49,15 @@ export const DriverCenterView: React.FC = () => {
       <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
           <span className="font-bold text-white uppercase tracking-wider">
-            Dispositivos e Drivers do Sistema
+            {t.driverCenter.tableTitle}
           </span>
           <span className="text-slate-400 font-mono">
-            {systemDrivers.length} Controladores Monitorados
+            {drivers.length} {t.driverCenter.monitoredDrivers}
           </span>
         </div>
 
         <div className="divide-y divide-slate-800/80">
-          {systemDrivers.map((driver, idx) => {
+          {drivers.map((driver, idx) => {
             const isUpToDate = driver.status === 'Atualizado';
 
             return (
@@ -64,7 +79,7 @@ export const DriverCenterView: React.FC = () => {
                     </span>
                   </div>
                   <div className="text-slate-400 text-[11px]">
-                    Fabricante: {driver.vendor} · Versão Instalada: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate})
+                    Fabricante: {driver.vendor} · Versão: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate})
                   </div>
                 </div>
 
@@ -76,7 +91,7 @@ export const DriverCenterView: React.FC = () => {
                     className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#141829] hover:bg-[#1b223d] border border-purple-500/40 text-purple-200 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
                   >
                     <ExternalLink className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Portal Oficial do Fabricante</span>
+                    <span>{t.driverCenter.officialPortal}</span>
                   </a>
                 </div>
               </div>

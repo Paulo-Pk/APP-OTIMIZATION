@@ -16,6 +16,7 @@ import {
   RiskLevel,
   RestoreItem,
 } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface BoostCenterViewProps {
   tweaks: SystemTweak[];
@@ -32,41 +33,40 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
   onRestoreAll,
   onOpenBoostModal,
 }) => {
+  const { t } = useI18n();
   const [selectedLevel, setSelectedLevel] = useState<OptimizationLevel>('balanced');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const categoryLabels: Record<TweakCategory, string> = {
-    performance: 'Desempenho do Windows',
-    startup: 'Inicialização',
-    background: 'Processos em Segundo Plano',
-    power: 'Gerenciamento de Energia',
-    services: 'Serviços do Windows',
-    memory: 'Otimização de Memória',
-    gaming: 'Jogos & Escalonamento',
-    system: 'Configurações de Sistema',
+    performance: t.boostCenter.catPerformance,
+    startup: t.boostCenter.catStartup,
+    background: t.boostCenter.catBackground,
+    power: t.boostCenter.catPower,
+    services: t.boostCenter.catServices,
+    memory: t.boostCenter.catMemory,
+    gaming: t.boostCenter.catGaming,
+    system: t.boostCenter.catSystem,
   };
 
-  const filteredTweaks = tweaks.filter((t) => {
+  const filteredTweaks = tweaks.filter((item) => {
     const matchesLevel =
       selectedLevel === 'advanced'
         ? true
         : selectedLevel === 'balanced'
-        ? t.level === 'conservative' || t.level === 'balanced'
-        : t.level === 'conservative';
+        ? item.level === 'conservative' || item.level === 'balanced'
+        : item.level === 'conservative';
 
     const matchesCategory =
-      selectedCategory === 'all' || t.category === selectedCategory;
+      selectedCategory === 'all' || item.category === selectedCategory;
 
     const matchesSearch =
       searchQuery === '' ||
-      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.description.toLowerCase().includes(searchQuery.toLowerCase());
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.description.toLowerCase().includes(searchQuery.toLowerCase());
 
     return matchesLevel && matchesCategory && matchesSearch;
   });
-
-  const appliedCount = tweaks.filter((t) => t.isApplied).length;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -74,11 +74,11 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#121522] via-[#161a29] to-[#0f111a] border border-purple-900/30">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
-            <Zap className="w-4 h-4" /> Central de Otimização do Sistema
+            <Zap className="w-4 h-4" /> {t.boostCenter.subtitle}
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">BOOST CENTER</h1>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Ajustes certificados para redução de latência DPC, eliminação de micro-stuttering e priorização de threads em DirectX 11, 12 e Vulkan.
+          <h1 className="text-xl font-black text-white mt-0.5">{t.boostCenter.title}</h1>
+          <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
+            {t.boostCenter.description}
           </p>
         </div>
 
@@ -88,7 +88,7 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#141724] hover:bg-[#1b2033] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-            <span>Restaurar Tudo</span>
+            <span>{t.boostCenter.restoreAll}</span>
           </button>
 
           <button
@@ -96,23 +96,22 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40"
           >
             <Zap className="w-4 h-4 fill-current" />
-            <span>Aplicar Nível {selectedLevel.toUpperCase()}</span>
+            <span>{t.boostCenter.applyProfile} {selectedLevel.toUpperCase()}</span>
           </button>
         </div>
       </div>
 
       {/* Level Selector & Controls Bar */}
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 p-4 rounded-xl bg-[#0f121b] border border-slate-800">
-        {/* 3 Optimization Levels */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400 font-semibold mr-1">Perfil:</span>
+          <span className="text-xs text-slate-400 font-semibold mr-1">{t.boostCenter.profileLabel}</span>
           {(['conservative', 'balanced', 'advanced'] as OptimizationLevel[]).map(
             (lvl) => {
               const isActive = selectedLevel === lvl;
               const labels = {
-                conservative: 'Conservador (Seguro)',
-                balanced: 'Equilibrado (Recomendado)',
-                advanced: 'Avançado (Gamer Extremo)',
+                conservative: t.boostCenter.profileConservative,
+                balanced: t.boostCenter.profileBalanced,
+                advanced: t.boostCenter.profileAdvanced,
               };
               return (
                 <button
@@ -135,7 +134,7 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
         <div className="flex items-center gap-3 w-full lg:w-auto">
           <input
             type="text"
-            placeholder="Buscar otimização..."
+            placeholder={t.common.searchPlaceholder}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full sm:w-48 bg-[#0a0c13] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500"
@@ -146,7 +145,7 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="bg-[#0a0c13] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer"
           >
-            <option value="all">Todas as 8 Categorias</option>
+            <option value="all">{t.boostCenter.allCategories}</option>
             {Object.entries(categoryLabels).map(([key, label]) => (
               <option key={key} value={key}>
                 {label}
@@ -172,7 +171,6 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
               } flex flex-col justify-between space-y-3`}
             >
               <div className="space-y-2">
-                {/* Header row: Category & Risk & Applied badge */}
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-purple-400/90 uppercase tracking-wide">
                     {categoryLabels[tweak.category]}
@@ -187,42 +185,38 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
                           : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                       }`}
                     >
-                      Risco: {tweak.risk}
+                      {t.common.risk}: {isRiskHigh ? t.common.riskHigh : isRiskMed ? t.common.riskMedium : t.common.riskLow}
                     </span>
 
                     {tweak.isApplied && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Ativado
+                        <Check className="w-3 h-3" /> {t.common.applied}
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* Tweak Name */}
                 <h3 className="text-sm font-bold text-white leading-snug">
                   {tweak.name}
                 </h3>
 
-                {/* Description */}
                 <p className="text-xs text-slate-400 leading-relaxed">
                   {tweak.description}
                 </p>
 
-                {/* Expected Benefit */}
                 <div className="p-2.5 rounded-lg bg-[#0a0c13] border border-slate-800/80 text-xs">
                   <span className="text-emerald-400 font-semibold block text-[10px] uppercase tracking-wider mb-0.5">
-                    Benefício Esperado
+                    {t.boostCenter.expectedBenefit}
                   </span>
                   <span className="text-slate-300 font-mono text-[11px]">
                     {tweak.expectedBenefit}
                   </span>
                 </div>
 
-                {/* Config Values comparison */}
                 <div className="grid grid-cols-2 gap-2 text-[11px] font-mono pt-1">
                   <div className="p-2 rounded bg-[#090b11] border border-slate-900">
                     <span className="text-slate-500 block text-[9px] uppercase font-sans">
-                      Config Atual
+                      {t.boostCenter.currentConfig}
                     </span>
                     <span className="text-slate-400 truncate block" title={tweak.currentValue}>
                       {tweak.currentValue}
@@ -230,7 +224,7 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
                   </div>
                   <div className="p-2 rounded bg-[#090b11] border border-purple-950/40">
                     <span className="text-purple-400 block text-[9px] uppercase font-sans">
-                      Recomendado
+                      {t.boostCenter.recommendedConfig}
                     </span>
                     <span className="text-purple-300 truncate block" title={tweak.recommendedValue}>
                       {tweak.recommendedValue}
@@ -239,10 +233,9 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons: Aplicar / Restaurar */}
               <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between gap-2">
-                <span className="text-[10px] text-slate-500">
-                  {tweak.reversible ? '100% Reversível' : 'Reversão Manual'}
+                <span className="text-[10px] text-slate-500 font-mono">
+                  {tweak.reversible ? t.common.reversible : 'Manual'}
                 </span>
 
                 <div className="flex items-center gap-2">
@@ -252,7 +245,7 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
                       className="px-3 py-1.5 rounded-lg bg-[#161a29] hover:bg-[#1f243a] border border-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
                     >
                       <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Restaurar</span>
+                      <span>{t.common.restore}</span>
                     </button>
                   ) : (
                     <button
@@ -260,7 +253,7 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
                       className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all cursor-pointer border border-purple-400/40 shadow-sm flex items-center gap-1.5"
                     >
                       <Zap className="w-3.5 h-3.5 fill-current" />
-                      <span>Aplicar</span>
+                      <span>{t.common.apply}</span>
                     </button>
                   )}
                 </div>

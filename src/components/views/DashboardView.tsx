@@ -12,6 +12,7 @@ import {
   Thermometer,
 } from 'lucide-react';
 import { HardwareTelemetry, TabId } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface DashboardViewProps {
   telemetry: HardwareTelemetry;
@@ -24,6 +25,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
   onOpenBoostModal,
 }) => {
+  const { t } = useI18n();
+
   // Live historical telemetry points for real-time SVG chart (60s history)
   const [history, setHistory] = useState<
     { time: number; cpuLoad: number; gpuLoad: number; cpuTemp: number; gpuTemp: number }[]
@@ -33,10 +36,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     // Generate initial history
     const initialPoints = Array.from({ length: 30 }, (_, i) => ({
       time: Date.now() - (30 - i) * 1000,
-      cpuLoad: Math.min(100, Math.max(10, telemetry.cpu.load + (Math.sin(i * 0.4) * 8))),
-      gpuLoad: Math.min(100, Math.max(15, telemetry.gpu.utilization + (Math.cos(i * 0.5) * 10))),
-      cpuTemp: Math.min(85, Math.max(45, telemetry.cpu.temperature + (Math.sin(i * 0.2) * 3))),
-      gpuTemp: Math.min(85, Math.max(45, telemetry.gpu.temperature + (Math.cos(i * 0.2) * 2))),
+      cpuLoad: Math.min(100, Math.max(10, telemetry.cpu.load + Math.sin(i * 0.4) * 8)),
+      gpuLoad: Math.min(100, Math.max(15, telemetry.gpu.utilization + Math.cos(i * 0.5) * 10)),
+      cpuTemp: Math.min(85, Math.max(45, telemetry.cpu.temperature + Math.sin(i * 0.2) * 3)),
+      gpuTemp: Math.min(85, Math.max(45, telemetry.gpu.temperature + Math.cos(i * 0.2) * 2)),
     }));
     setHistory(initialPoints);
 
@@ -66,16 +69,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase tracking-widest text-purple-400 font-semibold">
-              Painel Principal de Controle
+              {t.dashboard.panelTitle}
             </span>
             <span className="text-slate-600">·</span>
-            <span className="text-xs text-slate-400">Windows 11 Pro 64-bit (24H2)</span>
+            <span className="text-xs text-slate-400">{t.dashboard.windowsVersion}</span>
           </div>
           <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight">
             PC CONTROL ULTIMATE
           </h1>
-          <p className="text-xs text-slate-400 max-w-2xl">
-            Telemetria em tempo real com leitura de sensores de baixo nível, controle térmico de GPU e escalonamento para jogos competitivos.
+          <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+            {t.dashboard.heroDescription}
           </p>
         </div>
 
@@ -107,16 +110,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="text-lg font-black font-mono text-white leading-none">
                 {telemetry.overallScore}
               </span>
-              <span className="text-[9px] text-slate-400 font-bold uppercase">Pts</span>
+              <span className="text-[9px] text-slate-400 font-bold uppercase">{t.common.pts}</span>
             </div>
           </div>
 
           <div>
-            <div className="text-xs text-slate-400">Pontuação Geral</div>
+            <div className="text-xs text-slate-400">{t.common.overallHealth}</div>
             <div className="text-sm font-bold text-emerald-400 flex items-center gap-1">
-              <CheckCircle2 className="w-4 h-4" /> Excelente
+              <CheckCircle2 className="w-4 h-4" /> {t.common.excellent}
             </div>
-            <div className="text-[10px] text-slate-500">Pronto para Jogos 4K/240Hz</div>
+            <div className="text-[10px] text-slate-500">{t.dashboard.readyForGaming}</div>
           </div>
         </div>
       </div>
@@ -128,35 +131,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Cpu className="w-4 h-4 text-purple-400" />
-              <span className="text-xs font-bold uppercase text-slate-300">Processador (CPU)</span>
+              <span className="text-xs font-bold uppercase text-slate-300">
+                {t.dashboard.cpuCardTitle}
+              </span>
             </div>
             <span className="text-xs font-mono font-bold text-purple-300">{telemetry.cpu.load}%</span>
           </div>
 
           <div className="text-sm font-bold text-white truncate" title={telemetry.cpu.name}>
-            {telemetry.cpu.name}
+            {telemetry.cpu.name || t.common.sensorNotAvailable}
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
-              <span className="text-slate-500 block text-[10px]">Temperatura</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.cpu.temperature.toFixed(1)}°C
+                {telemetry.cpu.temperature ? `${telemetry.cpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Frequência</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.frequency}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.cpu.frequencyGHz.toFixed(2)} GHz
+                {telemetry.cpu.frequencyGHz ? `${telemetry.cpu.frequencyGHz.toFixed(2)} GHz` : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Núcleos / Threads</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.coresThreads}</span>
               <span className="font-mono text-slate-200">{telemetry.cpu.cores}C / {telemetry.cpu.threads}T</span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Consumo (Package)</span>
-              <span className="font-mono text-slate-200">{telemetry.cpu.powerWatts.toFixed(0)} W</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.powerPackage}</span>
+              <span className="font-mono text-slate-200">
+                {telemetry.cpu.powerWatts ? `${telemetry.cpu.powerWatts.toFixed(0)} W` : t.common.sensorNotAvailable}
+              </span>
             </div>
           </div>
 
@@ -173,34 +180,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Flame className="w-4 h-4 text-rose-400" />
-              <span className="text-xs font-bold uppercase text-slate-300">Placa de Vídeo (GPU)</span>
+              <span className="text-xs font-bold uppercase text-slate-300">
+                {t.dashboard.gpuCardTitle}
+              </span>
             </div>
             <span className="text-xs font-mono font-bold text-rose-300">{telemetry.gpu.utilization}%</span>
           </div>
 
           <div className="text-sm font-bold text-white truncate" title={telemetry.gpu.name}>
-            {telemetry.gpu.name}
+            {telemetry.gpu.name || t.common.sensorNotAvailable}
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
-              <span className="text-slate-500 block text-[10px]">Core / Hotspot</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.coreHotspot}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.gpu.temperature.toFixed(0)}°C / <span className="text-amber-400">{telemetry.gpu.hotspot.toFixed(0)}°C</span>
+                {telemetry.gpu.temperature ? `${telemetry.gpu.temperature.toFixed(0)}°C` : '--'} /{' '}
+                <span className="text-amber-400">
+                  {telemetry.gpu.hotspot ? `${telemetry.gpu.hotspot.toFixed(0)}°C` : t.common.sensorNotAvailable}
+                </span>
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Hotspot Delta ΔT</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.hotspotDelta}</span>
               <span className="font-mono font-semibold text-emerald-400">
-                +{hotspotDelta}°C (Ideal)
+                +{hotspotDelta}°C ({t.gpuHealth.healthyGradient})
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Clock da GPU</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.gpuClock}</span>
               <span className="font-mono text-slate-200">{telemetry.gpu.clockMHz} MHz</span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">VRAM Alocada</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.vramAllocated}</span>
               <span className="font-mono text-slate-200">
                 {(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} / {(telemetry.gpu.vramTotalMB / 1024).toFixed(0)} GB
               </span>
@@ -220,7 +232,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CircuitBoard className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs font-bold uppercase text-slate-300">Memória RAM</span>
+              <span className="text-xs font-bold uppercase text-slate-300">
+                {t.dashboard.ramCardTitle}
+              </span>
             </div>
             <span className="text-xs font-mono font-bold text-cyan-300">{telemetry.ram.percentage}%</span>
           </div>
@@ -231,23 +245,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
-              <span className="text-slate-500 block text-[10px]">Em Uso</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.used}</span>
               <span className="font-mono font-semibold text-slate-200">
                 {telemetry.ram.usedGB.toFixed(1)} GB
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Disponível</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.available}</span>
               <span className="font-mono font-semibold text-slate-200">
                 {telemetry.ram.availableGB.toFixed(1)} GB
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Frequência SPD</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.spdFrequency}</span>
               <span className="font-mono text-slate-200">{telemetry.ram.speedMT} MT/s</span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Canais</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.channels}</span>
               <span className="font-mono text-slate-200">{telemetry.ram.channels}</span>
             </div>
           </div>
@@ -265,7 +279,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <HardDrive className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold uppercase text-slate-300">Armazenamento</span>
+              <span className="text-xs font-bold uppercase text-slate-300">
+                {t.dashboard.storageCardTitle}
+              </span>
             </div>
             <span className="text-xs font-mono font-bold text-emerald-300">SMART OK</span>
           </div>
@@ -276,23 +292,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
-              <span className="text-slate-500 block text-[10px]">Espaço Livre</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.freeSpace}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.disks[0]?.freeSpaceGB} GB livres
+                {telemetry.disks[0]?.freeSpaceGB} GB
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Temperatura SSD</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
               <span className="font-mono font-semibold text-slate-200">
                 {telemetry.disks[0]?.temperature}°C
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Saúde NAND</span>
-              <span className="font-mono text-emerald-400">{telemetry.disks[0]?.healthPercent}% (Excelente)</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.nandHealth}</span>
+              <span className="font-mono text-emerald-400">
+                {telemetry.disks[0]?.healthPercent}% ({t.common.excellent})
+              </span>
             </div>
             <div>
-              <span className="text-slate-500 block text-[10px]">Interface</span>
+              <span className="text-slate-500 block text-[10px]">{t.dashboard.interface}</span>
               <span className="font-mono text-slate-200">{telemetry.disks[0]?.interface} Gen4</span>
             </div>
           </div>
@@ -321,17 +339,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-purple-400" />
-              <h2 className="text-sm font-bold text-white">Telemetria em Tempo Real (60 Segundos)</h2>
+              <h2 className="text-sm font-bold text-white">
+                {t.dashboard.realtimeTelemetry}
+              </h2>
             </div>
             <div className="flex items-center gap-4 text-xs font-mono">
               <span className="flex items-center gap-1.5 text-purple-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> CPU Load
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> {t.dashboard.cpuLoad}
               </span>
               <span className="flex items-center gap-1.5 text-rose-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> GPU Load
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> {t.dashboard.gpuLoad}
               </span>
               <span className="flex items-center gap-1.5 text-cyan-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" /> CPU Temp
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" /> {t.dashboard.cpuTemp}
               </span>
             </div>
           </div>
@@ -339,12 +359,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* SVG Canvas Chart */}
           <div className="h-48 w-full bg-[#0a0c13] rounded-lg border border-slate-800/60 p-2 relative overflow-hidden">
             <svg className="w-full h-full overflow-visible" viewBox="0 0 500 150" preserveAspectRatio="none">
-              {/* Horizontal Grid Lines */}
               <line x1="0" y1="37" x2="500" y2="37" stroke="#1f2438" strokeDasharray="3 3" />
               <line x1="0" y1="75" x2="500" y2="75" stroke="#1f2438" strokeDasharray="3 3" />
               <line x1="0" y1="112" x2="500" y2="112" stroke="#1f2438" strokeDasharray="3 3" />
 
-              {/* CPU Load Path */}
               {history.length > 1 && (
                 <polyline
                   fill="none"
@@ -356,7 +374,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 />
               )}
 
-              {/* GPU Load Path */}
               {history.length > 1 && (
                 <polyline
                   fill="none"
@@ -368,7 +385,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 />
               )}
 
-              {/* CPU Temp Path */}
               {history.length > 1 && (
                 <polyline
                   fill="none"
@@ -383,7 +399,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </svg>
 
             <div className="absolute bottom-1 right-2 text-[10px] text-slate-500 font-mono">
-              Leituras a cada 1.5s via LibreHardwareMonitor
+              {t.dashboard.pollingNotice}
             </div>
           </div>
         </div>
@@ -394,26 +410,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-2">
               <Zap className="w-5 h-5 text-purple-400" />
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                Otimização Rápida
+                {t.dashboard.quickOptimization}
               </h2>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Realize uma análise instantânea do kernel do Windows, descarte caches em espera, trave multiplicadores de clock e aplique as melhores práticas para jogos competitivos.
+              {t.dashboard.quickOptDesc}
             </p>
           </div>
 
           <div className="p-3 bg-[#0a0c13] rounded-lg border border-slate-800 space-y-1.5 text-xs">
             <div className="flex items-center justify-between text-slate-400">
-              <span>Alterações Propostas:</span>
-              <span className="font-semibold text-purple-300">7 Tweaks Pendentes</span>
+              <span>{t.dashboard.proposedChanges}</span>
+              <span className="font-semibold text-purple-300">7 Tweaks</span>
             </div>
             <div className="flex items-center justify-between text-slate-400">
-              <span>Nível de Risco:</span>
-              <span className="font-semibold text-emerald-400">Zero Risco / Reversível</span>
+              <span>{t.dashboard.riskLevel}</span>
+              <span className="font-semibold text-emerald-400">{t.dashboard.zeroRisk}</span>
             </div>
             <div className="flex items-center justify-between text-slate-400">
               <span>Ponto de Restauração:</span>
-              <span className="text-slate-300">Criado Automaticamente</span>
+              <span className="text-slate-300">{t.dashboard.restorePointNotice}</span>
             </div>
           </div>
 
@@ -422,7 +438,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="w-full py-3 px-4 rounded-lg bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/40 transition-all cursor-pointer border border-purple-400/40 active:scale-[0.98] flex items-center justify-center gap-2"
           >
             <Zap className="w-4 h-4 fill-current" />
-            <span>Executar Análise & Otimizar</span>
+            <span>{t.dashboard.executeBoost}</span>
           </button>
         </div>
       </div>
@@ -433,7 +449,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center gap-2">
             <CircuitBoard className="w-4 h-4 text-indigo-400" />
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-              Placa-Mãe & Sensores do Sistema
+              {t.dashboard.motherboardSensors}
             </h3>
           </div>
           <div className="text-xs font-mono text-slate-400">
@@ -443,37 +459,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 text-xs">
           <div>
-            <span className="text-slate-500 block text-[10px]">Temp. VRM</span>
+            <span className="text-slate-500 block text-[10px]">{t.dashboard.vrmTemp}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.temperatures.vrm}°C
+              {telemetry.motherboard.temperatures.vrm ? `${telemetry.motherboard.temperatures.vrm}°C` : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
-            <span className="text-slate-500 block text-[10px]">Temp. Chipset</span>
+            <span className="text-slate-500 block text-[10px]">{t.dashboard.chipsetTemp}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.temperatures.chipset}°C
+              {telemetry.motherboard.temperatures.chipset ? `${telemetry.motherboard.temperatures.chipset}°C` : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
-            <span className="text-slate-500 block text-[10px]">Linha +12V</span>
+            <span className="text-slate-500 block text-[10px]">{t.dashboard.rail12v}</span>
             <span className="font-mono font-semibold text-emerald-400">
               {telemetry.motherboard.voltages.v12.toFixed(2)} V
             </span>
           </div>
           <div>
-            <span className="text-slate-500 block text-[10px]">Linha +5V</span>
+            <span className="text-slate-500 block text-[10px]">{t.dashboard.rail5v}</span>
             <span className="font-mono font-semibold text-slate-200">
               {telemetry.motherboard.voltages.v5.toFixed(2)} V
             </span>
           </div>
           <div>
-            <span className="text-slate-500 block text-[10px]">Fan CPU</span>
+            <span className="text-slate-500 block text-[10px]">{t.dashboard.cpuFan}</span>
             <span className="font-mono font-semibold text-slate-200">
               {telemetry.motherboard.fans.cpuFanRPM} RPM
             </span>
           </div>
           <div>
-            <span className="text-slate-500 block text-[10px]">Bomba AIO Pump</span>
+            <span className="text-slate-500 block text-[10px]">{t.dashboard.pumpAio}</span>
             <span className="font-mono font-semibold text-purple-300">
               {telemetry.motherboard.fans.pumpRPM} RPM
             </span>
