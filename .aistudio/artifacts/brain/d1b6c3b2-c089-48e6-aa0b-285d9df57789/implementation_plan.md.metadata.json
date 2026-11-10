@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de Auditoria Técnica, Correção de Dependências (NU1605 e GHSA-2m69-gcr7-jv3q), Estabilização de Arquitetura MVVM/SQLite, Implementação do Game Network Accelerator (Diagnóstico Real, Avaliação Multi-Amostra, WireGuard e Roteamento por Destino de Jogo) e CI Windows x64 para o PC Control Ultimate.",
-  "updatedAt":  "2026-11-10T18:54:34.329609640Z",
+  "summary":  "Plano de correção definitiva do erro CS1739 em WireGuardConfigAuditResult (com detecção granular de rota padrão IPv4 0.0.0.0/0 e IPv6 ::/0), remoção da referência redundante Microsoft.Win32.Registry (NU1510), ampliação dos testes automatizados xUnit e validação completa do workflow Windows x64 CI.",
+  "updatedAt":  "2026-11-10T19:55:40.892583605Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -83,9 +83,9 @@ public class GameNetworkAcceleratorTests
     }
 
     [Fact]
-    public void WireGuardTunnelManager_ShouldBlockDefaultRouteOverride_WhenSelectiveRoutingRequired()
+    public void WireGuardTunnelManager_ShouldBlockIpv4DefaultRouteOverride_WhenSelectiveRoutingRequired()
     {
-        string fullTunnelConfig = """
+        string ipv4FullTunnelConfig = """
             [Interface]
             PrivateKey = wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=
             Address = 10.66.66.2/32
@@ -96,12 +96,71 @@ public class GameNetworkAcceleratorTests
             AllowedIPs = 0.0.0.0/0
             """;
 
-        var audit = WireGuardTunnelManager.ValidateAndAuditConfig(fullTunnelConfig, allowDefaultRouteOverride: false);
+        var audit = WireGuardTunnelManager.ValidateAndAuditConfig(ipv4FullTunnelConfig, allowDefaultRouteOverride: false);
 
         Assert.False(audit.IsValid);
+        Assert.True(audit.AltersDefaultRoute);
         Assert.True(audit.AltersDefaultWindowsRoute);
+        Assert.True(audit.AltersIpv4DefaultRoute);
+        Assert.False(audit.AltersIpv6DefaultRoute);
         Assert.False(audit.IsSelectiveGameTargetRouting);
         Assert.Contains("DEFAULT_ROUTE_OVERRIDE_BLOCKED", audit.ErrorReason);
+    }
+
+    [Fact]
+    public void WireGuardTunnelManager_ShouldBlockIpv6DefaultRouteOverride_WhenSelectiveRoutingRequired()
+    {
+        string ipv6FullTunnelConfig = """
+            [Interface]
+            PrivateKey = wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=
+            Address = 10.66.66.2/32, fd00:66::2/128
+
+            [Peer]
+            PublicKey = mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=
+            Endpoint = 203.0.113.10:51820
+            AllowedIPs = ::/0
+            """;
+
+        var audit = WireGuardTunnelManager.ValidateAndAuditConfig(ipv6FullTunnelConfig, allowDefaultRouteOverride: false);
+
+        Assert.False(audit.IsValid);
+        Assert.True(audit.AltersDefaultRoute);
+        Assert.True(audit.AltersDefaultWindowsRoute);
+        Assert.False(audit.AltersIpv4DefaultRoute);
+        Assert.True(audit.AltersIpv6DefaultRoute);
+        Assert.False(audit.IsSelectiveGameTargetRouting);
+        Assert.Contains("IPv6 (::/0)", audit.ErrorReason);
+    }
+
+    [Fact]
+    public void WireGuardTunnelManager_ShouldDetectBothIpv4AndIpv6DefaultRoutes_AndNeverPresentAsSelective()
+    {
+        string dualFullTunnelConfig = """
+            [Interface]
+            PrivateKey = wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=
+            Address = 10.66.66.2/32, fd00:66::2/128
+
+            [Peer]
+            PublicKey = mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=
+            Endpoint = 203.0.113.10:51820
+            AllowedIPs = 0.0.0.0/0, ::/0
+            """;
+
+        var blockedAudit = WireGuardTunnelManager.ValidateAndAuditConfig(dualFullTunnelConfig, allowDefaultRouteOverride: false);
+        Assert.False(blockedAudit.IsValid);
+        Assert.True(blockedAudit.AltersDefaultRoute);
+        Assert.True(blockedAudit.AltersIpv4DefaultRoute);
+        Assert.True(blockedAudit.AltersIpv6DefaultRoute);
+        Assert.False(blockedAudit.IsSelectiveGameTargetRouting);
+
+        // Even when full-tunnel override is explicitly authorized, it MUST NOT be marked as selective game routing
+        var authorizedGlobalAudit = WireGuardTunnelManager.ValidateAndAuditConfig(dualFullTunnelConfig, allowDefaultRouteOverride: true);
+        Assert.True(authorizedGlobalAudit.IsValid);
+        Assert.True(authorizedGlobalAudit.AltersDefaultRoute);
+        Assert.True(authorizedGlobalAudit.AltersIpv4DefaultRoute);
+        Assert.True(authorizedGlobalAudit.AltersIpv6DefaultRoute);
+        Assert.False(authorizedGlobalAudit.IsSelectiveGameTargetRouting);
+        Assert.Contains("Global", authorizedGlobalAudit.RouteImpactExplanationPt);
     }
 
     [Fact]
@@ -126,12 +185,12 @@ public class GameNetworkAcceleratorTests
     }
 
     [Fact]
-    public void WireGuardTunnelManager_ShouldAcceptSelectiveGameTargetCidrConfig()
+    public void WireGuardTunnelManager_ShouldAcceptSelectiveGameTargetCidrConfig_WithNeitherDefaultRoutePresent()
     {
         var node = new RelayNodeCandidate(
             "sa-gru-01", "São Paulo Relay", "SA-EAST-1", "203.0.113.10", 51820,
             "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
-            new[] { "155.133.248.0/24", "104.160.152.0/24" }, true
+            new[] { "155.133.248.0/24", "2001:db8:85a3::/48" }, true
         );
 
         string selectiveConfig = WireGuardTunnelManager.BuildSelectiveGameTunnelConfig(
@@ -143,9 +202,60 @@ public class GameNetworkAcceleratorTests
         var audit = WireGuardTunnelManager.ValidateAndAuditConfig(selectiveConfig, allowDefaultRouteOverride: false);
 
         Assert.True(audit.IsValid);
+        Assert.False(audit.AltersDefaultRoute);
         Assert.False(audit.AltersDefaultWindowsRoute);
+        Assert.False(audit.AltersIpv4DefaultRoute);
+        Assert.False(audit.AltersIpv6DefaultRoute);
         Assert.True(audit.IsSelectiveGameTargetRouting);
         Assert.Equal(2, audit.AllowedIps.Count);
+    }
+
+    [Fact]
+    public void RegisterOrUpdateRelayNode_ShouldValidateHostPortAndCidrs_AndRecordEvaluationHistory()
+    {
+        GameNetworkAcceleratorService.ClearNodesForTesting();
+
+        var invalidHost = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "node-1", "Bad Host", "SA", "invalid..host", 51820,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
+            new[] { "155.133.248.0/24" }
+        );
+        Assert.False(invalidHost.success);
+        Assert.Contains("INVALID_ENDPOINT_HOST", invalidHost.errorReason);
+
+        var invalidPort = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "node-1", "Bad Port", "SA", "203.0.113.10", 70000,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
+            new[] { "155.133.248.0/24" }
+        );
+        Assert.False(invalidPort.success);
+        Assert.Contains("INVALID_ENDPOINT_PORT", invalidPort.errorReason);
+
+        var validNode = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "node-valid", "Valid Node", "SA-EAST-1", "203.0.113.10", 51820,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
+            new[] { "155.133.248.0/24" }
+        );
+        Assert.True(validNode.success);
+        Assert.NotNull(validNode.node);
+
+        var (wgInstalled, wgExe, _) = WireGuardTunnelManager.CheckWireGuardInstallation();
+        if (!wgInstalled)
+        {
+            Assert.Null(wgExe);
+        }
+
+        var directProbe = GameNetworkAcceleratorService.ComputeStatisticalProbeSummary(
+            "Direct", "155.133.248.34", 27015, "ICMP", 5, new[] { 20.0, 21.0, 20.5, 20.0, 20.5 }
+        );
+        var relayProbe = GameNetworkAcceleratorService.ComputeStatisticalProbeSummary(
+            "Relay", "203.0.113.10", 51820, "ICMP", 5, new[] { 25.0, 26.0, 25.5, 25.0, 25.5 }
+        );
+        GameNetworkAcceleratorService.EvaluateHonestRouteComparison(
+            "CS2", "155.133.248.34", 27015, directProbe, validNode.node, relayProbe, 3.0
+        );
+
+        Assert.NotEmpty(GameNetworkAcceleratorService.GetEvaluationHistory());
     }
 
     [Fact]

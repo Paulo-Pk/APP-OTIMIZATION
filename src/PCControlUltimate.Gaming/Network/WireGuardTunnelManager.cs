@@ -18,11 +18,16 @@ public record WireGuardConfigAuditResult(
     string PeerPublicKey,
     string PeerEndpoint,
     IReadOnlyList<string> AllowedIps,
-    bool AltersDefaultWindowsRoute,
+    bool AltersDefaultRoute,
     bool IsSelectiveGameTargetRouting,
     string RouteImpactExplanationPt,
     string RouteImpactExplanationEn
-);
+)
+{
+    public bool AltersDefaultWindowsRoute => AltersDefaultRoute;
+    public bool AltersIpv4DefaultRoute { get; init; }
+    public bool AltersIpv6DefaultRoute { get; init; }
+}
 
 public record WireGuardTunnelStatusReport(
     bool WireGuardInstalled,
@@ -90,6 +95,25 @@ public static class WireGuardTunnelManager
 
     public static bool IsValidWireGuardKey(string? key) =>
         !string.IsNullOrWhiteSpace(key) && WireGuardBase64KeyRegex.IsMatch(key.Trim());
+
+    public static bool IsIpv4DefaultRouteCidr(string? cidr)
+    {
+        if (string.IsNullOrWhiteSpace(cidr)) return false;
+        string normalized = cidr.Trim();
+        return normalized.Equals("0.0.0.0/0", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("0.0.0.0/1", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("128.0.0.0/1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsIpv6DefaultRouteCidr(string? cidr)
+    {
+        if (string.IsNullOrWhiteSpace(cidr)) return false;
+        string normalized = cidr.Trim();
+        return normalized.Equals("::/0", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("0:0:0:0:0:0:0:0/0", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("::/1", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("8000::/1", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Validates a WireGuard .conf payload, inspects AllowedIPs to determine whether it alters
@@ -225,26 +249,36 @@ public static class WireGuardTunnelManager
             );
         }
 
-        bool altersDefaultRoute = allowedIps.Any(cidr =>
-            cidr == "0.0.0.0/0" ||
-            cidr == "::/0" ||
-            cidr == "0.0.0.0/1" ||
-            cidr == "128.0.0.0/1");
+        bool altersIpv4Default = allowedIps.Any(IsIpv4DefaultRouteCidr);
+        bool altersIpv6Default = allowedIps.Any(IsIpv6DefaultRouteCidr);
+        bool altersDefaultRoute = altersIpv4Default || altersIpv6Default;
+
+        string affectedProtocols = (altersIpv4Default, altersIpv6Default) switch
+        {
+            (true, true) => "IPv4 (0.0.0.0/0) e IPv6 (::/0)",
+            (true, false) => "IPv4 (0.0.0.0/0)",
+            (false, true) => "IPv6 (::/0)",
+            _ => "Nenhum"
+        };
 
         if (altersDefaultRoute && !allowDefaultRouteOverride)
         {
             return new WireGuardConfigAuditResult(
-                false,
-                "DEFAULT_ROUTE_OVERRIDE_BLOCKED: A configuração contém '0.0.0.0/0' ou '::/0' (desvia todo o tráfego do Windows). Para o Game Network Accelerator, utilize apenas os blocos CIDR dos servidores do jogo em AllowedIPs ou confirme explicitamente o modo de túnel global.",
-                interfaceAddress,
-                peerPublicKey,
-                peerEndpoint,
-                allowedIps,
+                IsValid: false,
+                ErrorReason: $"DEFAULT_ROUTE_OVERRIDE_BLOCKED: A configuração contém rota padrão ({affectedProtocols}) que desvia todo o tráfego do Windows. Para o Game Network Accelerator, utilize apenas os blocos CIDR dos servidores do jogo em AllowedIPs ou confirme explicitamente o modo de túnel global.",
+                InterfaceAddress: interfaceAddress,
+                PeerPublicKey: peerPublicKey,
+                PeerEndpoint: peerEndpoint,
+                AllowedIps: allowedIps,
                 AltersDefaultRoute: true,
                 IsSelectiveGameTargetRouting: false,
-                RouteImpactExplanationPt: "ATENÇÃO: Esta configuração altera a rota padrão do Windows (0.0.0.0/0) e desviará TODO o tráfego do PC pelo túnel.",
-                RouteImpactExplanationEn: "WARNING: This configuration alters the Windows default route (0.0.0.0/0) and will route ALL PC traffic through the tunnel."
-            );
+                RouteImpactExplanationPt: $"ATENÇÃO: Esta configuração altera a rota padrão do Windows ({affectedProtocols}) e desviará TODO o tráfego do PC pelo túnel.",
+                RouteImpactExplanationEn: $"WARNING: This configuration alters the Windows default route ({affectedProtocols}) and will route ALL PC traffic through the tunnel."
+            )
+            {
+                AltersIpv4DefaultRoute = altersIpv4Default,
+                AltersIpv6DefaultRoute = altersIpv6Default
+            };
         }
 
         bool isSelective = !altersDefaultRoute;
@@ -252,11 +286,11 @@ public static class WireGuardTunnelManager
 
         string impactPt = isSelective
             ? $"Roteamento Seletivo por Destino: Apenas pacotes destinados a [{joinedCidrs}] passarão pelo túnel ({peerEndpoint}). A rota padrão do Windows NÃO será alterada."
-            : $"Modo Túnel Global Autorizado: Todo o tráfego do Windows ([{joinedCidrs}]) será encaminhado para {peerEndpoint}.";
+            : $"Modo Túnel Global Autorizado ({affectedProtocols}): Todo o tráfego do Windows ([{joinedCidrs}]) será encaminhado para {peerEndpoint}.";
 
         string impactEn = isSelective
             ? $"Selective Destination Routing: Only packets destined for [{joinedCidrs}] will traverse the tunnel ({peerEndpoint}). The Windows default route will NOT be altered."
-            : $"Authorized Full-Tunnel Mode: All Windows traffic ([{joinedCidrs}]) will be routed through {peerEndpoint}.";
+            : $"Authorized Full-Tunnel Mode ({affectedProtocols}): All Windows traffic ([{joinedCidrs}]) will be routed through {peerEndpoint}.";
 
         return new WireGuardConfigAuditResult(
             IsValid: true,
@@ -269,7 +303,11 @@ public static class WireGuardTunnelManager
             IsSelectiveGameTargetRouting: isSelective,
             RouteImpactExplanationPt: impactPt,
             RouteImpactExplanationEn: impactEn
-        );
+        )
+        {
+            AltersIpv4DefaultRoute = altersIpv4Default,
+            AltersIpv6DefaultRoute = altersIpv6Default
+        };
     }
 
     /// <summary>

@@ -30,10 +30,10 @@ jobs:
           dotnet-version: '10.0.x'
           dotnet-quality: 'ga'
 
-      - name: 3. Display .NET SDK Info & Restore Solution Dependencies (win-x64)
+      - name: 3. Display .NET SDK Info & Restore Solution Dependencies
         run: |
           dotnet --info
-          dotnet restore PCControlUltimate.sln -r win-x64
+          dotnet restore PCControlUltimate.sln
 
       - name: 4. Audit NuGet Dependency Graph for Vulnerable Packages
         shell: pwsh
