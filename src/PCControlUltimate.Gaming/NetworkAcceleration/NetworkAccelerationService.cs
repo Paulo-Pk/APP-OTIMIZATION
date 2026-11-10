@@ -202,7 +202,7 @@ public sealed class WireGuardWindowsProvider : ITunnelProvider
                 // Output redirection is intentionally disabled for elevated ShellExecute.
                 UseShellExecute = true,
                 Verb = "runas",
-                Arguments = string.Join(" ", args.Select(arg => "\"" + arg.Replace("\"", "\\\\\"") + "\""))
+                Arguments = string.Join(" ", args.Select(arg => "\"" + arg + "\""))
             };
             using var process = Process.Start(start);
             if (process == null) return new(false, "O Windows não iniciou o processo WireGuard.");
