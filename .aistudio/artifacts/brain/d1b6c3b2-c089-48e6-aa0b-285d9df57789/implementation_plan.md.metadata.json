@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano arquitetural e de execução para a Fase de Correção Crítica e Consolidação do PC Control Ultimate (.NET 10 WPF, Agente Privilegiado, Registro Seguro, Telemetria Real e Suíte de Testes).",
-  "updatedAt":  "2026-11-10T15:39:35.054797831Z",
+  "summary":  "Plano de implementação completo para correção da fundação de segurança, eliminação de bypass do catálogo de Registro, proteção DPAPI/ACL e anti-replay do agente privilegiado, backup e restauração com rollback seguro, navegação modular real e internacionalização PT-BR/EN-US no WPF, integrações reais (PresentMon, LibreHardwareMonitor, Network Lab, Debloat, Driver Center), suíte xUnit expandida, CI Windows e documentação técnica.",
+  "updatedAt":  "2026-11-10T16:35:05.728646038Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

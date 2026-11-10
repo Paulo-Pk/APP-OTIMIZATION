@@ -1,0 +1,42 @@
+name: Windows Native Build, Test & Release x64
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test-windows:
+    name: Build & Test .NET 10 WPF (windows-latest)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'ga'
+
+      - name: Restore Solution Dependencies
+        run: dotnet restore PCControlUltimate.sln
+
+      - name: Build Solution (Release)
+        run: dotnet build PCControlUltimate.sln -c Release --no-restore
+
+      - name: Run xUnit Automated Security & Integration Tests
+        run: dotnet test PCControlUltimate.sln -c Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+
+      - name: Publish WPF Native Desktop Application (win-x64)
+        run: dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 --self-contained false -o artifacts/publish/win-x64
+
+      - name: Upload Published Windows x64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PCControlUltimate-win-x64-Release
+          path: artifacts/publish/win-x64
+          retention-days: 14

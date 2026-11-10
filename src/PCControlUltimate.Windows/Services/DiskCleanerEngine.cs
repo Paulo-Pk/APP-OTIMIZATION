@@ -1,17 +1,42 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace PCControlUltimate.Windows.Services;
 
+public record CleanerCategoryMetadata(
+    string CategoryKey,
+    string NamePt,
+    string NameEn,
+    string TargetPath,
+    bool RequiresAdminUac,
+    bool RequiresExplicitConfirmation
+);
+
+public record DiskDryRunReport(
+    string CategoryKey,
+    string TargetPath,
+    bool IsEstimateOnly,
+    long EstimatedBytes,
+    int CandidateFilesCount,
+    int SkippedSymlinksCount
+);
+
 public record DiskPurgeReport(
+    bool Success,
+    bool PartialSuccess,
     string CategoryKey,
     long FreedBytes,
     int DeletedFilesCount,
     int SkippedLockedCount,
     int SkippedSymlinksCount,
+    IReadOnlyList<string> AffectedItemsLog,
     IReadOnlyList<string> Errors
-);
+)
+{
+    public long BytesFreed => FreedBytes;
+}
 
 public static class DiskCleanerEngine
 {
@@ -22,6 +47,21 @@ public static class DiskCleanerEngine
         "temp-user",
         "update-cache"
     };
+
+    public static IReadOnlyList<CleanerCategoryMetadata> GetAuthorizedCategories()
+    {
+        return new List<CleanerCategoryMetadata>
+        {
+            new("cache-dx-shaders", "Cache de Shaders DirectX (D3DSCache)", "DirectX Shader Cache (D3DSCache)",
+                GetCategoryPath("cache-dx-shaders") ?? "", false, true),
+            new("temp-user", "Arquivos Temporários do Usuário (%TEMP%)", "User Temporary Files (%TEMP%)",
+                GetCategoryPath("temp-user") ?? "", false, true),
+            new("temp-windows", "Arquivos Temporários do Sistema (C:\\Windows\\Temp)", "System Temporary Files (C:\\Windows\\Temp)",
+                GetCategoryPath("temp-windows") ?? "", true, true),
+            new("update-cache", "Cache de Downloads do Windows Update (SoftwareDistribution)", "Windows Update Download Cache (SoftwareDistribution)",
+                GetCategoryPath("update-cache") ?? "", true, true)
+        };
+    }
 
     public static string? GetCategoryPath(string categoryKey)
     {
@@ -48,7 +88,6 @@ public static class DiskCleanerEngine
             string fullPath = Path.GetFullPath(targetDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             if (string.IsNullOrWhiteSpace(fullPath)) return false;
 
-            // Block root drives (e.g., C: or /)
             string? root = Path.GetPathRoot(fullPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             if (string.Equals(fullPath, root, StringComparison.OrdinalIgnoreCase)) return false;
 
@@ -77,14 +116,21 @@ public static class DiskCleanerEngine
                 }
             }
 
-            // Ensure personal subfolders (Documents, Desktop, Pictures) are never inside targetDir
-            string docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            if (!string.IsNullOrEmpty(docs) && fullPath.StartsWith(docs, StringComparison.OrdinalIgnoreCase))
-                return false;
+            // Block any personal directory subtree
+            var personalSubtrees = new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+            };
 
-            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            if (!string.IsNullOrEmpty(desktop) && fullPath.StartsWith(desktop, StringComparison.OrdinalIgnoreCase))
-                return false;
+            foreach (var personal in personalSubtrees)
+            {
+                if (!string.IsNullOrEmpty(personal) && fullPath.StartsWith(personal, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
 
             return true;
         }
@@ -106,30 +152,52 @@ public static class DiskCleanerEngine
         }
     }
 
-    public static long ScanCategoryBytes(string categoryKey)
+    /// <summary>
+    /// Performs a read-only dry-run scan and explicitly marks the result as an estimate.
+    /// </summary>
+    public static DiskDryRunReport SimulateCategoryDryRun(string categoryKey)
     {
         string? targetDir = GetCategoryPath(categoryKey);
         if (string.IsNullOrEmpty(targetDir) || !IsPathSafe(targetDir) || !Directory.Exists(targetDir))
-            return 0;
+        {
+            return new DiskDryRunReport(categoryKey, targetDir ?? "N/D", true, 0, 0, 0);
+        }
 
         var rootDir = new DirectoryInfo(targetDir);
         if (IsReparsePointOrSymlink(rootDir))
-            return 0;
+        {
+            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 1);
+        }
 
-        return ScanDirectoryRecursiveSafe(rootDir);
+        long bytes = 0;
+        int files = 0;
+        int symlinks = 0;
+        ScanDirectoryRecursiveSafe(rootDir, ref bytes, ref files, ref symlinks);
+
+        return new DiskDryRunReport(categoryKey, targetDir, true, bytes, files, symlinks);
     }
 
-    private static long ScanDirectoryRecursiveSafe(DirectoryInfo dir)
+    public static long ScanCategoryBytes(string categoryKey)
     {
-        long bytes = 0;
+        var dryRun = SimulateCategoryDryRun(categoryKey);
+        return dryRun.EstimatedBytes;
+    }
+
+    private static void ScanDirectoryRecursiveSafe(DirectoryInfo dir, ref long bytes, ref int filesCount, ref int symlinksCount)
+    {
         try
         {
             foreach (var file in dir.EnumerateFiles())
             {
                 try
                 {
-                    if (!IsReparsePointOrSymlink(file))
-                        bytes += file.Length;
+                    if (IsReparsePointOrSymlink(file))
+                    {
+                        symlinksCount++;
+                        continue;
+                    }
+                    bytes += file.Length;
+                    filesCount++;
                 }
                 catch { }
             }
@@ -138,44 +206,47 @@ public static class DiskCleanerEngine
             {
                 try
                 {
-                    if (!IsReparsePointOrSymlink(subDir))
-                        bytes += ScanDirectoryRecursiveSafe(subDir);
+                    if (IsReparsePointOrSymlink(subDir))
+                    {
+                        symlinksCount++;
+                        continue;
+                    }
+                    ScanDirectoryRecursiveSafe(subDir, ref bytes, ref filesCount, ref symlinksCount);
                 }
                 catch { }
             }
         }
         catch { }
-
-        return bytes;
     }
 
-    public static DiskPurgeReport PurgeCategoryWithReport(string categoryKey, bool confirmUpdateCache = false)
+    public static DiskPurgeReport PurgeCategoryWithReport(string categoryKey, bool confirmServiceStop = false)
     {
         var errors = new List<string>();
+        var affectedItems = new List<string>();
         string? targetDir = GetCategoryPath(categoryKey);
 
         if (string.IsNullOrEmpty(targetDir) || !IsPathSafe(targetDir))
         {
             errors.Add("Categoria não autorizada ou caminho inseguro rejeitado.");
-            return new DiskPurgeReport(categoryKey, 0, 0, 0, 0, errors);
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
-        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) && !confirmUpdateCache)
+        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) && !confirmServiceStop)
         {
-            errors.Add("A limpeza do cache do Windows Update exige confirmação explícita.");
-            return new DiskPurgeReport(categoryKey, 0, 0, 0, 0, errors);
+            errors.Add("A limpeza do cache do Windows Update exige confirmação explícita do usuário.");
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
         if (!Directory.Exists(targetDir))
         {
-            return new DiskPurgeReport(categoryKey, 0, 0, 0, 0, errors);
+            return new DiskPurgeReport(true, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
         var rootDir = new DirectoryInfo(targetDir);
         if (IsReparsePointOrSymlink(rootDir))
         {
             errors.Add("Operação abortada: o diretório alvo é um link simbólico ou junction NTFS.");
-            return new DiskPurgeReport(categoryKey, 0, 0, 0, 1, errors);
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 1, affectedItems, errors);
         }
 
         long freedBytes = 0;
@@ -190,10 +261,24 @@ public static class DiskCleanerEngine
             ref freedBytes,
             ref deletedFiles,
             ref skippedLocked,
-            ref skippedSymlinks
+            ref skippedSymlinks,
+            affectedItems
         );
 
-        return new DiskPurgeReport(categoryKey, freedBytes, deletedFiles, skippedLocked, skippedSymlinks, errors);
+        bool fullSuccess = errors.Count == 0 && skippedLocked == 0;
+        bool partialSuccess = deletedFiles > 0 && (skippedLocked > 0 || errors.Count > 0);
+
+        return new DiskPurgeReport(
+            Success: fullSuccess || partialSuccess,
+            PartialSuccess: partialSuccess,
+            CategoryKey: categoryKey,
+            FreedBytes: freedBytes,
+            DeletedFilesCount: deletedFiles,
+            SkippedLockedCount: skippedLocked,
+            SkippedSymlinksCount: skippedSymlinks,
+            AffectedItemsLog: affectedItems.Take(100).ToList(),
+            Errors: errors
+        );
     }
 
     private static void PurgeDirectoryRecursiveSafe(
@@ -203,14 +288,15 @@ public static class DiskCleanerEngine
         ref long freedBytes,
         ref int deletedFiles,
         ref int skippedLocked,
-        ref int skippedSymlinks)
+        ref int skippedSymlinks,
+        List<string> affectedItems)
     {
         try
         {
             string currentCanonical = Path.GetFullPath(currentDir.FullName);
             if (!currentCanonical.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
             {
-                return; // Prevent directory traversal outside root
+                return;
             }
 
             foreach (var file in currentDir.EnumerateFiles())
@@ -224,9 +310,14 @@ public static class DiskCleanerEngine
                     }
 
                     long size = file.Length;
+                    string fullName = file.FullName;
                     file.Delete();
                     freedBytes += size;
                     deletedFiles++;
+                    if (affectedItems.Count < 100)
+                    {
+                        affectedItems.Add($"[DEL] {fullName} ({size} B)");
+                    }
                 }
                 catch
                 {
@@ -251,13 +342,18 @@ public static class DiskCleanerEngine
                         ref freedBytes,
                         ref deletedFiles,
                         ref skippedLocked,
-                        ref skippedSymlinks
+                        ref skippedSymlinks,
+                        affectedItems
                     );
 
-                    // Only delete the subdirectory if it is now empty and not a reparse point
                     if (subDir.GetFileSystemInfos().Length == 0)
                     {
+                        string dirName = subDir.FullName;
                         subDir.Delete(false);
+                        if (affectedItems.Count < 100)
+                        {
+                            affectedItems.Add($"[DIR] {dirName}");
+                        }
                     }
                 }
                 catch
@@ -274,7 +370,7 @@ public static class DiskCleanerEngine
 
     public static long PurgeCategory(string categoryKey)
     {
-        var report = PurgeCategoryWithReport(categoryKey, confirmUpdateCache: true);
+        var report = PurgeCategoryWithReport(categoryKey, confirmServiceStop: false);
         return report.FreedBytes;
     }
 }

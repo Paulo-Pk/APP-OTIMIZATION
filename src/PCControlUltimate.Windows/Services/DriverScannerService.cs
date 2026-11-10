@@ -12,11 +12,16 @@ public record InstalledDriverEntry(
     string ReleaseDate,
     string Vendor,
     string Status,
-    string OfficialUrl
+    string OfficialUrl,
+    string VerificationScopeNotice = "Inventário somente-leitura via WMI (Win32_PnPSignedDriver). Não realiza download ou instalação automática."
 );
 
 public static class DriverScannerService
 {
+    public const string ModulePolicyNotice =
+        "Módulo de Inventário de Drivers Instalados: exibe fabricante, versão, data e estado reportados pelo Windows WMI. " +
+        "Por segurança de kernel, este software nunca baixa nem instala drivers automaticamente.";
+
     public static IReadOnlyList<InstalledDriverEntry> QuerySignedDrivers()
     {
         var results = new List<InstalledDriverEntry>();
@@ -27,7 +32,7 @@ public static class DriverScannerService
         try
         {
             using var searcher = new ManagementObjectSearcher(
-                "SELECT DeviceName, DriverVersion, DriverDate, Manufacturer, DeviceClass FROM Win32_PnPSignedDriver WHERE DeviceName IS NOT NULL AND DriverVersion IS NOT NULL"
+                "SELECT DeviceName, DriverVersion, DriverDate, Manufacturer, DeviceClass, IsSigned FROM Win32_PnPSignedDriver WHERE DeviceName IS NOT NULL AND DriverVersion IS NOT NULL"
             );
 
             foreach (ManagementObject obj in searcher.Get())
@@ -37,17 +42,19 @@ public static class DriverScannerService
                 if (category == null) continue;
 
                 string deviceName = obj["DeviceName"]?.ToString() ?? "Dispositivo Desconhecido";
-                string version = obj["DriverVersion"]?.ToString() ?? "Não disponível";
+                string version = obj["DriverVersion"]?.ToString() ?? "N/D";
                 string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante OEM";
                 string rawDate = obj["DriverDate"]?.ToString() ?? string.Empty;
+                bool isSigned = obj["IsSigned"] is bool b ? b : true;
 
-                string formattedDate = "Não disponível";
+                string formattedDate = "N/D";
                 if (rawDate.Length >= 8)
                 {
                     formattedDate = $"{rawDate.Substring(0, 4)}-{rawDate.Substring(4, 2)}-{rawDate.Substring(6, 2)}";
                 }
 
                 string officialUrl = ResolveVendorSupportUrl(deviceName, manufacturer);
+                string statusText = isSigned ? "Assinado Digitalmente (WMI)" : "Sem Assinatura WHQL Detectada";
 
                 results.Add(new InstalledDriverEntry(
                     Device: deviceName,
@@ -55,7 +62,7 @@ public static class DriverScannerService
                     InstalledVersion: version,
                     ReleaseDate: formattedDate,
                     Vendor: manufacturer,
-                    Status: "Verificado via WMI",
+                    Status: statusText,
                     OfficialUrl: officialUrl
                 ));
             }
@@ -74,7 +81,7 @@ public static class DriverScannerService
         {
             "DISPLAY" => "GPU",
             "NET" => "Rede",
-            "MEDIA" or "AUDIOENDPOINT" => "Audio",
+            "MEDIA" or "AUDIOENDPOINT" => "Áudio",
             "SCSIADAPTER" or "HDC" or "DISKDRIVE" => "Armazenamento",
             "SYSTEM" => "Chipset",
             _ => null

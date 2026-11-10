@@ -52,9 +52,16 @@ class NativeBridgeService {
   }
 
   private getAuthHeaders(): Record<string, string> {
+    const nonce =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().replace(/-/g, '')
+        : `${Date.now()}${Math.random().toString(16).slice(2, 14)}`;
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-PCControl-Client': 'WebUI-v2.4',
+      'X-PCControl-Client': 'WPF-Native-v2.4',
+      'X-PCControl-Timestamp': Math.floor(Date.now() / 1000).toString(),
+      'X-PCControl-Nonce': nonce,
     };
     if (this.sessionToken) {
       headers['Authorization'] = `Bearer ${this.sessionToken}`;
@@ -81,7 +88,7 @@ class NativeBridgeService {
         this.agentStatus = {
           isConnected: isAuthenticated,
           isAuthenticated,
-          version: data.version || '2.4.0',
+          version: data.version || '2.5.0',
           platform: data.os || 'Windows 10/11 x64',
           isElevated: !!data.isElevated,
           agentUrl: LOCAL_AGENT_URL,
@@ -127,8 +134,8 @@ class NativeBridgeService {
 
   public async applyRegistryTweak(
     tweakId: string,
-    keyPath: string,
-    valueName: string,
+    _keyPath: string,
+    _valueName: string,
     targetValue: string | number,
     valueKind: string = 'DWord'
   ): Promise<{
@@ -150,15 +157,13 @@ class NativeBridgeService {
     }
 
     try {
+      // Security Policy: Send exclusively tweakId and targetValue; backend determines path, valueName, and valueKind from closed catalog
       const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/apply`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
           tweakId,
-          keyPath,
-          valueName,
           targetValue: String(targetValue),
-          valueKind,
         }),
       });
       const data = await res.json();
@@ -169,7 +174,7 @@ class NativeBridgeService {
         valueKind: data.valueKind ?? valueKind,
         wasInitiallyAbsent: !!data.wasInitiallyAbsent,
         keyCreatedByApp: !!data.keyCreatedByApp,
-        error: data.error,
+        error: data.error || data.message,
       };
     } catch (err: any) {
       return {
@@ -187,7 +192,8 @@ class NativeBridgeService {
     originalValue: string | number | null,
     valueKind: string = 'DWord',
     wasInitiallyAbsent: boolean = false,
-    keyCreatedByApp: boolean = false
+    keyCreatedByApp: boolean = false,
+    tweakId?: string
   ): Promise<{ success: boolean; verified: boolean; error?: string }> {
     if (!this.agentStatus.isConnected) {
       return {
@@ -202,6 +208,7 @@ class NativeBridgeService {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
+          tweakId,
           keyPath,
           valueName,
           originalValue: originalValue !== null ? String(originalValue) : null,

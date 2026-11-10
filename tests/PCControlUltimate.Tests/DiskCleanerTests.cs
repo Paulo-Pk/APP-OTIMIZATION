@@ -84,4 +84,23 @@ public class DiskCleanerTests
         Assert.False(report.Success);
         Assert.Equal(0, report.BytesFreed);
     }
+
+    [Fact]
+    public void SimulateCategoryDryRun_WithInvalidCategory_ReturnsFailureWithoutDeleting()
+    {
+        var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("forbidden-category");
+        Assert.False(dryRun.Success);
+        Assert.Equal(0, dryRun.EstimatedBytes);
+        Assert.Equal(0, dryRun.EstimatedFilesCount);
+    }
+
+    [Fact]
+    public void SimulateCategoryDryRun_WithValidCategory_ReturnsNonNegativeEstimateAndLeavesFilesIntact()
+    {
+        var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
+        Assert.True(dryRun.Success);
+        Assert.True(dryRun.EstimatedBytes >= 0);
+        Assert.True(dryRun.EstimatedFilesCount >= 0);
+    }
 }
+

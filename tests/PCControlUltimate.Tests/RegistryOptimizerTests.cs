@@ -31,8 +31,18 @@ public class RegistryOptimizerTests
         Assert.False(RegistryOptimizer.IsSubkeyAllowed(dangerousPath));
     }
 
+    [Theory]
+    [InlineData(@"SYSTEM\CurrentControlSet\Control\PriorityControl\ArbitraryChildSubkey")]
+    [InlineData(@"System\GameConfigStore\NestedBypassKey")]
+    [InlineData(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games\EvilSubkey")]
+    public void IsSubkeyAllowed_ChildSubkeysNotExplicitlyCataloged_MustBeRejected(string childSubkey)
+    {
+        // Regression test: StartsWith prefix matching was removed; only exact catalog subkeys are allowed
+        Assert.False(RegistryOptimizer.IsSubkeyAllowed(childSubkey));
+    }
+
     [Fact]
-    public void Catalog_ShouldContainMandatoryGamingTweaksWithExplicitTypes()
+    public void Catalog_ShouldContainMandatoryGamingTweaksWithExplicitTypesAndAllowedValues()
     {
         Assert.NotEmpty(RegistryOptimizer.Catalog);
         Assert.True(RegistryOptimizer.Catalog.ContainsKey("perf-mmcss"));
@@ -42,6 +52,45 @@ public class RegistryOptimizerTests
         var stringTweak = RegistryOptimizer.Catalog["power-pcie-link"];
         Assert.Equal(RegistryValueKind.String, stringTweak.ValueKind);
         Assert.Equal("High", stringTweak.TargetRawValue);
+        Assert.Contains("High", stringTweak.AllowedRawValues);
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_WithUnknownTweakId_MustBeRejectedAndLogged()
+    {
+        var result = RegistryOptimizer.ApplyCatalogTweak("unknown-arbitrary-tweak-id", "1");
+
+        Assert.False(result.Success);
+        Assert.Contains("não encontrado no catálogo fechado", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        var logs = RegistryOptimizer.GetRecentAuditLogs(10);
+        Assert.Contains(logs, l => l.TweakId == "unknown-arbitrary-tweak-id" && !l.Success);
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_WithUnauthorizedTargetValue_MustBeRejected()
+    {
+        // "perf-game-dvr" only allows "0" or "1"
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "999999");
+
+        Assert.False(result.Success);
+        Assert.Contains("não está na lista de valores permitidos", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TryApplyTypedValue_UncatalogedValueNameInsideAllowedSubkey_MustBeRejected()
+    {
+        // Subkey is in AllowedSubkeys, but "ArbitraryUncatalogedValue" is NOT in Catalog
+        var result = RegistryOptimizer.TryApplyTypedValue(
+            RegistryHive.CurrentUser,
+            @"System\GameConfigStore",
+            "ArbitraryUncatalogedValue",
+            RegistryValueKind.DWord,
+            "1"
+        );
+
+        Assert.False(result.Success);
+        Assert.Contains("catálogo fechado", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -105,7 +154,7 @@ public class RegistryOptimizerTests
     }
 
     [Fact]
-    public void TryRestoreValue_WithForbiddenPath_evenWhenInitiallyAbsent_MustFailSafely()
+    public void TryRestoreValue_WithForbiddenPath_EvenWhenInitiallyAbsent_MustFailSafely()
     {
         var result = RegistryOptimizer.TryRestoreValue(
             RegistryHive.LocalMachine,
@@ -117,6 +166,23 @@ public class RegistryOptimizerTests
         );
 
         Assert.False(result.Success);
-        Assert.Contains("bloqueada", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("catálogo fechado", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TryRestoreValue_WithUncatalogedValueNameInsideAllowedSubkey_MustFailSafely()
+    {
+        var result = RegistryOptimizer.TryRestoreValue(
+            RegistryHive.CurrentUser,
+            @"System\GameConfigStore",
+            "UncatalogedMaliciousValue",
+            wasInitiallyAbsent: false,
+            originalRawValue: "1",
+            originalKind: RegistryValueKind.DWord
+        );
+
+        Assert.False(result.Success);
+        Assert.Contains("catálogo fechado", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 }
+

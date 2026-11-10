@@ -69,4 +69,22 @@ public class PresentMonParserTests
             if (File.Exists(tempFile)) File.Delete(tempFile);
         }
     }
+
+    [Theory]
+    [InlineData("cs2.exe", true)]
+    [InlineData("Cyberpunk2077.exe", true)]
+    [InlineData("ForzaHorizon5", true)]
+    [InlineData("valorant-win64-shipping.exe", true)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("cs2.exe & calc.exe", false)]
+    [InlineData("cs2.exe; rm -rf /", false)]
+    [InlineData("..\\..\\Windows\\System32\\cmd.exe", false)]
+    [InlineData("game/../../evil.exe", false)]
+    [InlineData("game\" --output_file C:\\hack.csv", false)]
+    public void IsProcessNameValid_BlocksCommandInjectionAndPathTraversal(string processName, bool expectedValid)
+    {
+        Assert.Equal(expectedValid, PresentMonSessionParser.IsProcessNameValid(processName));
+    }
 }
+

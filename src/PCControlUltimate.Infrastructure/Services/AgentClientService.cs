@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -14,11 +15,14 @@ public class AgentClientService : IDisposable
     private readonly HttpClient _httpClient;
     private string? _sessionToken;
     public const string AgentBaseUrl = "http://127.0.0.1:52194";
+    public const string LocalClientIdentifier = "WPF-Native-v2.4";
 
     public bool IsConnected { get; private set; }
     public bool IsAuthenticated { get; private set; }
     public bool IsElevated { get; private set; }
-    public string AgentVersion { get; private set; } = "Não detectado";
+    public bool IsTokenDpapiProtected { get; private set; }
+    public bool IsTokenAclRestricted { get; private set; }
+    public string AgentVersion { get; private set; } = "N/D";
     public string OperatingSystem { get; private set; } = "Windows 10/11";
 
     private static string ProtectedTokenFilePath => Path.Combine(
@@ -32,9 +36,8 @@ public class AgentClientService : IDisposable
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(AgentBaseUrl),
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = TimeSpan.FromSeconds(10)
         };
-        _httpClient.DefaultRequestHeaders.Add("X-PCControl-Client", "WPF-Native-v2.4");
 
         if (!string.IsNullOrWhiteSpace(inMemorySessionToken))
         {
@@ -61,6 +64,27 @@ public class AgentClientService : IDisposable
         }
     }
 
+    private HttpRequestMessage CreateAuthenticatedRequest(HttpMethod method, string relativePath, object? jsonPayload = null)
+    {
+        var req = new HttpRequestMessage(method, relativePath);
+        if (!string.IsNullOrWhiteSpace(_sessionToken))
+        {
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _sessionToken);
+        }
+
+        // Attach mandatory local client proof & anti-replay headers (since native WPF does not send browser Origin)
+        req.Headers.TryAddWithoutValidation("X-PCControl-Client", LocalClientIdentifier);
+        req.Headers.TryAddWithoutValidation("X-PCControl-Timestamp", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
+        req.Headers.TryAddWithoutValidation("X-PCControl-Nonce", Guid.NewGuid().ToString("N"));
+
+        if (jsonPayload != null)
+        {
+            req.Content = new StringContent(JsonSerializer.Serialize(jsonPayload), Encoding.UTF8, "application/json");
+        }
+
+        return req;
+    }
+
     public async Task<bool> CheckConnectionAsync()
     {
         try
@@ -70,7 +94,8 @@ public class AgentClientService : IDisposable
                 LoadTokenFromDpapi();
             }
 
-            var res = await _httpClient.GetAsync("/api/status");
+            using var req = CreateAuthenticatedRequest(HttpMethod.Get, "/api/status");
+            using var res = await _httpClient.SendAsync(req);
             if (res.IsSuccessStatusCode)
             {
                 var content = await res.Content.ReadAsStringAsync();
@@ -78,10 +103,11 @@ public class AgentClientService : IDisposable
 
                 IsElevated = doc.RootElement.TryGetProperty("isElevated", out var el) && el.GetBoolean();
                 IsAuthenticated = doc.RootElement.TryGetProperty("isAuthenticated", out var authEl) && authEl.GetBoolean();
-                AgentVersion = doc.RootElement.TryGetProperty("version", out var verEl) ? (verEl.GetString() ?? "2.4.0") : "2.4.0";
+                IsTokenDpapiProtected = doc.RootElement.TryGetProperty("isTokenDpapiProtected", out var dpEl) && dpEl.GetBoolean();
+                IsTokenAclRestricted = doc.RootElement.TryGetProperty("isTokenAclRestricted", out var aclEl) && aclEl.GetBoolean();
+                AgentVersion = doc.RootElement.TryGetProperty("version", out var verEl) ? (verEl.GetString() ?? "2.5.0") : "2.5.0";
                 OperatingSystem = doc.RootElement.TryGetProperty("os", out var os) ? (os.GetString() ?? OperatingSystem) : OperatingSystem;
 
-                // Only report IsConnected = true when the session is both reachable AND authenticated!
                 IsConnected = IsAuthenticated;
                 return IsConnected;
             }
@@ -101,7 +127,8 @@ public class AgentClientService : IDisposable
         if (!IsConnected) return null;
         try
         {
-            var res = await _httpClient.GetAsync("/api/telemetry");
+            using var req = CreateAuthenticatedRequest(HttpMethod.Get, "/api/telemetry");
+            using var res = await _httpClient.SendAsync(req);
             if (res.IsSuccessStatusCode)
             {
                 return await res.Content.ReadAsStringAsync();
@@ -111,14 +138,17 @@ public class AgentClientService : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Applies a tweak strictly by its authorized catalog ID.
+    /// Generic keyPath/valueName modification is prohibited.
+    /// </summary>
     public async Task<(bool success, string details)> ApplyCatalogTweakAsync(string tweakId, string? targetValue = null)
     {
         if (!IsConnected) return (false, "Agente não autenticado ou desconectado.");
         try
         {
-            var payload = new { tweakId, targetValue };
-            var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-            var res = await _httpClient.PostAsync("/api/tweaks/apply", content);
+            using var req = CreateAuthenticatedRequest(HttpMethod.Post, "/api/tweaks/apply", new { tweakId, targetValue });
+            using var res = await _httpClient.SendAsync(req);
             string responseText = await res.Content.ReadAsStringAsync();
             if (!res.IsSuccessStatusCode) return (false, responseText);
 
@@ -132,14 +162,29 @@ public class AgentClientService : IDisposable
         }
     }
 
-    public async Task<(bool success, string details)> ApplyTweakAsync(string keyPath, string valueName, int targetValue)
+    /// <summary>
+    /// Restores a tweak strictly by its authorized catalog ID.
+    /// </summary>
+    public async Task<(bool success, string details)> RestoreCatalogTweakAsync(
+        string tweakId,
+        string? originalValue = null,
+        string? valueKind = null,
+        bool wasInitiallyAbsent = false,
+        bool keyCreatedByApp = false)
     {
         if (!IsConnected) return (false, "Agente não autenticado ou desconectado.");
         try
         {
-            var payload = new { keyPath, valueName, targetValue };
-            var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-            var res = await _httpClient.PostAsync("/api/tweaks/apply", content);
+            var payload = new
+            {
+                tweakId,
+                originalValue,
+                valueKind,
+                wasInitiallyAbsent,
+                keyCreatedByApp
+            };
+            using var req = CreateAuthenticatedRequest(HttpMethod.Post, "/api/tweaks/restore", payload);
+            using var res = await _httpClient.SendAsync(req);
             string responseText = await res.Content.ReadAsStringAsync();
             if (!res.IsSuccessStatusCode) return (false, responseText);
 
@@ -153,13 +198,44 @@ public class AgentClientService : IDisposable
         }
     }
 
-    public async Task<(bool success, string details)> CreateSnapshotAsync()
+    public async Task<(bool success, string details)> CreateSnapshotAsync(string? description = null)
     {
         if (!IsConnected) return (false, "Agente não autenticado ou desconectado.");
         try
         {
-            var content = new StringContent("{}", Encoding.UTF8, "application/json");
-            var res = await _httpClient.PostAsync("/api/snapshot/create", content);
+            using var req = CreateAuthenticatedRequest(HttpMethod.Post, "/api/snapshot/create", new { description });
+            using var res = await _httpClient.SendAsync(req);
+            string responseText = await res.Content.ReadAsStringAsync();
+            if (!res.IsSuccessStatusCode) return (false, responseText);
+
+            using var doc = JsonDocument.Parse(responseText);
+            bool ok = doc.RootElement.TryGetProperty("success", out var s) && s.GetBoolean();
+            return (ok, responseText);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<(bool success, string details)> RestoreSnapshotAsync(
+        string filePath,
+        bool confirmIncompleteBackup = false,
+        string? singleTweakId = null,
+        bool rollbackOnPartialFailure = true)
+    {
+        if (!IsConnected) return (false, "Agente não autenticado ou desconectado.");
+        try
+        {
+            var payload = new
+            {
+                filePath,
+                confirmIncompleteBackup,
+                tweakId = singleTweakId,
+                rollbackOnPartialFailure
+            };
+            using var req = CreateAuthenticatedRequest(HttpMethod.Post, "/api/snapshot/restore", payload);
+            using var res = await _httpClient.SendAsync(req);
             string responseText = await res.Content.ReadAsStringAsync();
             if (!res.IsSuccessStatusCode) return (false, responseText);
 

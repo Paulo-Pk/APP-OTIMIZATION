@@ -194,4 +194,118 @@ public class RegistrySnapshotTests
         Assert.False(isValid);
         Assert.NotNull(error);
     }
+
+    [Fact]
+    public void RestoreFromBackupWithReport_IncompleteBackupWithoutConfirmation_MustBeBlocked()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 10, 16, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-incomplete-001",
+                "2.1",
+                createdUtc,
+                "Incomplete Backup Test",
+                entries
+            );
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-incomplete-001",
+                FormatVersion = "2.1",
+                CreatedUtc = createdUtc,
+                Description = "Incomplete Backup Test",
+                TotalKeysCaptured = 1,
+                ReadFailuresCount = 2,
+                UnreadableItems = new List<RegistrySnapshotReadFailure>
+                {
+                    new RegistrySnapshotReadFailure("perf-win32-priority", "HKLM", @"SYSTEM\CurrentControlSet\Control\PriorityControl", "Win32PrioritySeparation", "Access Denied")
+                },
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            // Calling without allowIncompleteBackup = true must be blocked
+            var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(tempFile, allowIncompleteBackup: false);
+
+            Assert.False(report.Success);
+            Assert.Equal(0, report.RestoredCount);
+            Assert.Contains(report.Errors, e => e.Contains("incompleto", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void InspectBackup_WithValidSnapshot_ReturnsSnapshotDetailsAndIntegrityNotice()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 10, 16, 15, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "0",
+                    WasInitiallyAbsent = false
+                }
+            };
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-inspect-001",
+                "2.1",
+                createdUtc,
+                "Inspect Test",
+                entries
+            );
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-inspect-001",
+                FormatVersion = "2.1",
+                CreatedUtc = createdUtc,
+                Description = "Inspect Test",
+                TotalKeysCaptured = 1,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var inspected = RegistrySnapshotEngine.InspectBackup(tempFile);
+            Assert.NotNull(inspected);
+            Assert.Equal("snap-inspect-001", inspected!.SnapshotId);
+            Assert.Contains("SHA-256", inspected.IntegrityVerificationNotice);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
 }
+

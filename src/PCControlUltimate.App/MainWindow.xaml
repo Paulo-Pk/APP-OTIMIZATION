@@ -1,19 +1,19 @@
 <Window x:Class="PCControlUltimate.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PC CONTROL ULTIMATE v2.4.0 — Windows 10/11 x64 Native Suite"
-        Height="860" Width="1360"
-        MinHeight="720" MinWidth="1080"
+        Title="{Binding Loc[AppTitle]}"
+        Height="900" Width="1440"
+        MinHeight="740" MinWidth="1120"
         WindowStartupLocation="CenterScreen"
         Background="#07090E">
 
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <SolidColorBrush x:Key="SidebarBackground" Color="#0B0E17" />
         <SolidColorBrush x:Key="HeaderBackground" Color="#0F121B" />
         <SolidColorBrush x:Key="CardBackground" Color="#131722" />
         <SolidColorBrush x:Key="BorderDark" Color="#1E2333" />
         <SolidColorBrush x:Key="PrimaryPurple" Color="#A855F7" />
-        <SolidColorBrush x:Key="SuccessGreen" Color="#16A34A" />
         <SolidColorBrush x:Key="TextMuted" Color="#94A3B8" />
 
         <Style x:Key="NavButtonStyle" TargetType="Button">
@@ -65,6 +65,29 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <Style x:Key="ActionSecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#1E293B" />
+            <Setter Property="Foreground" Value="#E2E8F0" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#334155" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -74,7 +97,7 @@
             <RowDefinition Height="34" />
         </Grid.RowDefinitions>
 
-        <!-- Header -->
+        <!-- Top Header Bar -->
         <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="0,0,0,1">
             <Grid Margin="24,0">
                 <Grid.ColumnDefinitions>
@@ -85,14 +108,14 @@
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="PC CONTROL ULTIMATE" Foreground="#FFFFFF" FontWeight="Black" FontSize="18" />
-                    <TextBlock Text=" · v2.4.0 x64" Foreground="#C084FC" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    <TextBlock Text=" · v2.5.0 x64" Foreground="#C084FC" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0" />
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="{Binding StatusMessage}" Foreground="#86EFAC" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,0" />
-                    <Button Style="{StaticResource ActionPrimaryButton}" Content="PT-BR / EN-US" Command="{Binding ToggleLanguageCommand}" Margin="0,0,8,0" />
-                    <Button Style="{StaticResource ActionPrimaryButton}" Content="Elevar UAC" Command="{Binding RequestElevationCommand}" Margin="0,0,8,0" />
-                    <Button Style="{StaticResource ActionPrimaryButton}" Content="Backup dos Ajustes" Command="{Binding CreateSnapshotCommand}" />
+                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnSwitchLang]}" Command="{Binding ToggleLanguageCommand}" Margin="0,0,8,0" />
+                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnElevateUac]}" Command="{Binding RequestElevationCommand}" Margin="0,0,8,0" />
+                    <Button Style="{StaticResource ActionPrimaryButton}" Content="{Binding Loc[BtnCreateBackup]}" Command="{Binding CreateSnapshotCommand}" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -100,33 +123,37 @@
         <!-- Main Workspace -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="250" />
+                <ColumnDefinition Width="260" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- Sidebar -->
+            <!-- 9-Module Sidebar Navigation -->
             <Border Grid.Column="0" Background="{StaticResource SidebarBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="0,0,1,0" Padding="14,18">
                 <StackPanel>
-                    <TextBlock Text="NAVEGAÇÃO" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,10" />
-                    <Button Style="{StaticResource NavButtonStyle}" Content="01. Painel &amp; Sensores Reais" Command="{Binding SelectTabCommand}" CommandParameter="dashboard" />
-                    <Button Style="{StaticResource NavButtonStyle}" Content="02. Catálogo de Registro" Command="{Binding SelectTabCommand}" CommandParameter="tweaks" />
-                    <Button Style="{StaticResource NavButtonStyle}" Content="03. Debloat &amp; Limpeza Segura" Command="{Binding SelectTabCommand}" CommandParameter="debloat" />
-                    <Button Style="{StaticResource NavButtonStyle}" Content="04. PresentMon &amp; Display" Command="{Binding SelectTabCommand}" CommandParameter="gaming" />
-                    <Button Style="{StaticResource NavButtonStyle}" Content="05. Restore &amp; Backups SHA-256" Command="{Binding SelectTabCommand}" CommandParameter="restore" />
+                    <TextBlock Text="{Binding Loc[NavSection]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,10" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDashboard]}" Command="{Binding SelectTabCommand}" CommandParameter="dashboard" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavHardware]}" Command="{Binding SelectTabCommand}" CommandParameter="hardware" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavTweaks]}" Command="{Binding SelectTabCommand}" CommandParameter="tweaks" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavRestore]}" Command="{Binding SelectTabCommand}" CommandParameter="restore" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDebloat]}" Command="{Binding SelectTabCommand}" CommandParameter="debloat" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavNetwork]}" Command="{Binding SelectTabCommand}" CommandParameter="network" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavGaming]}" Command="{Binding SelectTabCommand}" CommandParameter="gaming" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDiagnostics]}" Command="{Binding SelectTabCommand}" CommandParameter="diagnostics" />
+                    <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDrivers]}" Command="{Binding SelectTabCommand}" CommandParameter="drivers" />
 
                     <Separator Background="{StaticResource BorderDark}" Margin="0,14" />
 
-                    <TextBlock Text="ESTADO DO BACKUP" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,6" />
+                    <TextBlock Text="{Binding Loc[BackupStateHeader]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,6" />
                     <Border Background="#131722" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
-                        <TextBlock Text="{Binding LastBackupStatus}" Foreground="#E2E8F0" FontSize="11" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding LastBackupStatus}" Foreground="#E2E8F0" FontSize="11" FontFamily="Consolas" TextWrapping="Wrap" />
                     </Border>
                 </StackPanel>
             </Border>
 
-            <!-- Content Area -->
+            <!-- Dynamic Modular Content Area -->
             <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="28">
                 <StackPanel>
-                    <!-- Action & Telemetry Header -->
+                    <!-- Common Module Top Action Banner -->
                     <Border Background="#0F121C" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,20">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -135,105 +162,397 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="{Binding HeaderTitle}" Foreground="#FFFFFF" FontSize="16" FontWeight="Bold" />
-                                <TextBlock Text="Leituras diretas de hardware e operações verificadas por releitura no Registro." Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding Loc[HeaderDesc]}" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,0" />
                             </StackPanel>
-                            <Button Grid.Column="1" Style="{StaticResource ActionPrimaryButton}" Content="Atualizar Sensores e Estado" Command="{Binding RefreshStatusCommand}" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Style="{StaticResource ActionPrimaryButton}" Content="{Binding Loc[BtnRefreshAll]}" Command="{Binding RefreshStatusCommand}" VerticalAlignment="Center" />
                         </Grid>
                     </Border>
 
-                    <!-- Real Hardware Sensor Grid (Zero Fake Values) -->
-                    <UniformGrid Columns="4" Margin="0,0,0,20">
-                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,10,0">
-                            <StackPanel>
-                                <TextBlock Text="CPU (MODELO / TEMP)" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
-                                <TextBlock Text="{Binding CpuTemp}" Foreground="#38BDF8" FontSize="20" FontWeight="Bold" FontFamily="Consolas" Margin="0,6,0,4" />
-                                <TextBlock Text="{Binding CpuModel}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,10,0">
-                            <StackPanel>
-                                <TextBlock Text="GPU (CORE / HOTSPOT)" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
-                                <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
-                                    <TextBlock Text="{Binding GpuTemp}" Foreground="#F43F5E" FontSize="20" FontWeight="Bold" FontFamily="Consolas" />
-                                    <TextBlock Text=" · " Foreground="#64748B" FontSize="20" />
-                                    <TextBlock Text="{Binding GpuHotspot}" Foreground="#F59E0B" FontSize="20" FontWeight="Bold" FontFamily="Consolas" />
+                    <!-- MODULE 1: DASHBOARD -->
+                    <StackPanel Visibility="{Binding IsDashboardVisible, Converter={StaticResource BoolToVis}}">
+                        <UniformGrid Columns="4" Margin="0,0,0,20">
+                            <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,10,0">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Loc[CardCpuTitle]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding CpuTemp}" Foreground="#38BDF8" FontSize="20" FontWeight="Bold" FontFamily="Consolas" Margin="0,6,0,4" />
+                                    <TextBlock Text="{Binding CpuModel}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                                <TextBlock Text="{Binding GpuModel}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                        </Border>
+                            </Border>
 
-                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,10,0">
-                            <StackPanel>
-                                <TextBlock Text="MEMÓRIA RAM REAL" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
-                                <TextBlock Text="{Binding RamUsage}" Foreground="#A855F7" FontSize="20" FontWeight="Bold" FontFamily="Consolas" Margin="0,6,0,4" />
-                                <TextBlock Text="Uso Físico Detectado" Foreground="#94A3B8" FontSize="11" />
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16">
-                            <StackPanel>
-                                <TextBlock Text="MONITOR PRIMÁRIO (WIN32)" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
-                                <TextBlock Text="{Binding DisplayInfoText}" Foreground="#22C55E" FontSize="14" FontWeight="Bold" FontFamily="Consolas" Margin="0,8,0,4" TextWrapping="Wrap" />
-                                <TextBlock Text="EnumDisplayDevicesW / SettingsW" Foreground="#94A3B8" FontSize="11" />
-                            </StackPanel>
-                        </Border>
-                    </UniformGrid>
-
-                    <!-- Debloat & PresentMon Controls Row -->
-                    <UniformGrid Columns="2" Margin="0,0,0,20">
-                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,10,0">
-                            <StackPanel>
-                                <TextBlock Text="LIMPEZA CONTROLADA DE DISCO (ANTI-SYMLINK)" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" />
-                                <TextBlock Text="{Binding DebloatEstimateText}" Foreground="#94A3B8" FontSize="12" FontFamily="Consolas" Margin="0,6,0,2" />
-                                <TextBlock Text="{Binding DebloatFreedText}" Foreground="#22C55E" FontSize="12" FontFamily="Consolas" Margin="0,0,0,10" />
-                                <StackPanel Orientation="Horizontal">
-                                    <Button Style="{StaticResource ActionPrimaryButton}" Content="Estimar Caches" Command="{Binding ScanDebloatCommand}" Margin="0,0,8,0" />
-                                    <Button Style="{StaticResource ActionPrimaryButton}" Content="Limpar Temp Usuário" Command="{Binding PurgeTempUserCommand}" />
+                            <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,10,0">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Loc[CardGpuTitle]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
+                                        <TextBlock Text="{Binding GpuTemp}" Foreground="#F43F5E" FontSize="18" FontWeight="Bold" FontFamily="Consolas" />
+                                        <TextBlock Text=" / " Foreground="#64748B" FontSize="18" />
+                                        <TextBlock Text="{Binding GpuHotspot}" Foreground="#F59E0B" FontSize="18" FontWeight="Bold" FontFamily="Consolas" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding GpuModel}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                            </StackPanel>
-                        </Border>
+                            </Border>
 
-                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16">
+                            <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,10,0">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Loc[CardRamTitle]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding RamUsage}" Foreground="#A855F7" FontSize="20" FontWeight="Bold" FontFamily="Consolas" Margin="0,6,0,4" />
+                                    <TextBlock Text="{Binding CpuLoad}" Foreground="#94A3B8" FontSize="11" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Loc[CardDisplayTitle]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding DisplayInfoText}" Foreground="#22C55E" FontSize="14" FontWeight="Bold" FontFamily="Consolas" Margin="0,8,0,4" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
                             <StackPanel>
-                                <TextBlock Text="TELEMETRIA DE QUADROS INTEL PRESENTMON" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" />
-                                <TextBlock Text="{Binding PresentMonStatusText}" Foreground="#94A3B8" FontSize="12" FontFamily="Consolas" Margin="0,6,0,12" TextWrapping="Wrap" />
-                                <Button Style="{StaticResource ActionPrimaryButton}" Content="Verificar Instalação PresentMon" Command="{Binding CheckPresentMonCommand}" HorizontalAlignment="Left" />
+                                <TextBlock Text="{Binding Loc[DiagnosticsTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Margin="0,0,0,8" />
+                                <TextBlock Text="{Binding SecurityPostureText}" Foreground="#86EFAC" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
-                    </UniformGrid>
+                    </StackPanel>
 
-                    <!-- Authorized Registry Catalog List -->
-                    <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
-                        <StackPanel>
-                            <TextBlock Text="CATÁLOGO CONTROLADO DE OTIMIZAÇÕES DO REGISTRO (WHITELIST)" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Margin="0,0,0,12" />
-                            <ItemsControl ItemsSource="{Binding CatalogTweaks}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="8,10">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="160" />
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="170" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="{Binding TweakId}" Foreground="#C084FC" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center" />
-                                                <StackPanel Grid.Column="1" Margin="8,0">
-                                                    <TextBlock Text="{Binding Name}" Foreground="#F8FAFC" FontSize="12" FontWeight="SemiBold" />
-                                                    <TextBlock Text="{Binding RegistryPath}" Foreground="#64748B" FontSize="11" FontFamily="Consolas" />
+                    <!-- MODULE 2: HARDWARE MONITOR & GPU HEALTH LAB -->
+                    <StackPanel Visibility="{Binding IsHardwareVisible, Converter={StaticResource BoolToVis}}">
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,18">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Loc[GpuHealthTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                                <TextBlock Text="{Binding GpuThermalDiagnosisText}" Foreground="#F59E0B" FontFamily="Consolas" FontSize="13" FontWeight="Bold" Margin="0,8,0,6" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Loc[GpuHealthNotice]}" Foreground="{StaticResource TextMuted}" FontSize="11" TextWrapping="Wrap" />
+                                <UniformGrid Columns="4" Margin="0,14,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="CPU Clock / Power" Foreground="{StaticResource TextMuted}" FontSize="11" />
+                                        <TextBlock Text="{Binding CpuClock}" Foreground="#E2E8F0" FontFamily="Consolas" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding CpuPower}" Foreground="#94A3B8" FontFamily="Consolas" />
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="GPU Clock / Power" Foreground="{StaticResource TextMuted}" FontSize="11" />
+                                        <TextBlock Text="{Binding GpuClock}" Foreground="#E2E8F0" FontFamily="Consolas" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding GpuPower}" Foreground="#94A3B8" FontFamily="Consolas" />
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="GPU VRAM" Foreground="{StaticResource TextMuted}" FontSize="11" />
+                                        <TextBlock Text="{Binding GpuVram}" Foreground="#38BDF8" FontFamily="Consolas" FontWeight="Bold" />
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="GPU Fan RPM" Foreground="{StaticResource TextMuted}" FontSize="11" />
+                                        <TextBlock Text="{Binding GpuFanRpm}" Foreground="#22C55E" FontFamily="Consolas" FontWeight="Bold" />
+                                    </StackPanel>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="LIBREHARDWAREMONITOR — SENSORES FÍSICOS DETECTADOS" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" Margin="0,0,0,10" />
+                                <ItemsControl ItemsSource="{Binding AllHardwareSensors}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="6,6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="150" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="120" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding HardwareCategory}" Foreground="#C084FC" FontFamily="Consolas" FontSize="11" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="#F8FAFC" FontSize="12" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding SensorType}" Foreground="#94A3B8" FontFamily="Consolas" FontSize="11" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding Value}" Foreground="#38BDF8" FontFamily="Consolas" FontWeight="Bold" HorizontalAlignment="Right" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- MODULE 3: REGISTRY OPTIMIZER (CLOSED CATALOG) -->
+                    <StackPanel Visibility="{Binding IsTweaksVisible, Converter={StaticResource BoolToVis}}">
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Loc[TweaksTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Loc[TweaksSubtitle]}" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,14" />
+                                <ItemsControl ItemsSource="{Binding CatalogTweaks}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="8,10">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="165" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="170" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding TweakId}" Foreground="#C084FC" FontFamily="Consolas" FontWeight="Bold" />
+                                                        <TextBlock Text="{Binding ValueKind}" Foreground="#64748B" FontFamily="Consolas" FontSize="10" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Margin="8,0">
+                                                        <TextBlock Text="{Binding Name}" Foreground="#F8FAFC" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding RegistryPath}" Foreground="#64748B" FontSize="11" FontFamily="Consolas" />
+                                                    </StackPanel>
+                                                    <TextBlock Grid.Column="2" Text="{Binding VerificationState}" Foreground="#94A3B8" FontSize="11" FontFamily="Consolas" VerticalAlignment="Center" />
+                                                    <StackPanel Grid.Column="3" Orientation="Horizontal">
+                                                        <Button Style="{StaticResource ActionPrimaryButton}" Content="{Binding DataContext.Loc[BtnApplyTweak], RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                Command="{Binding DataContext.ApplyTweakCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}" Margin="0,0,6,0" />
+                                                        <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding DataContext.Loc[BtnRestoreTweak], RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                Command="{Binding DataContext.RestoreSingleTweakCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- MODULE 4: RESTORE CENTER & SNAPSHOTS -->
+                    <StackPanel Visibility="{Binding IsRestoreVisible, Converter={StaticResource BoolToVis}}">
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Loc[RestoreTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Loc[RestoreChecksumNote]}" Foreground="#F59E0B" FontSize="11" Margin="0,4,0,12" TextWrapping="Wrap" />
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Button Style="{StaticResource ActionPrimaryButton}" Content="{Binding Loc[BtnCreateBackup]}" Command="{Binding CreateSnapshotCommand}" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnRefreshBackups]}" Command="{Binding RefreshBackupsCommand}" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnVerifyBackup]}" Command="{Binding VerifySelectedBackupCommand}" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource ActionPrimaryButton}" Content="{Binding Loc[BtnRestoreFullBackup]}" Command="{Binding RestoreSelectedBackupCommand}" />
+                                </StackPanel>
+
+                                <CheckBox Content="{Binding Loc[ChkConfirmIncomplete]}" IsChecked="{Binding ConfirmIncompleteRestore}" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                <CheckBox Content="{Binding Loc[ChkRollbackOnError]}" IsChecked="{Binding RollbackOnPartialFailure}" Foreground="#E2E8F0" Margin="0,0,0,10" />
+
+                                <TextBlock Text="{Binding RestoreOperationReport}" Foreground="#86EFAC" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,10" />
+
+                                <ListBox ItemsSource="{Binding ExistingBackups}" SelectedItem="{Binding SelectedBackup}" Background="#0B0E17" Foreground="#F8FAFC" BorderBrush="#1E2333" MaxHeight="180">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Margin="4">
+                                                <TextBlock Text="{Binding SnapshotId}" Foreground="#C084FC" FontFamily="Consolas" FontWeight="Bold" Width="240" />
+                                                <TextBlock Text="{Binding CreatedUtcIso}" Foreground="#94A3B8" FontFamily="Consolas" Width="210" />
+                                                <TextBlock Text="{Binding CapturedCount, StringFormat='Capturados: {0}'}" Foreground="#22C55E" FontFamily="Consolas" Width="130" />
+                                                <TextBlock Text="{Binding ReadFailuresCount, StringFormat='Falhas: {0}'}" Foreground="#F59E0B" FontFamily="Consolas" Width="100" />
+                                                <TextBlock Text="{Binding ChecksumSha256}" Foreground="#64748B" FontFamily="Consolas" FontSize="10" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="ITENS CAPTURADOS NO BACKUP SELECIONADO (RESTAURAÇÃO INDIVIDUAL DISPONÍVEL)" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" Margin="0,0,0,10" />
+                                <ItemsControl ItemsSource="{Binding SelectedBackupEntries}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="6,6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="150" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="140" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding TweakId}" Foreground="#C084FC" FontFamily="Consolas" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding KeyPath}" Foreground="#94A3B8" FontFamily="Consolas" FontSize="11" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding ValueName}" Foreground="#F8FAFC" FontFamily="Consolas" FontSize="11" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding RawValue}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="11" />
+                                                    <Button Grid.Column="4" Style="{StaticResource ActionSecondaryButton}" Content="Restaurar Item"
+                                                            Command="{Binding DataContext.RestoreSingleBackupEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- MODULE 5: DEBLOAT & SAFE CLEANER -->
+                    <StackPanel Visibility="{Binding IsDebloatVisible, Converter={StaticResource BoolToVis}}">
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Loc[DebloatTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Loc[DebloatSubtitle]}" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,12" />
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnDryRunScan]}" Command="{Binding SimulateDryRunCommand}" Margin="0,0,12,0" />
+                                    <CheckBox Content="{Binding Loc[ChkConfirmDeletion]}" IsChecked="{Binding ConfirmCleanerDeletion}" Foreground="#F59E0B" VerticalAlignment="Center" />
+                                </StackPanel>
+
+                                <TextBlock Text="{Binding DebloatSummaryText}" Foreground="#86EFAC" FontFamily="Consolas" FontSize="12" Margin="0,0,0,14" TextWrapping="Wrap" />
+
+                                <ItemsControl ItemsSource="{Binding CleanerCategories}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="10">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0">
+                                                        <TextBlock Text="{Binding DisplayName}" Foreground="#FFFFFF" FontWeight="Bold" FontSize="13" />
+                                                        <TextBlock Text="{Binding TargetPath}" Foreground="#64748B" FontFamily="Consolas" FontSize="11" />
+                                                        <TextBlock Text="{Binding DryRunEstimateText}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="11" Margin="0,4,0,2" />
+                                                        <TextBlock Text="{Binding RealFreedText}" Foreground="#22C55E" FontFamily="Consolas" FontSize="11" />
+                                                    </StackPanel>
+                                                    <Button Grid.Column="1" Style="{StaticResource ActionPrimaryButton}" Content="{Binding DataContext.Loc[BtnExecutePurge], RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            Command="{Binding DataContext.PurgeCategoryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- MODULE 6: NETWORK LAB -->
+                    <StackPanel Visibility="{Binding IsNetworkVisible, Converter={StaticResource BoolToVis}}">
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Loc[NetworkTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Loc[NetworkSubtitle]}" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,12" />
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Button Style="{StaticResource ActionPrimaryButton}" Content="{Binding Loc[BtnRunNetworkDiag]}" Command="{Binding RunNetworkDiagCommand}" Margin="0,0,10,0" />
+                                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnRunThroughput]}" Command="{Binding RunExternalThroughputCommand}" />
+                                </StackPanel>
+
+                                <TextBlock Text="{Binding NetworkSummaryText}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="12" Margin="0,0,0,4" />
+                                <TextBlock Text="{Binding ExternalThroughputText}" Foreground="#22C55E" FontFamily="Consolas" FontSize="12" Margin="0,0,0,14" />
+
+                                <ItemsControl ItemsSource="{Binding NetworkEndpoints}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="8">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="280" />
+                                                        <ColumnDefinition Width="140" />
+                                                        <ColumnDefinition Width="200" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding EndpointLabel}" Foreground="#F8FAFC" FontSize="12" FontWeight="SemiBold" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding HostOrIp}" Foreground="#94A3B8" FontFamily="Consolas" FontSize="11" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding IcmpStatus}" Foreground="#C084FC" FontFamily="Consolas" FontSize="11" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding TcpStatus}" Foreground="#22C55E" FontFamily="Consolas" FontSize="11" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- MODULE 7: GAMING & PRESENTMON -->
+                    <StackPanel Visibility="{Binding IsGamingVisible, Converter={StaticResource BoolToVis}}">
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Loc[GamingTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Loc[GamingSubtitle]}" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,12" />
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnCheckPresentMon]}" Command="{Binding CheckPresentMonCommand}" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnRefreshProcesses]}" Command="{Binding RefreshProcessesCommand}" Margin="0,0,8,0" />
+                                    <TextBox Text="{Binding ManualProcessName}" Width="160" Background="#0B0E17" Foreground="#FFFFFF" BorderBrush="#334155" Padding="8,6" FontFamily="Consolas" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource ActionPrimaryButton}" Content="{Binding Loc[BtnStartCapture]}" Command="{Binding StartPresentMonCaptureCommand}" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnCancelCapture]}" Command="{Binding CancelPresentMonCaptureCommand}" />
+                                </StackPanel>
+
+                                <TextBlock Text="{Binding PresentMonStatusText}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding PresentMonMetricsSummary}" Foreground="#22C55E" FontFamily="Consolas" FontWeight="Bold" FontSize="13" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                                <ListBox ItemsSource="{Binding AvailableProcesses}" SelectedItem="{Binding SelectedProcess}" Background="#0B0E17" Foreground="#E2E8F0" BorderBrush="#1E2333" MaxHeight="220">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding ProcessId}" Foreground="#C084FC" FontFamily="Consolas" Width="70" />
+                                                <TextBlock Text="{Binding ProcessName}" Foreground="#FFFFFF" FontFamily="Consolas" FontWeight="Bold" Width="200" />
+                                                <TextBlock Text="{Binding MainWindowTitle}" Foreground="#94A3B8" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- MODULE 8: DIAGNOSTICS & AUDIT TRAIL -->
+                    <StackPanel Visibility="{Binding IsDiagnosticsVisible, Converter={StaticResource BoolToVis}}">
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Loc[DiagnosticsTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                                <TextBlock Text="{Binding SecurityPostureText}" Foreground="#86EFAC" FontFamily="Consolas" FontSize="12" Margin="0,6,0,14" TextWrapping="Wrap" />
+
+                                <ItemsControl ItemsSource="{Binding AuditLogs}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="6">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding TimestampUtc}" Foreground="#64748B" FontFamily="Consolas" FontSize="11" Width="190" />
+                                                    <TextBlock Text="{Binding WindowsUser}" Foreground="#94A3B8" FontFamily="Consolas" FontSize="11" Width="150" />
+                                                    <TextBlock Text="{Binding Operation}" Foreground="#C084FC" FontFamily="Consolas" FontWeight="Bold" FontSize="11" Width="170" />
+                                                    <TextBlock Text="{Binding TweakId}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="11" Width="140" />
+                                                    <TextBlock Text="{Binding VerifiedValue}" Foreground="#22C55E" FontFamily="Consolas" FontSize="11" />
                                                 </StackPanel>
-                                                <TextBlock Grid.Column="2" Text="{Binding VerificationState}" Foreground="#94A3B8" FontSize="11" FontFamily="Consolas" VerticalAlignment="Center" />
-                                                <Button Grid.Column="3" Style="{StaticResource ActionPrimaryButton}" Content="Aplicar e Verificar"
-                                                        Command="{Binding DataContext.ApplyTweakCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                        CommandParameter="{Binding}" />
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Border>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- MODULE 9: DRIVER CENTER (INVENTORY) -->
+                    <StackPanel Visibility="{Binding IsDriversVisible, Converter={StaticResource BoolToVis}}">
+                        <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Loc[DriversTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Loc[DriversSubtitle]}" Foreground="#F59E0B" FontSize="12" Margin="0,4,0,12" TextWrapping="Wrap" />
+                                <Button Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnRefreshDrivers]}" Command="{Binding RefreshDriversCommand}" HorizontalAlignment="Left" Margin="0,0,0,12" />
+
+                                <ItemsControl ItemsSource="{Binding InstalledDrivers}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="8">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="160" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="180" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding Category}" Foreground="#C084FC" FontFamily="Consolas" FontWeight="Bold" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding Device}" Foreground="#FFFFFF" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding InstalledVersion}" Foreground="#38BDF8" FontFamily="Consolas" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding ReleaseDate}" Foreground="#94A3B8" FontFamily="Consolas" />
+                                                    <TextBlock Grid.Column="4" Text="{Binding Status}" Foreground="#22C55E" FontFamily="Consolas" FontSize="11" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -245,7 +564,7 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="PC Control Ultimate v2.4.0 · Solução Nativa .NET 10 WPF · Proteção DPAPI e Reversibilidade Fiel" Foreground="#64748B" FontSize="11" />
+                <TextBlock Grid.Column="0" Text="PC Control Ultimate v2.5.0 · Solução Desktop Nativa .NET 10 WPF · Catálogo Fechado + DPAPI/ACL + Anti-Replay" Foreground="#64748B" FontSize="11" />
                 <TextBlock Grid.Column="1" Text="IPC Loopback: 127.0.0.1:52194" Foreground="#64748B" FontSize="11" FontFamily="Consolas" />
             </Grid>
         </Border>
