@@ -144,7 +144,7 @@ O instalador executável será gerado com suporte a solicitação de UAC, criaç
 
 ---
 
-## 9. Limitações Conhecidas
+## 9. Game Network Accelerator\n\nO módulo experimental de aceleração de rede oferece medição TCP repetida, traceroute ICMP, detecção heurística de jogos e integração opcional com perfis WireGuard compatíveis. A instalação do túnel exige confirmação e UAC; as rotas seguem o campo `AllowedIPs` e podem afetar todo o Windows. Roteamento seletivo por processo/jogo e integrações proprietárias com provedores comerciais ainda não estão implementados. Consulte [docs/game-network-accelerator.md](docs/game-network-accelerator.md) para escopo, limitações e operação segura.\n\n## 10. Limitações Conhecidas
 
 1. **Integridade de Snapshots (SHA-256 vs. Assinatura Digital):** Os backups do Registro em `%LOCALAPPDATA%\PCControlUltimate\Backups` possuem hash SHA-256 canônico verificado imediatamente após a gravação e antes de qualquer restauração. O SHA-256 garante **detecção de corrupção ou truncamento de arquivo**, mas não substitui uma assinatura criptográfica assimétrica contra modificação intencional por um atacante que já possua privilégios de escrita no perfil local.
 2. **Escopo do Backup do Registro:** O `RegistrySnapshotEngine` realiza backup **exclusivamente das chaves e valores catalogados e suportados pelo aplicativo** (`RegistryOptimizer.Catalog`). Ele não realiza dump completo da colmeia (`hive`) do Windows; para backup integral do sistema operacional, utilize um Ponto de Restauração do Sistema do Windows (`Restore-Computer`).
