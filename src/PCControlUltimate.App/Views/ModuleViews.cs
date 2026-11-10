@@ -41,7 +41,3 @@ public class DiagnosticsView : UserControl
 public class DriverCenterView : UserControl
 {
 }
-
-public sealed class GameNetworkAcceleratorView : UserControl
-{
-}
