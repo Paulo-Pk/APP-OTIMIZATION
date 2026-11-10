@@ -32,7 +32,7 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
         TraceRouteCommand = new RelayCommand(async _ => await TraceRouteAsync(), _ => !IsBusy);
         ImportConfigCommand = new RelayCommand(_ => ImportConfig());
         InstallTunnelCommand = new RelayCommand(async _ => await InstallTunnelAsync(), _ => !IsBusy && !string.IsNullOrWhiteSpace(ConfigPath));
-        RemoveTunnelCommand = new RelayCommand(async _ => await RemoveTunnelAsync(), _ => !IsBusy && !string.IsNullOrWhiteSpace(TunnelName));
+        RemoveTunnelCommand = new RelayCommand(async _ => await RemoveTunnelAsync(), _ => !IsBusy && _tunnelInstalled && !string.IsNullOrWhiteSpace(TunnelName));
         RefreshGames();
     }
 
@@ -120,7 +120,6 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
         };
         if (dialog.ShowDialog() != true) return;
         ConfigPath = dialog.FileName;
-        TunnelName = Path.GetFileNameWithoutExtension(dialog.FileName);
         Status = "Perfil selecionado. Revise o provedor, Endpoint e AllowedIPs antes de instalar. A chave privada permanece no arquivo selecionado.";
     }
 
@@ -140,6 +139,7 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
             {
                 TunnelName = result.TunnelName;
                 _tunnelInstalled = true;
+                CommandManager.InvalidateRequerySuggested();
             }
             Status = result.Message;
         }
@@ -157,7 +157,12 @@ public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
         try
         {
             var result = await _tunnel.RemoveAsync(TunnelName);
-            if (result.Success) _tunnelInstalled = false;
+            if (result.Success)
+            {
+                _tunnelInstalled = false;
+                TunnelName = string.Empty;
+                CommandManager.InvalidateRequerySuggested();
+            }
             Status = result.Message;
         }
         finally { IsBusy = false; }
