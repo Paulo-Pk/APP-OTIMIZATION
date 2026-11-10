@@ -122,7 +122,7 @@ public class LocalizationService : INotifyPropertyChanged
             ["NavRestore"] = "04. Restore Center & Backups",
             ["NavDebloat"] = "05. Debloat & Safe Cleaner",
             ["NavNetwork"] = "06. Network Lab",
-            ["NavGaming"] = "07. Gaming & PresentMon",
+            ["NavGaming"] = "08. Gaming & PresentMon",
             ["NavDiagnostics"] = "09. Diagnostics & Audit",
             ["NavDrivers"] = "10. Driver Center (Inventory)",
             ["NavAccelerator"] = "07. Game Network Accelerator",
