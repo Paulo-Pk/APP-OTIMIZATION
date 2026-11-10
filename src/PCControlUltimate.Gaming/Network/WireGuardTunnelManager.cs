@@ -622,8 +622,8 @@ public static class WireGuardTunnelManager
     }
 
     /// <summary>
-    /// Removes an active WireGuard tunnel service with explicit user consent, handles UAC cancellation cleanly,
-    /// and verifies that tunnel routes are torn down.
+    /// Removes an active WireGuard tunnel service with explicit user consent and handles UAC cancellation.
+    /// The application does not replay the captured route table; route restoration is therefore not reported as verified.
     /// </summary>
     public static async Task<WireGuardServiceOperationResult> UninstallTunnelServiceWithConsentAsync(
         string tunnelName,
@@ -685,10 +685,12 @@ public static class WireGuardTunnelManager
                 removed,
                 removed ? string.Empty : "TUNNEL_UNINSTALL_EXIT_ERROR",
                 removed
-                    ? $"Serviço do túnel '{safeName}' removido com sucesso e tabela de rotas restaurada ao estado padrão da interface física."
+                    ? $"Serviço do túnel '{safeName}' removido. O WireGuard/Windows deve retirar as rotas associadas ao adaptador; este aplicativo não reaplica a captura anterior da tabela de rotas e não confirma a restauração integral do estado de rede."
                     : $"Desinstalação do túnel retornou código {proc.ExitCode}.",
                 UacCancelled: false,
-                RouteTableRestored: removed
+                // Do not claim restoration: the captured route-table text is diagnostic only
+                // and is not replayed or independently verified after uninstall.
+                RouteTableRestored: false
             );
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
