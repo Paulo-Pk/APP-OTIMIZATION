@@ -231,7 +231,7 @@ public class RegistrySnapshotTests
                 Description = "Incomplete Backup Test",
                 TotalKeysCaptured = 1,
                 ReadFailuresCount = 2,
-                UnreadableItems = new List<RegistrySnapshotReadFailure>
+                UnreadableItems = new List<RegistryReadFailure>
                 {
                     new RegistrySnapshotReadFailure("perf-win32-priority", "HKLM", @"SYSTEM\CurrentControlSet\Control\PriorityControl", "Win32PrioritySeparation", "Access Denied")
                 },

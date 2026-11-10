@@ -55,7 +55,10 @@ public record RegistryOperationResult(
     string? ErrorMessage,
     string? TweakId = null,
     string? OperationId = null
-);
+)
+{
+    public string? VerifiedCurrentValue => VerifiedValue;
+}
 
 
 public static class RegistryOptimizer
@@ -255,6 +258,15 @@ public static class RegistryOptimizer
             "Optimizes fullscreen Flip Model presentation for DX11/DX12.",
             "Gaming", "Baixo"
         ),
+        ["perf-fso-flags"] = new(
+            "perf-fso-flags", "HKCU",
+            @"System\GameConfigStore",
+            "GameDVR_FSEBehavior", RegistryValueKind.DWord,
+            "2", "0", new[] { "0", "2" },
+            "Define flags de comportamento Fullscreen Optimizations (GameDVR_FSEBehavior).",
+            "Configures Fullscreen Optimizations behavior flags (GameDVR_FSEBehavior).",
+            "Gaming", "Baixo"
+        ),
         ["sys-delivery-p2p"] = new(
             "sys-delivery-p2p", "HKLM",
             @"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization",
@@ -351,14 +363,21 @@ public static class RegistryOptimizer
         return trimmed.TrimEnd('\\');
     }
 
-    public static RegistryKey GetRootKey(string fullPathOrHive)
+    public static RegistryHive ParseRegistryHive(string fullPathOrHive)
     {
         if (fullPathOrHive.StartsWith(@"HKEY_CURRENT_USER", StringComparison.OrdinalIgnoreCase) ||
             fullPathOrHive.StartsWith(@"HKCU", StringComparison.OrdinalIgnoreCase))
         {
-            return Registry.CurrentUser;
+            return RegistryHive.CurrentUser;
         }
-        return Registry.LocalMachine;
+        return RegistryHive.LocalMachine;
+    }
+
+    public static RegistryKey GetRootKey(string fullPathOrHive)
+    {
+        return ParseRegistryHive(fullPathOrHive) == RegistryHive.CurrentUser
+            ? Registry.CurrentUser
+            : Registry.LocalMachine;
     }
 
     public static string? SerializeValue(object? rawValue, RegistryValueKind kind) =>
@@ -748,6 +767,30 @@ public static class RegistryOptimizer
     }
 
     /// <summary>
+    /// Typed overload demonstrating that caller-supplied originalRawValue / originalKind are never trusted
+    /// when a trusted backend ledger entry exists for tweakId; restoration delegates strictly to the backend ledger.
+    /// </summary>
+    public static RegistryOperationResult RestoreCatalogTweak(
+        string tweakId,
+        bool wasInitiallyAbsent,
+        string? originalRawValue,
+        RegistryValueKind originalKind,
+        bool keyCreatedByApp = false)
+    {
+        if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
+        {
+            RecordAudit("RESTORE_REJECTED_ID", tweakId ?? "NULL", "N/A", "N/A", "Unknown",
+                null, originalRawValue, null, false, $"Ajuste '{tweakId}' não pertence ao catálogo fechado.");
+            return new RegistryOperationResult(false, null, null, "Unknown", false, false,
+                $"Ajuste '{tweakId}' não pertence ao catálogo fechado.", tweakId);
+        }
+
+        // Security rule: Ignore untrusted caller-provided originalRawValue, originalKind, wasInitiallyAbsent, and keyCreatedByApp;
+        // always restore from the backend's DPAPI + HMAC-SHA256 RegistryStateLedger.
+        return RestoreCatalogTweakFromTrustedSource(def.TweakId);
+    }
+
+    /// <summary>
     /// Blocks any attempt by a caller to pass untrusted client-supplied restoration parameters without a verified backend source,
     /// while validating type and AllowedValues strictly when invoked from verified snapshot restoration.
     /// </summary>
@@ -766,8 +809,6 @@ public static class RegistryOptimizer
                 $"Ajuste '{tweakId}' não pertence ao catálogo fechado.", tweakId);
         }
 
-        // Security rule: Never allow arbitrary client values to override the backend ledger!
-        // Always check if the value and kind are even valid for the catalog first:
         var preCheck = ValidateRestoreParametersAgainstCatalog(def, untrustedOriginalValue, untrustedValueKindStr, untrustedWasInitiallyAbsent);
         if (!preCheck.isValid)
         {
@@ -777,7 +818,6 @@ public static class RegistryOptimizer
                 untrustedWasInitiallyAbsent, untrustedKeyCreatedByApp, preCheck.errorMessage, def.TweakId);
         }
 
-        // Delegate to the trusted backend ledger so the frontend cannot choose the original value arbitrarily
         return RestoreCatalogTweakFromTrustedSource(def.TweakId);
     }
 
@@ -816,6 +856,27 @@ public static class RegistryOptimizer
         );
     }
 
+    public static (bool isValid, string errorReason) ValidateRestoreParametersAgainstCatalog(
+        string tweakId,
+        string? originalRawValue,
+        RegistryValueKind originalKind,
+        bool wasInitiallyAbsent)
+    {
+        if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
+        {
+            return (false, $"UNCATALOGED_TWEAK: Ajuste '{tweakId}' não pertence ao catálogo fechado.");
+        }
+
+        var (isValid, _, errorMessage) = ValidateRestoreParametersAgainstCatalog(
+            def,
+            originalRawValue,
+            originalKind.ToString(),
+            wasInitiallyAbsent
+        );
+
+        return (isValid, errorMessage ?? string.Empty);
+    }
+
     public static (bool isValid, RegistryValueKind parsedKind, string? errorMessage) ValidateRestoreParametersAgainstCatalog(
         TweakDefinition def,
         string? candidateRawValue,
@@ -829,7 +890,7 @@ public static class RegistryOptimizer
             if (!Enum.TryParse<RegistryValueKind>(candidateKindStr.Trim(), true, out parsedKind) || parsedKind != def.ValueKind)
             {
                 return (false, RegistryValueKind.Unknown,
-                    $"Tipo de Registro '{candidateKindStr}' é incompatível com o catálogo para '{def.TweakId}' (esperado: '{def.ValueKind}').");
+                    $"INCOMPATIBLE_VALUE_KIND: Tipo de Registro '{candidateKindStr}' é incompatível com o catálogo para '{def.TweakId}' (esperado: '{def.ValueKind}').");
             }
         }
 
@@ -839,13 +900,13 @@ public static class RegistryOptimizer
             if (string.IsNullOrWhiteSpace(candidateRawValue))
             {
                 return (false, parsedKind,
-                    $"Valor de restauração ausente para o ajuste '{def.TweakId}' que não era originalmente inexistente.");
+                    $"RESTORE_VALUE_NOT_ALLOWED: Valor de restauração ausente para o ajuste '{def.TweakId}' que não era originalmente inexistente.");
             }
 
             if (!def.AllowedValues.Contains(candidateRawValue.Trim(), StringComparer.OrdinalIgnoreCase))
             {
                 return (false, parsedKind,
-                    $"Valor restaurado '{candidateRawValue}' está fora de AllowedValues para o ajuste '{def.TweakId}'.");
+                    $"RESTORE_VALUE_NOT_ALLOWED: Valor restaurado '{candidateRawValue}' está fora de AllowedValues para o ajuste '{def.TweakId}'.");
             }
         }
 

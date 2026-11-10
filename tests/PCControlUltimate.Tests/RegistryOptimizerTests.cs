@@ -296,7 +296,7 @@ public class RegistryOptimizerTests
         var def = RegistryOptimizer.Catalog["perf-fso-flags"];
 
         // Ensure value is absent before recording
-        using (var baseKey = RegistryKey.OpenBaseKey(def.Hive, RegistryView.Registry64))
+        using (var baseKey = RegistryKey.OpenBaseKey(RegistryOptimizer.ParseRegistryHive(def.Hive), RegistryView.Registry64))
         using (var subKey = baseKey.OpenSubKey(def.SubKeyPath, writable: true))
         {
             subKey?.DeleteValue(def.ValueName, throwOnMissingValue: false);

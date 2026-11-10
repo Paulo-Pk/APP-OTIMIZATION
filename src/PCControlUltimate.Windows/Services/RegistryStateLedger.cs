@@ -10,7 +10,7 @@ using PCControlUltimate.Security;
 
 namespace PCControlUltimate.Windows.Services;
 
-public class RegistryLedgerEntry
+public record RegistryLedgerEntry
 {
     public string OperationId { get; set; } = string.Empty;
     public string TweakId { get; set; } = string.Empty;
@@ -41,7 +41,13 @@ public record LedgerValidationResult(
     RegistryLedgerEntry? Entry,
     string? ErrorCode,
     string? ErrorMessage
-);
+)
+{
+    public string ErrorReason =>
+        string.IsNullOrWhiteSpace(ErrorCode)
+            ? (ErrorMessage ?? string.Empty)
+            : $"{ErrorCode}: {ErrorMessage}";
+}
 
 /// <summary>
 /// Trusted backend-only ledger that records the original state of Registry tweaks before modification.
@@ -51,7 +57,7 @@ public record LedgerValidationResult(
 public static class RegistryStateLedger
 {
     private static readonly object _syncRoot = new();
-    private static string _ledgerSecretKey = InitializeProcessLedgerKey();
+    private static readonly string _ledgerSecretKey = InitializeProcessLedgerKey();
 
     public static string LedgerFilePath { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -110,6 +116,18 @@ public static class RegistryStateLedger
         return IntegrityVerifier.ComputeHmacSha256(_ledgerSecretKey, BuildEntryCanonicalString(entry));
     }
 
+    public static bool VerifyEntryHmac(RegistryLedgerEntry? entry)
+    {
+        if (entry == null || string.IsNullOrWhiteSpace(entry.EntryHmacSha256))
+            return false;
+
+        return IntegrityVerifier.VerifyHmacSha256(
+            _ledgerSecretKey,
+            BuildEntryCanonicalString(entry),
+            entry.EntryHmacSha256
+        );
+    }
+
     public static string BuildLedgerCanonicalString(IEnumerable<RegistryLedgerEntry> entries)
     {
         var sb = new StringBuilder();
@@ -118,6 +136,20 @@ public static class RegistryStateLedger
             sb.Append(BuildEntryCanonicalString(e)).Append('|').Append(e.EntryHmacSha256).Append('\n');
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Records a verified pre-modification state in the backend ledger and returns its unique OperationId.
+    /// </summary>
+    public static RegistryLedgerEntry RecordBeforeModification(
+        TweakDefinition def,
+        RegistryValueKind originalKind,
+        string? originalRawValue,
+        bool wasInitiallyAbsent,
+        bool keyCreatedByApp,
+        string appliedValue)
+    {
+        return RecordAppliedTweakState(def, originalRawValue, originalKind, wasInitiallyAbsent, keyCreatedByApp, appliedValue);
     }
 
     /// <summary>
@@ -157,6 +189,11 @@ public static class RegistryStateLedger
             SaveLedgerInternal(ledger);
             return entry;
         }
+    }
+
+    public static LedgerValidationResult ResolveAndValidateRestore(string tweakId, string? operationId = null)
+    {
+        return ResolveTrustedRestoreEntry(tweakId, operationId);
     }
 
     /// <summary>
@@ -233,7 +270,7 @@ public static class RegistryStateLedger
             }
 
             // Verify entry-level HMAC-SHA256
-            if (!IntegrityVerifier.VerifyHmacSha256(_ledgerSecretKey, BuildEntryCanonicalString(targetEntry), targetEntry.EntryHmacSha256))
+            if (!VerifyEntryHmac(targetEntry))
             {
                 return new LedgerValidationResult(false, null, "ENTRY_HMAC_INVALID",
                     $"Adulteração detectada na entrada de histórico '{targetEntry.OperationId}'.");
@@ -302,6 +339,8 @@ public static class RegistryStateLedger
         }
     }
 
+    public static void ClearLedgerForTesting() => ClearLedger();
+
     public static void ClearLedger()
     {
         lock (_syncRoot)
@@ -357,7 +396,6 @@ public static class RegistryStateLedger
                 return null;
             }
 
-            string expectedLedgerMac = IntegrityVerifier.ComputeHmacSha256(_ledgerSecretKey, BuildLedgerCanonicalString(ledger.Entries));
             if (!IntegrityVerifier.VerifyHmacSha256(_ledgerSecretKey, BuildLedgerCanonicalString(ledger.Entries), ledger.LedgerHmacSha256))
             {
                 errorMessage = "Assinatura HMAC-SHA256 global do Ledger inválida (adulteração detectada).";
@@ -366,7 +404,7 @@ public static class RegistryStateLedger
 
             foreach (var entry in ledger.Entries)
             {
-                if (!IntegrityVerifier.VerifyHmacSha256(_ledgerSecretKey, BuildEntryCanonicalString(entry), entry.EntryHmacSha256))
+                if (!VerifyEntryHmac(entry))
                 {
                     errorMessage = $"Assinatura HMAC-SHA256 inválida para a operação '{entry.OperationId}'.";
                     return null;

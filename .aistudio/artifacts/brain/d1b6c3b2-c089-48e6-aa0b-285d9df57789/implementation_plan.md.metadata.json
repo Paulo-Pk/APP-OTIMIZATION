@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de execução técnico em 10 etapas para correção crítica, segurança e estabilização do PC Control Ultimate (Vite/HMR no AI Studio, restauração segura do Registro via Ledger DPAPI + HMAC-SHA256, IHardwareMonitorService com estados de sensor diferenciados, correção do advisory SQLitePCLRaw.lib.e_sqlite3, navegação WPF real com ContentControl/DataTemplates/UserControls/ViewModels, internacionalização completa PT-BR/EN-US, Restore Center completo, assinatura HMAC-SHA256 por requisição no Agente Privilegiado e pipeline GitHub Actions Windows x64).",
-  "updatedAt":  "2026-11-10T17:18:59.522536060Z",
+  "summary":  "Plano de auditoria e correção dos 36 erros de compilação e avisos de anulabilidade no PC Control Ultimate (.NET 10 WPF x64), alinhando contratos entre serviços, modelos, MainViewModel e suíte xUnit, além de configurar publicação self-contained win-x64 e triggers para feature/game-network-accelerator no GitHub Actions.",
+  "updatedAt":  "2026-11-10T18:32:44.567665951Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -60,6 +60,9 @@ public static class PresentMonSessionParser
 
     public static IReadOnlyList<PresentMonCaptureResponse> GetSessionHistory() => _sessionHistory.ToArray();
 
+    public static bool IsProcessNameValid(string? processName) =>
+        IsProcessNameValid(processName, out _);
+
     public static bool IsProcessNameValid(string? processName, out string sanitizedExecutableName)
     {
         sanitizedExecutableName = string.Empty;

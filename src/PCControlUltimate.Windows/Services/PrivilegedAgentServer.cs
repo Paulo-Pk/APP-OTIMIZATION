@@ -135,7 +135,9 @@ public class PrivilegedAgentServer : IDisposable
     {
         ExpectedLocalClientHeader,
         "PCControl-WPF/2.1",
-        "PCControl-WebBridge/2.1"
+        "PCControl-WPF/2.5",
+        "PCControl-WebBridge/2.1",
+        "PCControl-WebBridge/2.5"
     };
 
     /// <summary>
@@ -202,6 +204,34 @@ public class PrivilegedAgentServer : IDisposable
     }
 
     /// <summary>
+    /// Validates client identifier and cryptographic HMAC-SHA256 signature over HTTP method, path, timestamp, nonce, and body hash.
+    /// </summary>
+    public (bool IsValid, string? ErrorReason) ValidateRequestHmacSignature(
+        string? clientHeader,
+        string? signatureHeader,
+        string httpMethod,
+        string pathAndQuery,
+        string? timestampHeader,
+        string? nonceHeader,
+        string? bodyContent)
+    {
+        string trimmedClient = clientHeader?.Trim() ?? string.Empty;
+        if (!AllowedClientIdentifiers.Any(c => string.Equals(c, trimmedClient, StringComparison.Ordinal)))
+        {
+            return (false, "Identificador de cliente local inválido ou não autorizado.");
+        }
+
+        return ValidateRequestHmacSignature(
+            httpMethod,
+            pathAndQuery,
+            timestampHeader,
+            nonceHeader,
+            bodyContent,
+            signatureHeader
+        );
+    }
+
+    /// <summary>
     /// Validates the cryptographic HMAC-SHA256 signature over HTTP method, path, timestamp, nonce, and body hash.
     /// </summary>
     public (bool IsValid, string? ErrorReason) ValidateRequestHmacSignature(
@@ -214,12 +244,12 @@ public class PrivilegedAgentServer : IDisposable
     {
         if (string.IsNullOrWhiteSpace(timestampHeader) || string.IsNullOrWhiteSpace(nonceHeader))
         {
-            return (false, "MISSING_TIMESTAMP_OR_NONCE_FOR_SIGNATURE");
+            return (false, "MISSING_TIMESTAMP_OR_NONCE_FOR_SIGNATURE: Cabeçalhos de timestamp ou nonce ausentes.");
         }
 
         if (string.IsNullOrWhiteSpace(signatureHeader))
         {
-            return (false, "MISSING_HMAC_SIGNATURE");
+            return (false, "MISSING_HMAC_SIGNATURE: Assinatura HMAC-SHA256 ausente.");
         }
 
         bool valid = IntegrityVerifier.VerifyRequestHmacSha256(
@@ -232,7 +262,9 @@ public class PrivilegedAgentServer : IDisposable
             signatureHeader
         );
 
-        return valid ? (true, null) : (false, "INVALID_HMAC_SIGNATURE_TAMPERED_PAYLOAD");
+        return valid
+            ? (true, null)
+            : (false, "INVALID_HMAC_SIGNATURE_TAMPERED_PAYLOAD: Assinatura HMAC-SHA256 inválida ou payload adulterado.");
     }
 
     public bool ValidateTimestampAndNonce(string? timestampHeader, string? nonceHeader, out string? errorCode)

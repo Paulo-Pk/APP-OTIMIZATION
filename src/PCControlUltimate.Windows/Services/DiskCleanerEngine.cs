@@ -20,8 +20,12 @@ public record DiskDryRunReport(
     bool IsEstimateOnly,
     long EstimatedBytes,
     int CandidateFilesCount,
-    int SkippedSymlinksCount
-);
+    int SkippedSymlinksCount,
+    bool Success = true
+)
+{
+    public int EstimatedFilesCount => CandidateFilesCount;
+}
 
 public record DiskPurgeReport(
     bool Success,
@@ -158,15 +162,20 @@ public static class DiskCleanerEngine
     public static DiskDryRunReport SimulateCategoryDryRun(string categoryKey)
     {
         string? targetDir = GetCategoryPath(categoryKey);
-        if (string.IsNullOrEmpty(targetDir) || !IsPathSafe(targetDir) || !Directory.Exists(targetDir))
+        if (string.IsNullOrEmpty(targetDir) || !IsPathSafe(targetDir))
         {
-            return new DiskDryRunReport(categoryKey, targetDir ?? "N/D", true, 0, 0, 0);
+            return new DiskDryRunReport(categoryKey, targetDir ?? "N/D", true, 0, 0, 0, Success: false);
+        }
+
+        if (!Directory.Exists(targetDir))
+        {
+            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 0, Success: true);
         }
 
         var rootDir = new DirectoryInfo(targetDir);
         if (IsReparsePointOrSymlink(rootDir))
         {
-            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 1);
+            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 1, Success: false);
         }
 
         long bytes = 0;
@@ -174,7 +183,7 @@ public static class DiskCleanerEngine
         int symlinks = 0;
         ScanDirectoryRecursiveSafe(rootDir, ref bytes, ref files, ref symlinks);
 
-        return new DiskDryRunReport(categoryKey, targetDir, true, bytes, files, symlinks);
+        return new DiskDryRunReport(categoryKey, targetDir, true, bytes, files, symlinks, Success: true);
     }
 
     public static long ScanCategoryBytes(string categoryKey)

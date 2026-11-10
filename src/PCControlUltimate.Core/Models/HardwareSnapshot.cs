@@ -62,4 +62,9 @@ public record HardwareSnapshot(
     IReadOnlyList<StorageTelemetryPoint>? StorageDrives = null,
     SensorReadingStatus MonitorStatus = SensorReadingStatus.Available,
     string? DiagnosticMessage = null
-);
+)
+{
+    public SensorReadingStatus Status => MonitorStatus;
+    public string DiagnosticReason => DiagnosticMessage ?? "N/D";
+    public bool IsHardwareMonitorAvailable => MonitorStatus == SensorReadingStatus.Available;
+}

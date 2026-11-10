@@ -2,9 +2,17 @@ name: Windows Native Build, Test & Release x64
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+      - 'feature/**'
+      - feature/game-network-accelerator
   pull_request:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+      - 'feature/**'
+      - feature/game-network-accelerator
   workflow_dispatch:
 
 jobs:
@@ -40,8 +48,8 @@ jobs:
       - name: 5. Run xUnit Automated Security & Integration Tests (Release x64)
         run: dotnet test PCControlUltimate.sln -c Release -p:Platform=x64 --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
 
-      - name: 6. Publish Native WPF Application (Windows x64)
-        run: dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained false -o artifacts/publish/win-x64
+      - name: 6. Publish Native WPF Application (Windows x64 Self-Contained)
+        run: dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true -o artifacts/publish/win-x64
 
       - name: 7. Package Verified Windows x64 Release Artifact
         if: success()

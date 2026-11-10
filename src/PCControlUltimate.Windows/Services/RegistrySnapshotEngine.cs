@@ -134,7 +134,13 @@ public record SnapshotItemRestoreReport(
     bool Success,
     string? RestoredValue,
     string? ErrorMessage
-);
+)
+{
+    public bool RestoredAndVerified => Success;
+    public string Message => Success
+        ? $"Restaurado e verificado ({RestoredValue ?? "REMOVED_ABSENT_VALUE"})"
+        : (ErrorMessage ?? "Falha na restauração");
+}
 
 public record SnapshotRestoreResult(
     bool Success,
