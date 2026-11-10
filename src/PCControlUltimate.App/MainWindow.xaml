@@ -404,6 +404,70 @@
             </views:DebloatCleanerView>
         </DataTemplate>
 
+        <!-- GAME NETWORK ACCELERATOR: measured diagnostics and explicitly managed WireGuard tunnel -->
+        <DataTemplate DataType="{x:Type vm:GameNetworkAcceleratorViewModel}">
+            <views:GameNetworkAcceleratorView>
+                <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
+                    <StackPanel>
+                        <TextBlock Text="GAME NETWORK ACCELERATOR" Foreground="#FFFFFF" FontSize="16" FontWeight="Bold" />
+                        <TextBlock Text="Diagnóstico real, comparação antes/depois e túnel opcional. Nenhuma rota é alterada automaticamente." Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,5,0,14" TextWrapping="Wrap" />
+                        <Border Background="#251B3A" BorderBrush="#A855F7" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,14">
+                            <TextBlock Text="IMPORTANTE: WireGuard pode alterar rotas de todo o Windows conforme AllowedIPs. Roteamento seletivo por processo/jogo ainda NÃO está implementado. Ping TCP/ICMP não é o ping interno da partida." Foreground="#E9D5FF" FontSize="12" TextWrapping="Wrap" />
+                        </Border>
+                        <TextBlock Text="JOGO DETECTADO (OPCIONAL)" Foreground="#C084FC" FontWeight="Bold" FontSize="11" />
+                        <DockPanel Margin="0,6,0,14">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource ActionSecondaryButton}" Content="Atualizar jogos" Command="{Binding RefreshGamesCommand}" />
+                            <ComboBox ItemsSource="{Binding RunningGames}" SelectedItem="{Binding SelectedGame}" DisplayMemberPath="ProcessName" Background="#0B0E17" Foreground="#FFFFFF" BorderBrush="#334155" />
+                        </DockPanel>
+                        <TextBlock Text="DESTINO DE TESTE (ENDPOINT DO JOGO, SE CONHECIDO)" Foreground="#C084FC" FontWeight="Bold" FontSize="11" />
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,12">
+                            <TextBox Text="{Binding TargetHost, UpdateSourceTrigger=PropertyChanged}" Width="300" Background="#0B0E17" Foreground="#FFFFFF" BorderBrush="#334155" Padding="8" />
+                            <TextBox Text="{Binding TargetPort, UpdateSourceTrigger=PropertyChanged}" Width="85" Margin="8,0,0,0" Background="#0B0E17" Foreground="#FFFFFF" BorderBrush="#334155" Padding="8" />
+                            <Button Style="{StaticResource ActionPrimaryButton}" Content="Medir rota TCP" Command="{Binding MeasureRouteCommand}" Margin="8,0,0,0" />
+                            <Button Style="{StaticResource ActionSecondaryButton}" Content="Traceroute" Command="{Binding TraceRouteCommand}" Margin="8,0,0,0" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding Status}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,12" />
+                        <TextBlock Text="MEDIÇÕES DE ROTA (REGISTRE UMA MEDIÇÃO DIRETA E OUTRA APÓS CONECTAR AO TÚNEL)" Foreground="#C084FC" FontWeight="Bold" FontSize="11" Margin="0,0,0,6" />
+                        <ItemsControl ItemsSource="{Binding Measurements}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="7">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="2*"/></Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding MeasuredAt, StringFormat={}{0:HH:mm:ss} UTC}" Foreground="#94A3B8" FontSize="11"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding AverageMs, StringFormat={}{0:F1} ms}" Foreground="#22C55E" FontFamily="Consolas" FontSize="11"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding JitterMs, StringFormat={}{0:F1} ms jitter}" Foreground="#C084FC" FontFamily="Consolas" FontSize="11"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding PacketLossPercent, StringFormat={}{0:F1}% fail}" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding Status}" Foreground="#94A3B8" FontSize="11"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="WIREGUARD — SERVIDOR PRÓPRIO OU PERFIL DE PROVEDOR" Foreground="#C084FC" FontWeight="Bold" FontSize="11" Margin="0,18,0,6" />
+                        <TextBlock Text="{Binding WireGuardAvailable, StringFormat=WireGuard for Windows encontrado: {0}}" Foreground="#94A3B8" FontSize="11" />
+                        <DockPanel Margin="0,8,0,8">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource ActionSecondaryButton}" Content="Selecionar .conf" Command="{Binding ImportConfigCommand}" />
+                            <TextBox Text="{Binding ConfigPath}" IsReadOnly="True" Background="#0B0E17" Foreground="#FFFFFF" BorderBrush="#334155" Padding="8" />
+                        </DockPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Style="{StaticResource ActionPrimaryButton}" Content="Instalar / conectar túnel (UAC)" Command="{Binding InstallTunnelCommand}" Margin="0,0,8,0" />
+                            <Button Style="{StaticResource ActionSecondaryButton}" Content="Remover túnel" Command="{Binding RemoveTunnelCommand}" />
+                        </StackPanel>
+                        <TextBlock Text="A configuração contém chave privada. Mantenha o arquivo protegido. O aplicativo não envia o arquivo a terceiros. Use apenas perfis de provedores/servidores confiáveis." Foreground="#F59E0B" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,0" />
+                        <TextBlock Text="TRACEROUTE" Foreground="#C084FC" FontWeight="Bold" FontSize="11" Margin="0,18,0,6" />
+                        <ItemsControl ItemsSource="{Binding TraceHops}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Hop, StringFormat=Hop {0}} {Binding Address} {Binding RoundTripMs, StringFormat={}{0:F1} ms} — {Binding Status}" Foreground="#94A3B8" FontFamily="Consolas" FontSize="11" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </views:GameNetworkAcceleratorView>
+        </DataTemplate>
+
         <!-- MODULE 6 DATA TEMPLATE: NETWORK LAB -->
         <DataTemplate DataType="{x:Type vm:NetworkLabViewModel}">
             <views:NetworkLabView>
@@ -594,6 +658,7 @@
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsRestoreVisible}" Content="{Binding Loc[NavRestore]}" Command="{Binding SelectTabCommand}" CommandParameter="restore" />
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsDebloatVisible}" Content="{Binding Loc[NavDebloat]}" Command="{Binding SelectTabCommand}" CommandParameter="debloat" />
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsNetworkVisible}" Content="{Binding Loc[NavNetwork]}" Command="{Binding SelectTabCommand}" CommandParameter="network" />
+                    <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsAcceleratorVisible}" Content="{Binding Loc[NavAccelerator]}" Command="{Binding SelectTabCommand}" CommandParameter="accelerator" />
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsGamingVisible}" Content="{Binding Loc[NavGaming]}" Command="{Binding SelectTabCommand}" CommandParameter="gaming" />
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsDiagnosticsVisible}" Content="{Binding Loc[NavDiagnostics]}" Command="{Binding SelectTabCommand}" CommandParameter="diagnostics" />
                     <Button Style="{StaticResource NavButtonStyle}" Tag="{Binding IsDriversVisible}" Content="{Binding Loc[NavDrivers]}" Command="{Binding SelectTabCommand}" CommandParameter="drivers" />
