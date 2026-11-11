@@ -1190,10 +1190,10 @@
                             </UniformGrid>
                             <StackPanel Orientation="Horizontal">
                                 <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding RegisterSampleVpsNodeCommand}" Margin="0,0,8,0">
-                                    <TextBlock Text="Cadastrar Nó Relay GRU-01"/>
+                                    <TextBlock Text="Ver requisitos de VPS próprio"/>
                                 </Button>
                                 <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding AuditWireGuardConfigCommand}" Margin="0,0,8,0">
-                                    <TextBlock Text="Auditar AllowedIPs"/>
+                                    <TextBlock Text="Ver requisitos do WireGuard"/>
                                 </Button>
                                 <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding CheckWireGuardTunnelCommand}">
                                     <TextBlock Text="Status do Túnel"/>
@@ -1229,18 +1229,18 @@
                     <Grid>
                         <StackPanel>
                             <TextBlock Text="CADÊNCIA DE EVENTOS WIN32 &amp; REFRESH RATE NATIVO" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
-                            <TextBlock Text="Peripheral Test — Monitor &amp; Estabilidade de Input" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Periféricos — Tela e Temporização" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="{Binding DisplayInfoText}" FontSize="12" Foreground="#10B981" Margin="0,4,0,0"/>
                         </StackPanel>
                         <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionPrimaryButton}" Command="{Binding MeasureInputCadenceCommand}">
-                            <TextBlock Text="Inspecionar Cadência &amp; Timer QPC"/>
+                            <TextBlock Text="Verificar timer do Windows"/>
                         </Button>
                     </Grid>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Relatório de Cadência de Periféricos e Display" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                        <TextBlock Text="Informações da tela e do timer" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
                         <Border Style="{StaticResource SubtleInnerCardStyle}">
                             <TextBlock Text="{Binding PeripheralCadenceSummary}" FontSize="13.5" FontWeight="SemiBold" Foreground="#E2E8F0" FontFamily="Consolas" TextWrapping="Wrap"/>
                         </Border>
