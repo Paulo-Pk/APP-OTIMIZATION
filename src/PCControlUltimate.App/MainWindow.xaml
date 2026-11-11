@@ -279,7 +279,7 @@
         <!-- 1. DASHBOARD VIEW (React Preview Parity)                                  -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <!-- Hero Banner -->
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
@@ -525,7 +525,7 @@
         <!-- 2. BOOST CENTER VIEW                                                      -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:BoostCenterViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -634,7 +634,7 @@
         <!-- 3. GAME CENTER VIEW                                                       -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:GameCenterViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -695,7 +695,7 @@
         <!-- 4. HARDWARE MONITOR VIEW                                                  -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:HardwareMonitorViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -761,7 +761,7 @@
         <!-- 5. GPU HEALTH LAB VIEW                                                    -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:GpuHealthLabViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -823,7 +823,7 @@
         <!-- 6. PERFORMANCE LAB (PRESENTMON) VIEW                                      -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:GamingPresentMonViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -912,7 +912,7 @@
         <!-- 7. BENCHMARK CENTER VIEW                                                  -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:BenchmarkCenterViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -941,7 +941,7 @@
         <!-- 8. PC DIAGNOSTICS (SYSTEM DOCTOR) VIEW                                    -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:DiagnosticsViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -977,7 +977,7 @@
         <!-- 9. WINDOWS TWEAKS VIEW                                                    -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:RegistryOptimizerViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -1025,7 +1025,7 @@
         <!-- 10. DEBLOAT & CLEANER VIEW                                                -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:DebloatCleanerViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -1075,7 +1075,7 @@
         <!-- 11. NETWORK LAB VIEW                                                      -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:NetworkLabViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -1145,7 +1145,7 @@
         <!-- 12. GAME NETWORK ACCELERATOR VIEW                                         -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:GameNetworkAcceleratorViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -1224,7 +1224,7 @@
         <!-- 13. PERIPHERAL TEST VIEW                                                  -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:PeripheralTestViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -1253,7 +1253,7 @@
         <!-- 14. DRIVER CENTER VIEW                                                    -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:DriverCenterViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -1286,7 +1286,7 @@
         <!-- 15. SOFTWARE HUB (WINGET) VIEW                                            -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:SoftwareHubViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -1315,7 +1315,7 @@
         <!-- 16. RESTORE CENTER VIEW                                                   -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:RestoreCenterViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
@@ -1390,7 +1390,7 @@
         <!-- 17. AI ASSISTANT (LOCAL DIAGNOSTIC ADVISOR) VIEW                          -->
         <!-- ========================================================================= -->
         <DataTemplate DataType="{x:Type vm:AiAssistantViewModel}">
-            <StackPanel DataContext="{Binding Shell}">
+            <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
