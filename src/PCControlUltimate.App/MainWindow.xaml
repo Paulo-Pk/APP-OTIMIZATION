@@ -760,7 +760,7 @@
         <!-- ========================================================================= -->
         <!-- 5. GPU HEALTH LAB VIEW                                                    -->
         <!-- ========================================================================= -->
-        <DataTemplate DataType="{x:Type vm:GpuHealthViewModel}">
+        <DataTemplate DataType="{x:Type vm:GpuHealthLabViewModel}">
             <StackPanel DataContext="{Binding Shell}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
