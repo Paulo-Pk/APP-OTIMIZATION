@@ -1517,7 +1517,7 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- LEFT SIDEBAR (Synchronized 1:1 with src/components/Sidebar.tsx) -->
+            <!-- LEFT SIDEBAR (Organized by the user's main tasks) -->
             <Border Grid.Column="0" Background="{StaticResource BgSidebarBrush}" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
                 <Grid>
                     <Grid.RowDefinitions>
