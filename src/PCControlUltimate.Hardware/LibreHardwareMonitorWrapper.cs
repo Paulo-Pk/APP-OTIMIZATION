@@ -432,6 +432,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         if (string.IsNullOrWhiteSpace(sensorName)) return 0;
 
         if (sensorName.Contains("Tctl/Tdie", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (sensorName.Contains("CCDs Max", StringComparison.OrdinalIgnoreCase)) return 98;
         if (sensorName.Contains("Tdie", StringComparison.OrdinalIgnoreCase)) return 95;
         if (sensorName.Contains("Tctl", StringComparison.OrdinalIgnoreCase)) return 90;
         if (sensorName.Contains("Die", StringComparison.OrdinalIgnoreCase)) return 88;
