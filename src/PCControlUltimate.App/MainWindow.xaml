@@ -660,35 +660,28 @@
 
                     <Separator Background="{StaticResource BorderDark}" Margin="0,14" />
 
-                    <TextBlock Text="{Binding Loc[ActiveModuleHeader]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,6" />
-                    <Border Background="#1E1B4B" BorderBrush="#A855F7" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,12">
-                        <TextBlock Text="{Binding ActiveModuleDisplayTitle}" Foreground="#F3E8FF" FontSize="11" FontWeight="Bold" TextWrapping="Wrap" />
-                    </Border>
-
                     <TextBlock Text="{Binding Loc[BackupStateHeader]}" Foreground="{StaticResource TextMuted}" FontSize="11" FontWeight="Bold" Margin="8,0,0,6" />
-                    <Border Background="#131722" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
-                        <TextBlock Text="{Binding LastBackupStatus}" Foreground="#E2E8F0" FontSize="11" FontFamily="Consolas" TextWrapping="Wrap" />
+                    <Border Background="#131722" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="10">
+                        <TextBlock Text="{Binding LastBackupStatus}" Foreground="#CBD5E1" FontSize="10" FontFamily="Consolas" TextWrapping="Wrap" />
                     </Border>
                 </StackPanel>
             </Border>
 
             <!-- Dynamic MVVM ContentControl Area -->
-            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="28">
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="24,20,24,24">
                 <StackPanel>
-                    <!-- Common Module Top Action Banner -->
-                    <Border Background="#0F121C" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,20">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="{Binding HeaderTitle}" Foreground="#FFFFFF" FontSize="16" FontWeight="Bold" />
-                                <TextBlock Text="{Binding Loc[HeaderDesc]}" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,0" />
-                            </StackPanel>
-                            <Button Grid.Column="1" Style="{StaticResource ActionPrimaryButton}" Content="{Binding Loc[BtnRefreshAll]}" Command="{Binding RefreshStatusCommand}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
+                    <!-- Compact workspace toolbar: avoids repeating a large banner on every module. -->
+                    <Grid Margin="2,0,2,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding HeaderTitle}" Foreground="#F8FAFC" FontSize="15" FontWeight="Bold" />
+                            <TextBlock Text="{Binding Loc[HeaderDesc]}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Style="{StaticResource ActionSecondaryButton}" Content="{Binding Loc[BtnRefreshAll]}" Command="{Binding RefreshStatusCommand}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    </Grid>
 
                     <!-- Real MVVM Polymorphic Module Host -->
                     <ContentControl Content="{Binding Navigation.CurrentViewModel}" />
