@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -60,6 +61,57 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         return Task.CompletedTask;
     }
 
+    private IEnumerable<IHardware> EnumerateHardwareTree()
+    {
+        var pending = new Stack<IHardware>(_computer.Hardware.Reverse());
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            yield return current;
+            try
+            {
+                current.Update();
+                for (var i = current.SubHardware.Length - 1; i >= 0; i--)
+                    pending.Push(current.SubHardware[i]);
+            }
+            catch
+            {
+                // Per-device failures are recorded by the capture loop.
+            }
+        }
+    }
+
+    private static int GetGpuSelectionPriority(IHardware hardware)
+    {
+        if (hardware.HardwareType is not (HardwareType.GpuAmd or HardwareType.GpuNvidia or HardwareType.GpuIntel))
+            return 0;
+        var name = hardware.Name ?? string.Empty;
+        if (name.Contains("RX 7900 XTX", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (hardware.HardwareType == HardwareType.GpuAmd &&
+            !name.Contains("Radeon(TM) Graphics", StringComparison.OrdinalIgnoreCase) &&
+            !name.Contains("Integrated", StringComparison.OrdinalIgnoreCase)) return 60;
+        return 10;
+    }
+
+    private static int GetCpuTemperaturePriority(HardwareType hardwareType, string sensorName)
+    {
+        // Prefer AMD's die/control readings, then package/CCD readings. Some boards
+        // expose the CPU socket temperature under Motherboard/SuperIO instead of Cpu.
+        if (sensorName.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Tdie", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (sensorName.Contains("CPU Die", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Die (average)", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (sensorName.Contains("CCD", StringComparison.OrdinalIgnoreCase)) return 80;
+        if (sensorName.Contains("CPU Package", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Package", StringComparison.OrdinalIgnoreCase)) return 70;
+        if (hardwareType == HardwareType.Cpu &&
+            (sensorName.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
+             sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase))) return 60;
+        if (hardwareType == HardwareType.Motherboard &&
+            sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase)) return 40;
+        return 0;
+    }
+
     public Task<HardwareSnapshot> CaptureSnapshotAsync()
     {
         if (_disposed)
@@ -86,6 +138,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
         string? cpuModel = null;
         float? cpuTemp = null;
+        var cpuTempPriority = 0;
         float? cpuLoad = null;
         float? cpuClock = null;
         float? cpuPower = null;
@@ -108,7 +161,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
         try
         {
-            foreach (var hardware in _computer.Hardware)
+            var hardwareItems = EnumerateHardwareTree().OrderByDescending(GetGpuSelectionPriority).ToList();
+            foreach (var hardware in hardwareItems)
             {
                 try
                 {
@@ -172,15 +226,22 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                     if (!hasValidReading) continue;
 
+                    // CPU temperature may be published by the CPU node or by the
+                    // motherboard/SuperIO node. Rank candidates instead of accepting
+                    // the first matching sensor (which can be a socket/board reading).
+                    if (sensor.SensorType == SensorType.Temperature &&
+                        hardware.HardwareType is HardwareType.Cpu or HardwareType.Motherboard)
+                    {
+                        var candidatePriority = GetCpuTemperaturePriority(hardware.HardwareType, sensor.Name);
+                        if (candidatePriority > cpuTempPriority)
+                        {
+                            cpuTemp = sensor.Value;
+                            cpuTempPriority = candidatePriority;
+                        }
+                    }
+
                     if (hardware.HardwareType == HardwareType.Cpu)
                     {
-                        if (sensor.SensorType == SensorType.Temperature &&
-                            (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase)))
-                        {
-                            cpuTemp ??= sensor.Value;
-                        }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Clock && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
