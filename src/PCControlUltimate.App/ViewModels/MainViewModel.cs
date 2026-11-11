@@ -1321,7 +1321,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         _telemetryRefreshTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(2)
+            Interval = TimeSpan.FromSeconds(1)
         };
         _telemetryRefreshTimer.Tick += async (_, _) =>
         {
