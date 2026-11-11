@@ -27,14 +27,21 @@ public class NavigationService : INavigationService
     {
         RegisterModule("dashboard", () => new DashboardViewModel(workspace));
         RegisterModule("hardware", () => new HardwareMonitorViewModel(workspace));
+        RegisterModule("gpu-health", () => new GpuHealthLabViewModel(workspace));
+        RegisterModule("boost-center", () => new BoostCenterViewModel(workspace));
+        RegisterModule("game-center", () => new GameCenterViewModel(workspace));
+        RegisterModule("gaming", () => new GamingPresentMonViewModel(workspace));
+        RegisterModule("benchmarks", () => new BenchmarkCenterViewModel(workspace));
+        RegisterModule("diagnostics", () => new DiagnosticsViewModel(workspace));
         RegisterModule("tweaks", () => new RegistryOptimizerViewModel(workspace));
-        RegisterModule("restore", () => new RestoreCenterViewModel(workspace));
         RegisterModule("debloat", () => new DebloatCleanerViewModel(workspace));
         RegisterModule("network", () => new NetworkLabViewModel(workspace));
-        RegisterModule("gaming", () => new GamingPresentMonViewModel(workspace));
-        RegisterModule("diagnostics", () => new DiagnosticsViewModel(workspace));
-        RegisterModule("drivers", () => new DriverCenterViewModel(workspace));
         RegisterModule("accelerator", () => new GameNetworkAcceleratorViewModel(workspace));
+        RegisterModule("peripherals", () => new PeripheralTestViewModel(workspace));
+        RegisterModule("drivers", () => new DriverCenterViewModel(workspace));
+        RegisterModule("software-hub", () => new SoftwareHubViewModel(workspace));
+        RegisterModule("restore", () => new RestoreCenterViewModel(workspace));
+        RegisterModule("ai-assistant", () => new AiAssistantViewModel(workspace));
 
         NavigateTo("dashboard");
     }

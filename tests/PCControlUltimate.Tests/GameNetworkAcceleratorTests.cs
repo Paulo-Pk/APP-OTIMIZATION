@@ -267,6 +267,13 @@ public class GameNetworkAcceleratorTests
         Assert.False(report.KernelWfpProcessSplitTunnelEnabled);
         Assert.Contains("DESATIVADO", report.WfpLimitationExplanationPt);
         Assert.Contains("DISABLED", report.WfpLimitationExplanationEn);
+        Assert.DoesNotContain("guarantee zero conflict", report.WfpLimitationExplanationEn, StringComparison.OrdinalIgnoreCase);
+
+        // Verify dedicated GPUs (e.g., RX 7900 XTX) are distinguished from integrated GPUs (iGPU)
+        Assert.True(PCControlUltimate.Hardware.LibreHardwareMonitorWrapper.IsIntegratedGpuName("AMD Radeon(TM) Graphics"));
+        Assert.True(PCControlUltimate.Hardware.LibreHardwareMonitorWrapper.IsIntegratedGpuName("Intel(R) UHD Graphics 770"));
+        Assert.False(PCControlUltimate.Hardware.LibreHardwareMonitorWrapper.IsIntegratedGpuName("AMD Radeon RX 7900 XTX"));
+        Assert.False(PCControlUltimate.Hardware.LibreHardwareMonitorWrapper.IsIntegratedGpuName("ASRock Radeon RX 7900 XTX Taichi White 24G OC"));
     }
 
     [Fact]

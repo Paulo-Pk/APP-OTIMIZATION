@@ -48,41 +48,37 @@ public sealed class HardwareMonitorViewModel : ModuleViewModelBase
     }
 }
 
-public sealed class RegistryOptimizerViewModel : ModuleViewModelBase
+public sealed class GpuHealthLabViewModel : ModuleViewModelBase
 {
-    public RegistryOptimizerViewModel(MainViewModel workspace)
-        : base(workspace, "tweaks", "NavTweaks")
+    public GpuHealthLabViewModel(MainViewModel workspace)
+        : base(workspace, "gpu-health", "NavGpuHealth")
     {
     }
 }
 
-public sealed class RestoreCenterViewModel : ModuleViewModelBase
+public sealed class BoostCenterViewModel : ModuleViewModelBase
 {
-    public RestoreCenterViewModel(MainViewModel workspace)
-        : base(workspace, "restore", "NavRestore")
+    public BoostCenterViewModel(MainViewModel workspace)
+        : base(workspace, "boost-center", "NavBoostCenter")
+    {
+    }
+}
+
+public sealed class GameCenterViewModel : ModuleViewModelBase
+{
+    public GameCenterViewModel(MainViewModel workspace)
+        : base(workspace, "game-center", "NavGameCenter")
     {
     }
 
     public override void OnNavigatedTo()
     {
         base.OnNavigatedTo();
-        Workspace.RefreshBackupsCommand.Execute(null);
-    }
-}
-
-public sealed class DebloatCleanerViewModel : ModuleViewModelBase
-{
-    public DebloatCleanerViewModel(MainViewModel workspace)
-        : base(workspace, "debloat", "NavDebloat")
-    {
-    }
-}
-
-public sealed class NetworkLabViewModel : ModuleViewModelBase
-{
-    public NetworkLabViewModel(MainViewModel workspace)
-        : base(workspace, "network", "NavNetwork")
-    {
+        Workspace.RefreshGameConnectionsCommand.Execute(null);
+        if (Workspace.AvailableProcesses.Count == 0)
+        {
+            Workspace.RefreshProcessesCommand.Execute(null);
+        }
     }
 }
 
@@ -103,6 +99,14 @@ public sealed class GamingPresentMonViewModel : ModuleViewModelBase
     }
 }
 
+public sealed class BenchmarkCenterViewModel : ModuleViewModelBase
+{
+    public BenchmarkCenterViewModel(MainViewModel workspace)
+        : base(workspace, "benchmarks", "NavBenchmarks")
+    {
+    }
+}
+
 public sealed class DiagnosticsViewModel : ModuleViewModelBase
 {
     public DiagnosticsViewModel(MainViewModel workspace)
@@ -114,6 +118,52 @@ public sealed class DiagnosticsViewModel : ModuleViewModelBase
     {
         base.OnNavigatedTo();
         Workspace.RefreshAuditLogsCommand.Execute(null);
+    }
+}
+
+public sealed class RegistryOptimizerViewModel : ModuleViewModelBase
+{
+    public RegistryOptimizerViewModel(MainViewModel workspace)
+        : base(workspace, "tweaks", "NavTweaks")
+    {
+    }
+}
+
+public sealed class DebloatCleanerViewModel : ModuleViewModelBase
+{
+    public DebloatCleanerViewModel(MainViewModel workspace)
+        : base(workspace, "debloat", "NavDebloat")
+    {
+    }
+}
+
+public sealed class NetworkLabViewModel : ModuleViewModelBase
+{
+    public NetworkLabViewModel(MainViewModel workspace)
+        : base(workspace, "network", "NavNetwork")
+    {
+    }
+}
+
+public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
+{
+    public GameNetworkAcceleratorViewModel(MainViewModel workspace)
+        : base(workspace, "accelerator", "NavAccelerator")
+    {
+    }
+
+    public override void OnNavigatedTo()
+    {
+        base.OnNavigatedTo();
+        Workspace.RefreshGameConnectionsCommand.Execute(null);
+    }
+}
+
+public sealed class PeripheralTestViewModel : ModuleViewModelBase
+{
+    public PeripheralTestViewModel(MainViewModel workspace)
+        : base(workspace, "peripherals", "NavPeripherals")
+    {
     }
 }
 
@@ -134,18 +184,32 @@ public sealed class DriverCenterViewModel : ModuleViewModelBase
     }
 }
 
-public sealed class GameNetworkAcceleratorViewModel : ModuleViewModelBase
+public sealed class SoftwareHubViewModel : ModuleViewModelBase
 {
-    public GameNetworkAcceleratorViewModel(MainViewModel workspace)
-        : base(workspace, "accelerator", "NavAccelerator")
+    public SoftwareHubViewModel(MainViewModel workspace)
+        : base(workspace, "software-hub", "NavSoftwareHub")
+    {
+    }
+}
+
+public sealed class RestoreCenterViewModel : ModuleViewModelBase
+{
+    public RestoreCenterViewModel(MainViewModel workspace)
+        : base(workspace, "restore", "NavRestore")
     {
     }
 
     public override void OnNavigatedTo()
     {
         base.OnNavigatedTo();
-        Workspace.RefreshGameConnectionsCommand.Execute(null);
+        Workspace.RefreshBackupsCommand.Execute(null);
     }
 }
 
-
+public sealed class AiAssistantViewModel : ModuleViewModelBase
+{
+    public AiAssistantViewModel(MainViewModel workspace)
+        : base(workspace, "ai-assistant", "NavAiAssistant")
+    {
+    }
+}

@@ -68,6 +68,7 @@ export interface TranslationDictionary {
     windowsTweaks: string;
     debloatCleaner: string;
     networkLab: string;
+    gameNetworkAccelerator: string;
     peripheralTest: string;
     driverCenter: string;
     softwareHub: string;

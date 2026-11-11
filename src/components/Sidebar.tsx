@@ -69,6 +69,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'windows-tweaks', label: t.navigation.windowsTweaks, icon: Sliders },
     { id: 'debloat', label: t.navigation.debloatCleaner, icon: Trash2 },
     { id: 'network-lab', label: t.navigation.networkLab, icon: Wifi },
+    {
+      id: 'game-network-accelerator',
+      label: t.navigation.gameNetworkAccelerator,
+      icon: Globe,
+      badge: 'WireGuard',
+    },
     { id: 'peripherals', label: t.navigation.peripheralTest, icon: Keyboard },
     { id: 'drivers', label: t.navigation.driverCenter, icon: Layers },
     { id: 'software-hub', label: t.navigation.softwareHub, icon: DownloadCloud },

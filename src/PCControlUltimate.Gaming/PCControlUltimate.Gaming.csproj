@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
+    <ProjectReference Include="../PCControlUltimate.Security/PCControlUltimate.Security.csproj" />
   </ItemGroup>
 </Project>

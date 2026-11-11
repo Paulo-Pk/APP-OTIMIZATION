@@ -10,6 +10,7 @@ export type TabId =
   | 'windows-tweaks'
   | 'debloat'
   | 'network-lab'
+  | 'game-network-accelerator'
   | 'peripherals'
   | 'drivers'
   | 'software-hub'

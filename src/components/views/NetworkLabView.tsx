@@ -375,7 +375,7 @@ export const NetworkLabView: React.FC = () => {
         </div>
 
         <div className="p-3.5 rounded-lg bg-[#0a0c13] border border-amber-500/30 text-xs text-amber-200 leading-relaxed">
-          <strong className="text-amber-400">Escopo Técnico Real (WFP &amp; Anti-Cheat):</strong> O roteamento seletivo opera por sub-redes de destino dos servidores do jogo (<code className="font-mono text-purple-300">AllowedIPs = 155.133.248.0/24, 104.160.152.0/24</code>), preservando a rota padrão do Windows (<code className="font-mono text-rose-300">0.0.0.0/0</code> bloqueado por padrão). O redirecionamento exclusivo por PID via driver kernel WFP (<code className="font-mono">Callout Driver</code>) permanece desativado nesta versão para garantir compatibilidade total com sistemas anti-cheat (Vanguard, Ricochet, EAC, BattlEye).
+          <strong className="text-amber-400">Escopo Técnico Real (WFP &amp; Anti-Cheat):</strong> O roteamento seletivo opera por sub-redes de destino dos servidores do jogo (<code className="font-mono text-purple-300">AllowedIPs = 155.133.248.0/24, 104.160.152.0/24</code>), preservando a rota padrão do Windows (<code className="font-mono text-rose-300">0.0.0.0/0</code> bloqueado por padrão). O redirecionamento exclusivo por PID via driver kernel WFP (<code className="font-mono">Callout Driver</code>) permanece desativado nesta versão para evitar hooks invasivos e reduzir o risco de conflito com sistemas anti-cheat (Vanguard, Ricochet, EAC, BattlEye), sem prometer imunidade absoluta frente a políticas externas de terceiros.
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono tabular-nums">

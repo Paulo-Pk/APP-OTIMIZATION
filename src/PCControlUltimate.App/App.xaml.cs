@@ -94,29 +94,43 @@ public partial class App : Application
             services.AddSingleton<MainViewModel>();
             services.AddSingleton<INavigationService>(sp => sp.GetRequiredService<MainViewModel>().Navigation);
 
-            // Register Module ViewModels
+            // Register all 17 Module ViewModels
             services.AddTransient<DashboardViewModel>();
             services.AddTransient<HardwareMonitorViewModel>();
+            services.AddTransient<GpuHealthLabViewModel>();
+            services.AddTransient<BoostCenterViewModel>();
+            services.AddTransient<GameCenterViewModel>();
+            services.AddTransient<GamingPresentMonViewModel>();
+            services.AddTransient<BenchmarkCenterViewModel>();
+            services.AddTransient<DiagnosticsViewModel>();
             services.AddTransient<RegistryOptimizerViewModel>();
-            services.AddTransient<RestoreCenterViewModel>();
             services.AddTransient<DebloatCleanerViewModel>();
             services.AddTransient<NetworkLabViewModel>();
-            services.AddTransient<GamingPresentMonViewModel>();
-            services.AddTransient<DiagnosticsViewModel>();
-            services.AddTransient<DriverCenterViewModel>();
             services.AddTransient<GameNetworkAcceleratorViewModel>();
+            services.AddTransient<PeripheralTestViewModel>();
+            services.AddTransient<DriverCenterViewModel>();
+            services.AddTransient<SoftwareHubViewModel>();
+            services.AddTransient<RestoreCenterViewModel>();
+            services.AddTransient<AiAssistantViewModel>();
 
-            // Register Module UserControl Views
+            // Register all 17 Module UserControl Views
             services.AddTransient<DashboardView>();
             services.AddTransient<HardwareMonitorView>();
+            services.AddTransient<GpuHealthLabView>();
+            services.AddTransient<BoostCenterView>();
+            services.AddTransient<GameCenterView>();
+            services.AddTransient<GamingPresentMonView>();
+            services.AddTransient<BenchmarkCenterView>();
+            services.AddTransient<DiagnosticsView>();
             services.AddTransient<RegistryOptimizerView>();
-            services.AddTransient<RestoreCenterView>();
             services.AddTransient<DebloatCleanerView>();
             services.AddTransient<NetworkLabView>();
-            services.AddTransient<GamingPresentMonView>();
-            services.AddTransient<DiagnosticsView>();
-            services.AddTransient<DriverCenterView>();
             services.AddTransient<GameNetworkAcceleratorView>();
+            services.AddTransient<PeripheralTestView>();
+            services.AddTransient<DriverCenterView>();
+            services.AddTransient<SoftwareHubView>();
+            services.AddTransient<RestoreCenterView>();
+            services.AddTransient<AiAssistantView>();
 
             services.AddSingleton<MainWindow>();
 

@@ -68,6 +68,7 @@ export const ptBR: TranslationDictionary = {
     windowsTweaks: 'Windows Tweaks',
     debloatCleaner: 'Debloat & Cleaner',
     networkLab: 'Network Lab',
+    gameNetworkAccelerator: 'Game Network Accelerator',
     peripheralTest: 'Peripheral Test',
     driverCenter: 'Driver Center',
     softwareHub: 'Software Hub',

@@ -563,8 +563,25 @@ public static class WireGuardTunnelManager
             "Tunnels"
         );
         Directory.CreateDirectory(configDir);
+        if (OperatingSystem.IsWindows())
+        {
+            PCControlUltimate.Security.IntegrityVerifier.TryRestrictDirectoryAclToCurrentUser(configDir, out _);
+        }
+
         string configFilePath = Path.Combine(configDir, $"{safeName}.conf");
         await File.WriteAllTextAsync(configFilePath, configContent, Encoding.UTF8, cancellationToken);
+        if (OperatingSystem.IsWindows())
+        {
+            if (!PCControlUltimate.Security.IntegrityVerifier.TryRestrictFileAclToCurrentUser(configFilePath, out string? aclErr))
+            {
+                SecureDeleteConfigFile(configFilePath);
+                return new WireGuardServiceOperationResult(
+                    false,
+                    "CONFIG_ACL_PROTECTION_FAILED",
+                    $"Operação bloqueada: não foi possível restringir a ACL NTFS do arquivo temporário de configuração ({aclErr})."
+                );
+            }
+        }
 
         try
         {
@@ -599,7 +616,7 @@ public static class WireGuardTunnelManager
             return new WireGuardServiceOperationResult(
                 true,
                 string.Empty,
-                $"Serviço do túnel '{safeName}' instalado sob autorização UAC. Verifique o status de handshake antes de iniciar a partida."
+                $"Serviço do túnel '{safeName}' instalado sob autorização UAC e arquivo temporário de chave privada removido com segurança. Verifique o status de handshake antes de iniciar a partida."
             );
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
@@ -619,11 +636,37 @@ public static class WireGuardTunnelManager
                 $"Erro ao instalar serviço WireGuard: {ex.Message}"
             );
         }
+        finally
+        {
+            // Always purge the temporary plain-text .conf file containing the PrivateKey after service installation attempt
+            SecureDeleteConfigFile(configFilePath);
+        }
+    }
+
+    private static void SecureDeleteConfigFile(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            return;
+
+        try
+        {
+            var info = new FileInfo(filePath);
+            if (info.Length > 0 && info.Length <= 65536)
+            {
+                byte[] zeros = new byte[info.Length];
+                File.WriteAllBytes(filePath, zeros);
+            }
+            File.Delete(filePath);
+        }
+        catch
+        {
+            try { File.Delete(filePath); } catch { }
+        }
     }
 
     /// <summary>
     /// Removes an active WireGuard tunnel service with explicit user consent, handles UAC cancellation cleanly,
-    /// and verifies that tunnel routes are torn down.
+    /// and verifies that the Windows service and tunnel routes are actually torn down before reporting RouteTableRestored.
     /// </summary>
     public static async Task<WireGuardServiceOperationResult> UninstallTunnelServiceWithConsentAsync(
         string tunnelName,
@@ -659,6 +702,13 @@ public static class WireGuardTunnelManager
         }
 
         string safeName = tunnelName.Trim();
+        string configFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PCControlUltimate",
+            "Tunnels",
+            $"{safeName}.conf"
+        );
+
         try
         {
             var psi = new ProcessStartInfo
@@ -680,15 +730,36 @@ public static class WireGuardTunnelManager
             }
 
             await proc.WaitForExitAsync(cancellationToken);
-            bool removed = proc.ExitCode == 0;
+            SecureDeleteConfigFile(configFilePath);
+
+            if (proc.ExitCode != 0)
+            {
+                return new WireGuardServiceOperationResult(
+                    false,
+                    "TUNNEL_UNINSTALL_EXIT_ERROR",
+                    $"Desinstalação do túnel retornou código {proc.ExitCode}.",
+                    UacCancelled: false,
+                    RouteTableRestored: false
+                );
+            }
+
+            // Explicitly verify that the tunnel service is stopped/removed and inspect current IPv4 route table
+            string serviceName = $"WireGuardTunnel${safeName}";
+            var (svcStillInstalled, svcStillRunning) = await CheckWindowsServiceStateAsync(serviceName, cancellationToken);
+            string postUninstallRoutes = await CaptureCurrentIPv4RouteTableSnapshotAsync(cancellationToken);
+            bool routeTableVerified = !svcStillRunning &&
+                                      !svcStillInstalled &&
+                                      !string.IsNullOrWhiteSpace(postUninstallRoutes) &&
+                                      !postUninstallRoutes.Contains(safeName, StringComparison.OrdinalIgnoreCase);
+
             return new WireGuardServiceOperationResult(
-                removed,
-                removed ? string.Empty : "TUNNEL_UNINSTALL_EXIT_ERROR",
-                removed
-                    ? $"Serviço do túnel '{safeName}' removido com sucesso e tabela de rotas restaurada ao estado padrão da interface física."
-                    : $"Desinstalação do túnel retornou código {proc.ExitCode}.",
+                Success: !svcStillRunning,
+                ErrorCode: !svcStillRunning ? string.Empty : "SERVICE_STILL_RUNNING_AFTER_UNINSTALL",
+                Message: routeTableVerified
+                    ? $"Serviço do túnel '{safeName}' removido e restauração da tabela de rotas verificada no Windows."
+                    : $"Comando de remoção do túnel '{safeName}' concluído (serviço em execução: {svcStillRunning}; verificação da tabela de rotas: {(routeTableVerified ? "confirmada" : "pendente/parcial")}).",
                 UacCancelled: false,
-                RouteTableRestored: removed
+                RouteTableRestored: routeTableVerified
             );
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)

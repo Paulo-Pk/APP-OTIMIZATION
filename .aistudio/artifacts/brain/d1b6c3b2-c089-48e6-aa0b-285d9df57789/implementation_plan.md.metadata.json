@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de integração segura das correções da main na branch feature/game-network-accelerator, resolução dos avisos CS8602 em MainViewModel.cs (linhas 745 e 793) e CA1416 nas APIs do Registro do Windows via SupportedOSPlatform(\"windows\") + guardas OperatingSystem.IsWindows(), preservando 100% dos contratos de RegistryOptimizer, SQLite 3.0.5 e Game Network Accelerator.",
-  "updatedAt":  "2026-11-10T22:02:23.184582020Z",
+  "summary":  "Implementation plan for the complete visual and architectural UI reconstruction of PC Control Ultimate across all 17 modules (matching the dark graphite/violet Preview reference in native C#/WPF and syncing the Preview navigation), dedicated GPU priority (RX 7900 XTX over iGPU), and WireGuard tunnel security hardening.",
+  "updatedAt":  "2026-11-11T09:47:00.151031879Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

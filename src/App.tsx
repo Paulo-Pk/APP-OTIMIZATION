@@ -30,6 +30,7 @@ import { DiagnosticsView } from './components/views/DiagnosticsView';
 import { WindowsTweaksView } from './components/views/WindowsTweaksView';
 import { DebloatView } from './components/views/DebloatView';
 import { NetworkLabView } from './components/views/NetworkLabView';
+import { GameNetworkAcceleratorView } from './components/views/GameNetworkAcceleratorView';
 import { PeripheralTestView } from './components/views/PeripheralTestView';
 import { DriverCenterView } from './components/views/DriverCenterView';
 import { SoftwareHubView } from './components/views/SoftwareHubView';
@@ -697,6 +698,10 @@ export default function App() {
 
           {currentTab === 'network-lab' && (
             <NetworkLabView />
+          )}
+
+          {currentTab === 'game-network-accelerator' && (
+            <GameNetworkAcceleratorView />
           )}
 
           {currentTab === 'peripherals' && (

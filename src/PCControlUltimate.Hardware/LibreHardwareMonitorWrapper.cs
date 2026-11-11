@@ -108,7 +108,12 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
         try
         {
-            foreach (var hardware in _computer.Hardware)
+            // Order hardware so dedicated/discrete GPUs (e.g., Radeon RX 7900 XTX, GeForce RTX, Arc Discrete) are processed
+            // before integrated GPUs (e.g., "AMD Radeon(TM) Graphics", "Intel(R) UHD Graphics")
+            var orderedHardware = new List<IHardware>(_computer.Hardware);
+            orderedHardware.Sort((a, b) => GetHardwarePriorityScore(b).CompareTo(GetHardwarePriorityScore(a)));
+
+            foreach (var hardware in orderedHardware)
             {
                 try
                 {
@@ -130,6 +135,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                     continue;
                 }
 
+                bool isPrimaryGpuCandidate = false;
                 if (hardware.HardwareType == HardwareType.Cpu && string.IsNullOrWhiteSpace(cpuModel))
                 {
                     cpuModel = hardware.Name;
@@ -138,6 +144,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                          string.IsNullOrWhiteSpace(gpuModel))
                 {
                     gpuModel = hardware.Name;
+                    isPrimaryGpuCandidate = true;
                 }
 
                 float? driveTemp = null;
@@ -192,7 +199,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             cpuPower ??= sensor.Value;
                         }
                     }
-                    else if (hardware.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel)
+                    else if (isPrimaryGpuCandidate && hardware.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel)
                     {
                         if (sensor.SensorType == SensorType.Temperature)
                         {
@@ -334,6 +341,47 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     public void StopPolling()
     {
         _pollingTimer?.Change(Timeout.Infinite, 0);
+    }
+
+    public static bool IsIntegratedGpuName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return name.Contains("Radeon(TM) Graphics", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("AMD Radeon Graphics", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Intel(R) UHD", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Intel(R) Iris", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Intel(R) HD Graphics", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetHardwarePriorityScore(IHardware hardware)
+    {
+        if (hardware.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel)
+        {
+            if (IsIntegratedGpuName(hardware.Name))
+            {
+                return 10; // iGPU processed after discrete GPUs
+            }
+
+            // Prioritize discrete GPUs (especially Radeon RX 7900 XTX / RTX / RX series)
+            if (hardware.Name.Contains("7900 XTX", StringComparison.OrdinalIgnoreCase) ||
+                hardware.Name.Contains("Radeon RX", StringComparison.OrdinalIgnoreCase) ||
+                hardware.Name.Contains("GeForce RTX", StringComparison.OrdinalIgnoreCase) ||
+                hardware.Name.Contains("GeForce GTX", StringComparison.OrdinalIgnoreCase))
+            {
+                return 100;
+            }
+
+            return 80;
+        }
+
+        return hardware.HardwareType switch
+        {
+            HardwareType.Cpu => 90,
+            HardwareType.Memory => 70,
+            HardwareType.Motherboard => 60,
+            HardwareType.Storage => 50,
+            _ => 20
+        };
     }
 
     public void Dispose()
