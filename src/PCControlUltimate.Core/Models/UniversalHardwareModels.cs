@@ -112,6 +112,32 @@ public record HardwareComponentCapabilityMatrix(
     string CapabilityNotes
 );
 
+public enum GpuAdapterKind
+{
+    PhysicalDiscrete,
+    PhysicalIntegrated,
+    VirtualAdapter,
+    RemoteDisplayAdapter,
+    BasicDisplayAdapter,
+    UnknownAdapter
+}
+
+/// <summary>
+/// Injectable system hardware probe abstraction so unit tests never silently query host WMI/Registry/Win32
+/// while production on Windows queries real WMI, Registry, SMBIOS, and Power status.
+/// </summary>
+public interface IHardwareSystemProbe
+{
+    bool IsIsolatedSimulation { get; }
+    bool IsRunningAsAdministrator();
+    bool IsCorporateDomainOrPolicyManaged();
+    (string? Name, int? PhysicalCores, int? LogicalProcessors) QueryCpuDetails();
+    IReadOnlyList<PCControlUltimate.Core.Interfaces.GpuAdapterTelemetryPoint> QueryGpuAdapters();
+    (string? MemoryGeneration, int? ConfiguredSpeedMt) QueryMemoryDetails();
+    DetectedBatteryPowerInfo QueryBatteryPowerInfo(bool? hasBatteryOverride, int? batteryChargePercentOverride);
+    IReadOnlyList<DetectedNetworkAdapterInfo> QueryNetworkAdapters();
+}
+
 public record DetectedGpuAdapterInfo(
     string Name,
     HardwareVendor Vendor,
@@ -128,8 +154,13 @@ public record DetectedGpuAdapterInfo(
     DetectedMetric<float?> FanRpm,
     string? DriverVersion,
     HardwareComponentCapabilityMatrix Capabilities,
-    string? PnpDeviceId = null
-);
+    string? PnpDeviceId = null,
+    GpuAdapterKind AdapterKind = GpuAdapterKind.PhysicalDiscrete
+)
+{
+    public bool IsPhysicalGpu => AdapterKind is GpuAdapterKind.PhysicalDiscrete or GpuAdapterKind.PhysicalIntegrated;
+    public bool IsVirtualOrDisplayOnly => AdapterKind is GpuAdapterKind.VirtualAdapter or GpuAdapterKind.RemoteDisplayAdapter or GpuAdapterKind.BasicDisplayAdapter;
+}
 
 public record DetectedCpuInfo(
     string Name,
@@ -198,5 +229,10 @@ public record UniversalHardwareReport(
     IReadOnlyList<DetectedStorageDeviceInfo> StorageDevices,
     IReadOnlyList<DetectedNetworkAdapterInfo> NetworkAdapters,
     DetectedBatteryPowerInfo BatteryAndPower,
-    IReadOnlyList<HardwareComponentCapabilityMatrix> CapabilityMatrix
-);
+    IReadOnlyList<HardwareComponentCapabilityMatrix> CapabilityMatrix,
+    IReadOnlyList<DetectedGpuAdapterInfo>? VirtualDisplayAdapters = null
+)
+{
+    public IReadOnlyList<DetectedGpuAdapterInfo> SafeVirtualDisplayAdapters =>
+        VirtualDisplayAdapters ?? Array.Empty<DetectedGpuAdapterInfo>();
+}

@@ -79,15 +79,15 @@ public class UniversalHardwareAndCompatibilityTests
     }
 
     [Theory]
-    [InlineData("Scenario A: Desktop AMD + Radeon", "AMD Ryzen 7 7800X3D", "AMD Radeon RX 7800 XT", 16384f, 32f, false, false, HardwareVendor.Amd, HardwareVendor.Amd, true, SystemHardwareProfile.HighPerformance)]
-    [InlineData("Scenario B: Desktop Intel + NVIDIA", "Intel Core i7-14700K", "NVIDIA GeForce RTX 4070 Super", 12288f, 32f, false, false, HardwareVendor.Intel, HardwareVendor.Nvidia, true, SystemHardwareProfile.HighPerformance)]
-    [InlineData("Scenario C: Desktop Intel + Intel Arc", "Intel Core i5-13400F", "Intel(R) Arc(TM) A770 Graphics", 16384f, 16f, false, false, HardwareVendor.Intel, HardwareVendor.Intel, true, SystemHardwareProfile.HighPerformance)]
-    [InlineData("Scenario D: Desktop Intel + Integrated GPU", "Intel Core i5-12400", "Intel(R) UHD Graphics 730", 1024f, 16f, false, false, HardwareVendor.Intel, HardwareVendor.Intel, false, SystemHardwareProfile.Basic)]
-    [InlineData("Scenario E: Desktop AMD + NVIDIA", "AMD Ryzen 5 7600X", "NVIDIA GeForce RTX 4060", 8192f, 16f, false, false, HardwareVendor.Amd, HardwareVendor.Nvidia, true, SystemHardwareProfile.Gamer)]
-    [InlineData("Scenario F: Hybrid Notebook", "AMD Ryzen 9 7940HS", "NVIDIA GeForce RTX 4060 Laptop GPU", 8192f, 16f, true, false, HardwareVendor.Amd, HardwareVendor.Nvidia, true, SystemHardwareProfile.Notebook)]
-    [InlineData("Scenario G: Corporate Restricted Notebook", "Intel Core Ultra 7 165U", "Intel(R) Graphics", 1024f, 16f, true, true, HardwareVendor.Intel, HardwareVendor.Intel, false, SystemHardwareProfile.Corporate)]
-    [InlineData("Scenario I: Workstation", "AMD Ryzen Threadripper PRO 7965WX", "NVIDIA RTX A5000", 24576f, 128f, false, false, HardwareVendor.Amd, HardwareVendor.Nvidia, true, SystemHardwareProfile.Workstation)]
-    [InlineData("Scenario J: Legacy PC", "Intel(R) Core(TM) i3-6100", "Intel(R) HD Graphics 530", 512f, 8f, false, false, HardwareVendor.Intel, HardwareVendor.Intel, false, SystemHardwareProfile.Basic)]
+    [InlineData("Scenario A: Desktop AMD + Radeon", "AMD Ryzen 7 7800X3D", "AMD Radeon RX 7800 XT", 16384f, 32f, false, false, HardwareVendor.Amd, HardwareVendor.Amd, true, GpuAdapterKind.PhysicalDiscrete, SystemHardwareProfile.HighPerformance)]
+    [InlineData("Scenario B: Desktop Intel + NVIDIA", "Intel Core i7-14700K", "NVIDIA GeForce RTX 4070 Super", 12288f, 32f, false, false, HardwareVendor.Intel, HardwareVendor.Nvidia, true, GpuAdapterKind.PhysicalDiscrete, SystemHardwareProfile.HighPerformance)]
+    [InlineData("Scenario C: Desktop Intel + Intel Arc", "Intel Core i5-13400F", "Intel(R) Arc(TM) A770 Graphics", 16384f, 16f, false, false, HardwareVendor.Intel, HardwareVendor.Intel, true, GpuAdapterKind.PhysicalDiscrete, SystemHardwareProfile.HighPerformance)]
+    [InlineData("Scenario D: Desktop Intel + Integrated GPU", "Intel Core i5-12400", "Intel(R) UHD Graphics 730", 1024f, 16f, false, false, HardwareVendor.Intel, HardwareVendor.Intel, false, GpuAdapterKind.PhysicalIntegrated, SystemHardwareProfile.Basic)]
+    [InlineData("Scenario E: Desktop AMD + NVIDIA", "AMD Ryzen 5 7600X", "NVIDIA GeForce RTX 4060", 8192f, 16f, false, false, HardwareVendor.Amd, HardwareVendor.Nvidia, true, GpuAdapterKind.PhysicalDiscrete, SystemHardwareProfile.Gamer)]
+    [InlineData("Scenario F: Hybrid Notebook", "AMD Ryzen 9 7940HS", "NVIDIA GeForce RTX 4060 Laptop GPU", 8192f, 16f, true, false, HardwareVendor.Amd, HardwareVendor.Nvidia, true, GpuAdapterKind.PhysicalDiscrete, SystemHardwareProfile.Notebook)]
+    [InlineData("Scenario G: Corporate Restricted Notebook", "Intel Core Ultra 7 165U", "Intel(R) Graphics", 1024f, 16f, true, true, HardwareVendor.Intel, HardwareVendor.Intel, false, GpuAdapterKind.PhysicalIntegrated, SystemHardwareProfile.Corporate)]
+    [InlineData("Scenario I: Workstation", "AMD Ryzen Threadripper PRO 7965WX", "NVIDIA RTX A5000", 24576f, 128f, false, false, HardwareVendor.Amd, HardwareVendor.Nvidia, true, GpuAdapterKind.PhysicalDiscrete, SystemHardwareProfile.Workstation)]
+    [InlineData("Scenario J: Legacy PC", "Intel(R) Core(TM) i3-6100", "Intel(R) HD Graphics 530", 512f, 8f, false, false, HardwareVendor.Intel, HardwareVendor.Intel, false, GpuAdapterKind.PhysicalIntegrated, SystemHardwareProfile.Basic)]
     public async Task UniversalHardwareEngine_ScenariosA_To_J_DetectsVendorsCapabilitiesAndProfilesWithoutBias(
         string scenarioName,
         string cpuModel,
@@ -99,6 +99,7 @@ public class UniversalHardwareAndCompatibilityTests
         HardwareVendor expectedCpuVendor,
         HardwareVendor expectedGpuVendor,
         bool expectedDiscreteGpu,
+        GpuAdapterKind expectedAdapterKind,
         SystemHardwareProfile expectedProfile)
     {
         Assert.NotEmpty(scenarioName);
@@ -113,9 +114,14 @@ public class UniversalHardwareAndCompatibilityTests
             isRunningAsAdminOverride: true);
 
         Assert.Equal(expectedCpuVendor, report.Cpu.Vendor);
+        Assert.Single(report.Gpus);
+        Assert.Empty(report.SafeVirtualDisplayAdapters);
         Assert.NotNull(report.PrimaryGpu);
         Assert.Equal(expectedGpuVendor, report.PrimaryGpu!.Vendor);
         Assert.Equal(expectedDiscreteGpu, report.PrimaryGpu.IsDiscrete);
+        Assert.Equal(!expectedDiscreteGpu, report.PrimaryGpu.IsIntegrated);
+        Assert.Equal(expectedAdapterKind, report.PrimaryGpu.AdapterKind);
+        Assert.True(report.PrimaryGpu.IsPhysicalGpu);
         Assert.Equal(expectedProfile, report.DetectedProfile);
         Assert.True(report.Cpu.PackageTemperatureC.IsAvailable);
         Assert.Equal(HardwareDataSource.LibreHardwareMonitor, report.Cpu.PackageTemperatureC.Source);
@@ -179,9 +185,11 @@ public class UniversalHardwareAndCompatibilityTests
             isRunningAsAdminOverride: true);
 
         Assert.Equal(2, report.Gpus.Count);
+        Assert.Empty(report.SafeVirtualDisplayAdapters);
 
         var igpu = Assert.Single(report.Gpus, g => g.IsIntegrated);
         Assert.Equal(HardwareVendor.Amd, igpu.Vendor);
+        Assert.Equal(GpuAdapterKind.PhysicalIntegrated, igpu.AdapterKind);
         Assert.Equal("AMD Radeon 780M Graphics", igpu.Name);
         Assert.Equal(48f, igpu.CoreTemperatureC.Value);
         Assert.False(igpu.HotspotTemperatureC.IsAvailable);
@@ -189,6 +197,7 @@ public class UniversalHardwareAndCompatibilityTests
 
         var dgpu = Assert.Single(report.Gpus, g => g.IsDiscrete);
         Assert.Equal(HardwareVendor.Nvidia, dgpu.Vendor);
+        Assert.Equal(GpuAdapterKind.PhysicalDiscrete, dgpu.AdapterKind);
         Assert.Equal("NVIDIA GeForce RTX 4070 Laptop GPU", dgpu.Name);
         Assert.Equal(67f, dgpu.CoreTemperatureC.Value);
         Assert.True(dgpu.HotspotTemperatureC.IsAvailable);
@@ -215,7 +224,19 @@ public class UniversalHardwareAndCompatibilityTests
         );
 
         using var stub = new ConfigurableHardwareMonitorStub(snapshot, isAvailable: false);
-        var engine = new UniversalHardwareEngine(stub);
+        var simulatedProbe = new SimulatedHardwareSystemProbe(
+            cpuName: "Intel Core i5-10400",
+            physicalCores: null,
+            logicalProcessors: 12,
+            wmiGpuAdapters: Array.Empty<GpuAdapterTelemetryPoint>(),
+            memoryGeneration: null,
+            memorySpeedMt: null,
+            hasBattery: true,
+            batteryChargePercent: null,
+            isAdmin: false,
+            isCorporateManaged: false
+        );
+        var engine = new UniversalHardwareEngine(stub, simulatedProbe);
 
         var report = await engine.BuildUniversalReportAsync(
             snapshot,
@@ -226,15 +247,13 @@ public class UniversalHardwareAndCompatibilityTests
             isDomainOrPolicyManagedOverride: false,
             isRunningAsAdminOverride: false);
 
-        // When WMI/SMBIOS/Battery readings are unavailable in a non-Windows test session, values must be null, never estimated
-        if (!OperatingSystem.IsWindows())
-        {
-            Assert.Null(report.Cpu.PhysicalCores);
-            Assert.Null(report.Memory.MemoryGeneration);
-        }
+        // Deterministic on ALL operating systems (Windows runner or Linux container): never fabricates values!
+        Assert.Null(report.Cpu.PhysicalCores);
+        Assert.Null(report.Memory.MemoryGeneration);
         Assert.Null(report.BatteryAndPower.ChargePercent);
         Assert.Null(report.PrimaryGpu);
         Assert.Empty(report.Gpus);
+        Assert.Empty(report.SafeVirtualDisplayAdapters);
         Assert.False(report.Cpu.PackageTemperatureC.IsAvailable);
         Assert.Equal(UniversalSensorStatus.RequiresAdmin, report.Cpu.PackageTemperatureC.SensorStatus);
     }
@@ -243,7 +262,6 @@ public class UniversalHardwareAndCompatibilityTests
     public async Task UniversalHardwareEngine_MergesLhmAndWmiGpuAdapters_WithoutDuplicationOrOverwritingValidSensors()
     {
         // Hybrid Notebook: Intel Iris Xe iGPU + NVIDIA RTX 4070 Laptop dGPU
-        // Simulate LHM detecting ONLY the NVIDIA dGPU with rich telemetry, while WMI enumerates BOTH Intel iGPU and NVIDIA dGPU (with null telemetry for temperature/load)
         var lhmAdapters = new[]
         {
             new GpuAdapterTelemetryPoint(
@@ -297,7 +315,7 @@ public class UniversalHardwareAndCompatibilityTests
         var snapshot = CreateSnapshot(
             cpuModel: "Intel Core i7-13700H",
             cpuTemp: 69f,
-            gpuModel: "Intel(R) Iris(R) Xe Graphics", // Even if snapshot top-level model pointed to iGPU, PrimaryGpu must pick the discrete GPU
+            gpuModel: "Intel(R) Iris(R) Xe Graphics",
             gpuTemp: 66f,
             gpuHotspot: 78f,
             vramTotalMb: 8192f,
@@ -316,28 +334,27 @@ public class UniversalHardwareAndCompatibilityTests
             isRunningAsAdminOverride: true,
             complementaryWmiGpuAdaptersOverride: wmiAdapters);
 
-        // Must contain both GPUs without duplicating the NVIDIA dGPU
         Assert.Equal(2, report.Gpus.Count);
+        Assert.Equal(SystemHardwareProfile.Notebook, report.DetectedProfile);
 
         var intelIgpu = Assert.Single(report.Gpus, g => g.Vendor == HardwareVendor.Intel);
         Assert.True(intelIgpu.IsIntegrated);
         Assert.False(intelIgpu.IsDiscrete);
+        Assert.Equal(GpuAdapterKind.PhysicalIntegrated, intelIgpu.AdapterKind);
         Assert.Equal("31.0.101.5333", intelIgpu.DriverVersion);
         Assert.False(intelIgpu.CoreTemperatureC.IsAvailable);
 
         var nvidiaDgpu = Assert.Single(report.Gpus, g => g.Vendor == HardwareVendor.Nvidia);
         Assert.True(nvidiaDgpu.IsDiscrete);
         Assert.False(nvidiaDgpu.IsIntegrated);
-        // Valid LHM sensors must NEVER be overwritten by WMI null values
+        Assert.Equal(GpuAdapterKind.PhysicalDiscrete, nvidiaDgpu.AdapterKind);
         Assert.True(nvidiaDgpu.CoreTemperatureC.IsAvailable);
         Assert.Equal(66f, nvidiaDgpu.CoreTemperatureC.Value);
         Assert.True(nvidiaDgpu.HotspotTemperatureC.IsAvailable);
         Assert.Equal(78f, nvidiaDgpu.HotspotTemperatureC.Value);
         Assert.Equal(8192f, nvidiaDgpu.VramTotalMb.Value);
-        // DriverVersion missing in LHM is enriched from WMI
         Assert.Equal("32.0.15.6094", nvidiaDgpu.DriverVersion);
 
-        // Primary GPU must be the discrete NVIDIA GPU, never presuming the integrated Intel GPU is primary
         Assert.NotNull(report.PrimaryGpu);
         Assert.Equal(nvidiaDgpu.Name, report.PrimaryGpu!.Name);
         Assert.True(report.PrimaryGpu.IsDiscrete);
@@ -422,28 +439,201 @@ public class UniversalHardwareAndCompatibilityTests
         var amdDiscrete = Assert.Single(amdReport.Gpus, g => g.IsDiscrete && g.Name.Contains("7800 XT", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(amdDiscrete.Name, amdReport.PrimaryGpu?.Name);
         Assert.Equal(61f, amdDiscrete.CoreTemperatureC.Value);
+        Assert.Equal(SystemHardwareProfile.HighPerformance, amdReport.DetectedProfile);
 
-        // Case 2: Multi-GPU Workstation with 2 Discrete GPUs (RTX 4090 + RTX A5000)
-        var multiGpuMerged = UniversalHardwareEngine.MergeGpuAdapters(
-            new[]
-            {
-                new GpuAdapterTelemetryPoint(
-                    "NVIDIA GeForce RTX 4090", "GpuNvidia", 64f, 75f, 92f, 2715f, 410f, 1850f, 18000f, 24576f, "32.0.15.6094",
-                    "PCI\\VEN_10DE&DEV_2684&SUBSYS_165A10DE&REV_A1\\4&111111&0&0008")
-            },
-            new[]
-            {
-                new GpuAdapterTelemetryPoint(
-                    "NVIDIA GeForce RTX 4090", "GpuNvidia", null, null, null, null, null, null, null, 24576f, "32.0.15.6094",
-                    "PCI\\VEN_10DE&DEV_2684&SUBSYS_165A10DE&REV_A1\\4&111111&0&0008"),
-                new GpuAdapterTelemetryPoint(
-                    "NVIDIA RTX A5000", "GpuNvidia", null, null, null, null, null, null, null, 24576f, "32.0.15.6094",
-                    "PCI\\VEN_10DE&DEV_2231&SUBSYS_145910DE&REV_A1\\4&222222&0&0010")
-            });
+        // Case 2: Multi-GPU Workstation with 2 Professional Discrete GPUs (2x NVIDIA RTX A5000 in distinct PCI slots)
+        var dualProGpus = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                "NVIDIA RTX A5000", "GpuNvidia", 64f, 75f, 92f, 2100f, 220f, 1850f, 18000f, 24576f, "32.0.15.6094",
+                "PCI\\VEN_10DE&DEV_2231&SUBSYS_145910DE&REV_A1\\4&111111&0&0008"),
+            new GpuAdapterTelemetryPoint(
+                "NVIDIA RTX A5000", "GpuNvidia", 61f, 72f, 88f, 2100f, 215f, 1800f, 16000f, 24576f, "32.0.15.6094",
+                "PCI\\VEN_10DE&DEV_2231&SUBSYS_145910DE&REV_A1\\4&222222&0&0010")
+        };
 
-        Assert.Equal(2, multiGpuMerged.Count);
-        Assert.Contains(multiGpuMerged, g => g.Model == "NVIDIA GeForce RTX 4090" && g.CoreTempC == 64f);
-        Assert.Contains(multiGpuMerged, g => g.Model == "NVIDIA RTX A5000" && g.VramTotalMb == 24576f);
+        var wsSnapshot = CreateSnapshot(
+            cpuModel: "Intel Xeon w7-2495X",
+            cpuTemp: 59f,
+            gpuModel: "NVIDIA RTX A5000",
+            gpuTemp: 64f,
+            gpuHotspot: 75f,
+            vramTotalMb: 24576f,
+            ramUsedGb: 32f,
+            ramTotalGb: 128f,
+            gpuAdapters: new[] { dualProGpus[0] }
+        );
+
+        using var wsStub = new ConfigurableHardwareMonitorStub(wsSnapshot);
+        var wsEngine = new UniversalHardwareEngine(wsStub);
+        var wsReport = await wsEngine.BuildUniversalReportAsync(
+            wsSnapshot,
+            hasBatteryOverride: false,
+            isRunningAsAdminOverride: true,
+            complementaryWmiGpuAdaptersOverride: dualProGpus);
+
+        Assert.Equal(2, wsReport.Gpus.Count);
+        Assert.All(wsReport.Gpus, g => Assert.Equal(GpuAdapterKind.PhysicalDiscrete, g.AdapterKind));
+        Assert.Equal(SystemHardwareProfile.Workstation, wsReport.DetectedProfile);
+    }
+
+    [Fact]
+    public async Task UniversalHardwareEngine_VirtualAndRemoteDisplayAdapters_NeverContaminatePhysicalGpusOrSystemProfile()
+    {
+        // Scenario 11: Desktop with physical discrete GPU (NVIDIA RTX 4060) + Microsoft Hyper-V Video virtual adapter
+        var lhmDesktop = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                "NVIDIA GeForce RTX 4060", "GpuNvidia", 58f, 69f, 55f, 2460f, 115f, 1500f, 3200f, 8192f, "32.0.15.6094",
+                "PCI\\VEN_10DE&DEV_2882&SUBSYS_88991043&REV_A1\\4&112233&0&0008")
+        };
+        var wmiWithHyperV = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                "NVIDIA GeForce RTX 4060", "WmiVideoController", null, null, null, null, null, null, null, 8192f, "32.0.15.6094",
+                "PCI\\VEN_10DE&DEV_2882&SUBSYS_88991043&REV_A1\\4&112233&0&0008"),
+            new GpuAdapterTelemetryPoint(
+                "Microsoft Hyper-V Video", "WmiVideoController", null, null, null, null, null, null, null, null, "10.0.22621.1",
+                "VMBUS\\{5620E0C7-8062-4DCE-AEB7-520C7EF76171}\\{DA0A7802-E377-4AAC-8E77-0558EB1073F8}")
+        };
+
+        var gamerSnapshot = CreateSnapshot("AMD Ryzen 5 7600X", 54f, "NVIDIA GeForce RTX 4060", 58f, 69f, 8192f, 8f, 16f, gpuAdapters: lhmDesktop);
+        using var gamerStub = new ConfigurableHardwareMonitorStub(gamerSnapshot);
+        var gamerEngine = new UniversalHardwareEngine(gamerStub);
+
+        var gamerReport = await gamerEngine.BuildUniversalReportAsync(
+            gamerSnapshot,
+            hasBatteryOverride: false,
+            isRunningAsAdminOverride: true,
+            complementaryWmiGpuAdaptersOverride: wmiWithHyperV);
+
+        // Hyper-V Video MUST NOT be counted as a physical GPU and MUST NOT turn Gamer into Workstation!
+        Assert.Single(gamerReport.Gpus);
+        Assert.Single(gamerReport.SafeVirtualDisplayAdapters);
+        Assert.Equal("NVIDIA GeForce RTX 4060", gamerReport.PrimaryGpu?.Name);
+        Assert.Equal(GpuAdapterKind.PhysicalDiscrete, gamerReport.PrimaryGpu?.AdapterKind);
+        Assert.Equal("Microsoft Hyper-V Video", gamerReport.SafeVirtualDisplayAdapters[0].Name);
+        Assert.Equal(GpuAdapterKind.VirtualAdapter, gamerReport.SafeVirtualDisplayAdapters[0].AdapterKind);
+        Assert.False(gamerReport.SafeVirtualDisplayAdapters[0].IsDiscrete);
+        Assert.False(gamerReport.SafeVirtualDisplayAdapters[0].IsPhysicalGpu);
+        Assert.Equal(SystemHardwareProfile.Gamer, gamerReport.DetectedProfile);
+
+        // Scenario 12: Notebook with integrated GPU + Microsoft Remote Display Adapter (RDP)
+        var wmiNotebookWithRdp = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                "Intel(R) UHD Graphics 730", "WmiVideoController", 49f, null, 18f, 1200f, 12f, null, 512f, 1024f, "31.0.101.5186",
+                "PCI\\VEN_8086&DEV_4692&SUBSYS_86941043&REV_0C\\3&11583659&0&10"),
+            new GpuAdapterTelemetryPoint(
+                "Microsoft Remote Display Adapter", "WmiVideoController", null, null, null, null, null, null, null, null, "10.0.22621.1",
+                "SWD\\REMOTEDISPLAYENUM\\RDPDD_00")
+        };
+
+        var nbSnapshot = CreateSnapshot("Intel Core i5-12400", 51f, "Intel(R) UHD Graphics 730", 49f, null, 1024f, 6f, 16f, gpuAdapters: Array.Empty<GpuAdapterTelemetryPoint>());
+        using var nbStub = new ConfigurableHardwareMonitorStub(nbSnapshot);
+        var nbEngine = new UniversalHardwareEngine(nbStub);
+
+        var nbReport = await nbEngine.BuildUniversalReportAsync(
+            nbSnapshot,
+            hasBatteryOverride: true,
+            batteryChargePercentOverride: 91,
+            isRunningAsAdminOverride: true,
+            complementaryWmiGpuAdaptersOverride: wmiNotebookWithRdp);
+
+        Assert.Single(nbReport.Gpus);
+        Assert.Single(nbReport.SafeVirtualDisplayAdapters);
+        Assert.Equal("Intel(R) UHD Graphics 730", nbReport.PrimaryGpu?.Name);
+        Assert.Equal(HardwareVendor.Intel, nbReport.PrimaryGpu?.Vendor);
+        Assert.Equal(GpuAdapterKind.PhysicalIntegrated, nbReport.PrimaryGpu?.AdapterKind);
+        Assert.Equal(GpuAdapterKind.RemoteDisplayAdapter, nbReport.SafeVirtualDisplayAdapters[0].AdapterKind);
+        Assert.Equal(SystemHardwareProfile.Notebook, nbReport.DetectedProfile);
+
+        // Scenario 13: Computer with ONLY virtual/basic display adapters (Hyper-V Video + Microsoft Basic Display Adapter)
+        var onlyVirtualAdapters = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                "Microsoft Hyper-V Video", "WmiVideoController", null, null, null, null, null, null, null, null, "10.0.22621.1",
+                "PCI\\VEN_1414&DEV_5353&SUBSYS_00000000&REV_00\\3&11583659&0&40"),
+            new GpuAdapterTelemetryPoint(
+                "Microsoft Basic Display Adapter", "WmiVideoController", null, null, null, null, null, null, null, null, "10.0.22621.1",
+                "PCI\\VEN_1414&DEV_008C&SUBSYS_00000000&REV_00\\3&11583659&0&48")
+        };
+
+        var vmSnapshot = CreateSnapshot("AMD EPYC 7763 64-Core Processor (Virtual)", null, null, null, null, null, 4f, 8f, gpuAdapters: Array.Empty<GpuAdapterTelemetryPoint>());
+        var vmCpuSnapshot = vmSnapshot with { CpuModelName = "Intel Core i5-12400" };
+        using var vmStub = new ConfigurableHardwareMonitorStub(vmCpuSnapshot);
+        var vmEngine = new UniversalHardwareEngine(vmStub);
+
+        var vmReport = await vmEngine.BuildUniversalReportAsync(
+            vmCpuSnapshot,
+            hasBatteryOverride: false,
+            isRunningAsAdminOverride: false,
+            complementaryWmiGpuAdaptersOverride: onlyVirtualAdapters);
+
+        Assert.Empty(vmReport.Gpus);
+        Assert.Null(vmReport.PrimaryGpu);
+        Assert.Equal(2, vmReport.SafeVirtualDisplayAdapters.Count);
+        Assert.Contains(vmReport.SafeVirtualDisplayAdapters, a => a.AdapterKind == GpuAdapterKind.VirtualAdapter);
+        Assert.Contains(vmReport.SafeVirtualDisplayAdapters, a => a.AdapterKind == GpuAdapterKind.BasicDisplayAdapter);
+        Assert.Equal(SystemHardwareProfile.Basic, vmReport.DetectedProfile);
+    }
+
+    [Fact]
+    public async Task UniversalHardwareEngine_SupportsTwoPhysicalGpus_DifferentVendors_AndSameVendorDifferentModels()
+    {
+        // Scenario 14: Desktop with two physical discrete GPUs from different vendors (AMD RX 7800 XT + NVIDIA RTX 4070)
+        var dualVendorGpus = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                "AMD Radeon RX 7800 XT", "GpuAmd", 60f, 76f, 80f, 2400f, 240f, 1600f, 8192f, 16384f, "31.0.24033.1003",
+                "PCI\\VEN_1002&DEV_747E&SUBSYS_E4711DA2&REV_C8\\6&111111&0&0008"),
+            new GpuAdapterTelemetryPoint(
+                "NVIDIA GeForce RTX 4070", "GpuNvidia", 58f, 69f, 40f, 2100f, 140f, 1300f, 4096f, 12288f, "32.0.15.6094",
+                "PCI\\VEN_10DE&DEV_2786&SUBSYS_123410DE&REV_A1\\6&222222&0&0010")
+        };
+
+        var dualVendorSnapshot = CreateSnapshot("AMD Ryzen 7 7800X3D", 61f, "AMD Radeon RX 7800 XT", 60f, 76f, 16384f, 14f, 32f, gpuAdapters: new[] { dualVendorGpus[0] });
+        using var dvStub = new ConfigurableHardwareMonitorStub(dualVendorSnapshot);
+        var dvEngine = new UniversalHardwareEngine(dvStub);
+
+        var dvReport = await dvEngine.BuildUniversalReportAsync(
+            dualVendorSnapshot,
+            hasBatteryOverride: false,
+            isRunningAsAdminOverride: true,
+            complementaryWmiGpuAdaptersOverride: dualVendorGpus);
+
+        Assert.Equal(2, dvReport.Gpus.Count);
+        Assert.Single(dvReport.Gpus, g => g.Vendor == HardwareVendor.Amd && g.IsDiscrete);
+        Assert.Single(dvReport.Gpus, g => g.Vendor == HardwareVendor.Nvidia && g.IsDiscrete);
+        // Consumer dual-GPU desktop is HighPerformance, not Workstation
+        Assert.Equal(SystemHardwareProfile.HighPerformance, dvReport.DetectedProfile);
+
+        // Scenario 15: Desktop with two physical discrete GPUs from the SAME vendor and DIFFERENT models (RTX 4090 + RTX 3060)
+        var sameVendorDifferentModels = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                "NVIDIA GeForce RTX 4090", "GpuNvidia", 63f, 74f, 90f, 2700f, 390f, 1800f, 16000f, 24576f, "32.0.15.6094",
+                "PCI\\VEN_10DE&DEV_2684&SUBSYS_165A10DE&REV_A1\\4&111111&0&0008"),
+            new GpuAdapterTelemetryPoint(
+                "NVIDIA GeForce RTX 3060", "GpuNvidia", 52f, 63f, 20f, 1850f, 85f, 1200f, 2048f, 12288f, "32.0.15.6094",
+                "PCI\\VEN_10DE&DEV_2504&SUBSYS_123410DE&REV_A1\\4&222222&0&0010")
+        };
+
+        var svSnapshot = CreateSnapshot("Intel Core i7-14700K", 64f, "NVIDIA GeForce RTX 4090", 63f, 74f, 24576f, 16f, 32f, gpuAdapters: new[] { sameVendorDifferentModels[0] });
+        using var svStub = new ConfigurableHardwareMonitorStub(svSnapshot);
+        var svEngine = new UniversalHardwareEngine(svStub);
+
+        var svReport = await svEngine.BuildUniversalReportAsync(
+            svSnapshot,
+            hasBatteryOverride: false,
+            isRunningAsAdminOverride: true,
+            complementaryWmiGpuAdaptersOverride: sameVendorDifferentModels);
+
+        Assert.Equal(2, svReport.Gpus.Count);
+        Assert.Contains(svReport.Gpus, g => g.Name == "NVIDIA GeForce RTX 4090" && g.VramTotalMb.Value == 24576f);
+        Assert.Contains(svReport.Gpus, g => g.Name == "NVIDIA GeForce RTX 3060" && g.VramTotalMb.Value == 12288f);
+        Assert.Equal("NVIDIA GeForce RTX 4090", svReport.PrimaryGpu?.Name);
+        Assert.Equal(SystemHardwareProfile.HighPerformance, svReport.DetectedProfile);
     }
 
     [Fact]
@@ -694,6 +884,34 @@ Mozilla Firefox                  Mozilla.Firefox                   131.0.3      
         {
             File.Delete(tempFile);
         }
+    }
+
+    [Theory]
+    [InlineData("Intel UHD Graphics 730", null, HardwareVendor.Intel, GpuAdapterKind.PhysicalIntegrated)]
+    [InlineData("Intel HD Graphics 530", null, HardwareVendor.Intel, GpuAdapterKind.PhysicalIntegrated)]
+    [InlineData("Intel Iris Xe Graphics", null, HardwareVendor.Intel, GpuAdapterKind.PhysicalIntegrated)]
+    [InlineData("Intel Arc A770", null, HardwareVendor.Intel, GpuAdapterKind.PhysicalDiscrete)]
+    [InlineData("Intel Graphics", null, HardwareVendor.Intel, GpuAdapterKind.PhysicalIntegrated)]
+    [InlineData("AMD Radeon 780M", null, HardwareVendor.Amd, GpuAdapterKind.PhysicalIntegrated)]
+    [InlineData("AMD Radeon RX 7800 XT", null, HardwareVendor.Amd, GpuAdapterKind.PhysicalDiscrete)]
+    [InlineData("NVIDIA GeForce RTX 4060", null, HardwareVendor.Nvidia, GpuAdapterKind.PhysicalDiscrete)]
+    [InlineData("NVIDIA RTX A5000", null, HardwareVendor.Nvidia, GpuAdapterKind.PhysicalDiscrete)]
+    [InlineData("Qualcomm Adreno", null, HardwareVendor.Qualcomm, GpuAdapterKind.PhysicalIntegrated)]
+    [InlineData("Microsoft Hyper-V Video", "PCI\\VEN_1414&DEV_5353", HardwareVendor.Microsoft, GpuAdapterKind.VirtualAdapter)]
+    [InlineData("Microsoft Basic Display Adapter", "PCI\\VEN_1414&DEV_008C", HardwareVendor.Microsoft, GpuAdapterKind.BasicDisplayAdapter)]
+    [InlineData("Microsoft Remote Display Adapter", "SWD\\REMOTEDISPLAYENUM\\RDPDD_00", HardwareVendor.Microsoft, GpuAdapterKind.RemoteDisplayAdapter)]
+    [InlineData("Unrecognized Custom Framebuffer", "ACPI\\UNKNOWN_DEV_0001", HardwareVendor.Unknown, GpuAdapterKind.UnknownAdapter)]
+    public void UniversalHardwareEngine_ClassifiesVendorsAndAdapterKindsAccurately_NeverPromotesUnknownOrVirtualToDiscrete(
+        string adapterName,
+        string? pnpDeviceId,
+        HardwareVendor expectedVendor,
+        GpuAdapterKind expectedKind)
+    {
+        var vendor = UniversalHardwareEngine.DetectGpuVendor(adapterName, pnpDeviceId);
+        var kind = UniversalHardwareEngine.ClassifyGpuAdapterKind(adapterName, pnpDeviceId, vendor);
+
+        Assert.Equal(expectedVendor, vendor);
+        Assert.Equal(expectedKind, kind);
     }
 
     [Fact]

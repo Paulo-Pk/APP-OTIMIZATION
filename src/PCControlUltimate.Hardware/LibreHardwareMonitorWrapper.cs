@@ -385,11 +385,38 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     public static bool IsIntegratedGpuName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
+
+        // Discrete Intel Arc GPUs must not be classified as integrated
+        if (name.Contains("Arc", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("Iris Xe MAX", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         return name.Contains("Radeon(TM) Graphics", StringComparison.OrdinalIgnoreCase) ||
                name.Equals("AMD Radeon Graphics", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("AMD Radeon(TM) Graphics", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon 780M", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon 760M", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon 740M", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon 680M", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon 660M", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon 890M", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon 880M", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon 610M", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Radeon Vega", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("UHD Graphics", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("HD Graphics", StringComparison.OrdinalIgnoreCase) ||
                name.Contains("Intel(R) UHD", StringComparison.OrdinalIgnoreCase) ||
                name.Contains("Intel(R) Iris", StringComparison.OrdinalIgnoreCase) ||
-               name.Contains("Intel(R) HD Graphics", StringComparison.OrdinalIgnoreCase);
+               name.Contains("Iris(R) Xe", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Iris Xe", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Iris Plus", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Iris Pro", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Intel(R) HD Graphics", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Intel(R) Graphics", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("Intel Graphics", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Adreno", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int GetHardwarePriorityScore(IHardware hardware)

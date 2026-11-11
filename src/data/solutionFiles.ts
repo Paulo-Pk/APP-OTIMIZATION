@@ -793,5 +793,19 @@ public record AuthenticodeVerificationResult(
 }
 `,
   },
+  {
+    path: 'src/PCControlUltimate.Hardware/UniversalHardwareEngine.cs',
+    name: 'UniversalHardwareEngine.cs',
+    language: 'csharp',
+    description: 'Motor universal de hardware com IHardwareSystemProbe injetável, separação explícita de GPUs físicas vs adaptadores virtuais/remotos (GpuAdapterKind) e isolamento determinístico em testes',
+    content: `namespace PCControlUltimate.Hardware;
+
+// Classifies display adapters into PhysicalDiscrete, PhysicalIntegrated, VirtualAdapter,
+// RemoteDisplayAdapter, BasicDisplayAdapter, and UnknownAdapter.
+// Virtual adapters (such as Microsoft Hyper-V Video) are isolated into VirtualDisplayAdapters
+// and never counted as physical GPUs or used in ClassifySystemHardwareProfile.
+`,
+  },
 ];
+
 
