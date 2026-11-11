@@ -132,7 +132,7 @@ public interface IHardwareSystemProbe
     bool IsRunningAsAdministrator();
     bool IsCorporateDomainOrPolicyManaged();
     (string? Name, int? PhysicalCores, int? LogicalProcessors) QueryCpuDetails();
-    IReadOnlyList<PCControlUltimate.Core.Interfaces.GpuAdapterTelemetryPoint> QueryGpuAdapters();
+    IReadOnlyList<GpuAdapterTelemetryPoint> QueryGpuAdapters();
     (string? MemoryGeneration, int? ConfiguredSpeedMt) QueryMemoryDetails();
     DetectedBatteryPowerInfo QueryBatteryPowerInfo(bool? hasBatteryOverride, int? batteryChargePercentOverride);
     IReadOnlyList<DetectedNetworkAdapterInfo> QueryNetworkAdapters();

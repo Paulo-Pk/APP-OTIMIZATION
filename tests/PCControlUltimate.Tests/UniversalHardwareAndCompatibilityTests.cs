@@ -893,6 +893,7 @@ Mozilla Firefox                  Mozilla.Firefox                   131.0.3      
     [InlineData("Intel Arc A770", null, HardwareVendor.Intel, GpuAdapterKind.PhysicalDiscrete)]
     [InlineData("Intel Graphics", null, HardwareVendor.Intel, GpuAdapterKind.PhysicalIntegrated)]
     [InlineData("AMD Radeon 780M", null, HardwareVendor.Amd, GpuAdapterKind.PhysicalIntegrated)]
+    [InlineData("AMD Radeon(TM) 780M", null, HardwareVendor.Amd, GpuAdapterKind.PhysicalIntegrated)]
     [InlineData("AMD Radeon RX 7800 XT", null, HardwareVendor.Amd, GpuAdapterKind.PhysicalDiscrete)]
     [InlineData("NVIDIA GeForce RTX 4060", null, HardwareVendor.Nvidia, GpuAdapterKind.PhysicalDiscrete)]
     [InlineData("NVIDIA RTX A5000", null, HardwareVendor.Nvidia, GpuAdapterKind.PhysicalDiscrete)]
