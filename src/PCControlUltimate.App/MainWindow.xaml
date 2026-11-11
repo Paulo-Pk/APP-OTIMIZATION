@@ -976,7 +976,7 @@
         <!-- ========================================================================= -->
         <!-- 9. WINDOWS TWEAKS VIEW                                                    -->
         <!-- ========================================================================= -->
-        <DataTemplate DataType="{x:Type vm:WindowsTweaksViewModel}">
+        <DataTemplate DataType="{x:Type vm:RegistryOptimizerViewModel}">
             <StackPanel DataContext="{Binding Shell}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
