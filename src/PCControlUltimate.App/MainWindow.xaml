@@ -157,37 +157,63 @@
         <DataTemplate DataType="{x:Type vm:HardwareMonitorViewModel}">
             <views:HardwareMonitorView>
                 <StackPanel>
-                    <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,18">
+                    <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="12" Padding="18" Margin="0,0,0,14">
                         <StackPanel>
-                            <TextBlock Text="{Binding Workspace.Loc[HardwareStateHeader]}" Foreground="#C084FC" FontSize="11" FontWeight="Bold" Margin="0,0,0,4" />
-                            <TextBlock Text="{Binding Workspace.HardwareSubsystemStatusText}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="12" FontWeight="Bold" Margin="0,0,0,14" TextWrapping="Wrap" />
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="HARDWARE OVERVIEW" Foreground="#F8FAFC" FontSize="14" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Workspace.HardwareSubsystemStatusText}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" />
+                                </StackPanel>
+                                <Border Grid.Column="1" Background="#10251D" CornerRadius="6" Padding="9,5" VerticalAlignment="Center">
+                                    <TextBlock Text="MONITORAMENTO REAL" Foreground="#4ADE80" FontSize="9" FontWeight="Bold" />
+                                </Border>
+                            </Grid>
 
-                            <TextBlock Text="{Binding Workspace.Loc[GpuHealthTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
-                            <TextBlock Text="{Binding Workspace.GpuThermalDiagnosisText}" Foreground="#F59E0B" FontFamily="Consolas" FontSize="13" FontWeight="Bold" Margin="0,8,0,6" TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding Workspace.Loc[GpuHealthNotice]}" Foreground="{StaticResource TextMuted}" FontSize="11" TextWrapping="Wrap" />
-                            <UniformGrid Columns="5" Margin="0,14,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="Temperatura da CPU" Foreground="{StaticResource TextMuted}" FontSize="11" />
-                                    <TextBlock Text="{Binding Workspace.CpuTemp}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="17" FontWeight="Bold" Margin="0,3,0,0" />
-                                    <TextBlock Text="{Binding Workspace.CpuModel}" Foreground="#94A3B8" FontSize="10" TextTrimming="CharacterEllipsis" />
+                            <UniformGrid Columns="2">
+                                <Border Background="#0D111B" BorderBrush="#252B3A" BorderThickness="1" CornerRadius="9" Padding="14" Margin="0,0,7,0">
+                                    <StackPanel>
+                                        <TextBlock Text="PROCESSADOR" Foreground="#A78BFA" FontSize="10" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding Workspace.CpuModel}" Foreground="#CBD5E1" FontSize="11" Margin="0,5,0,2" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Workspace.CpuTemp}" Foreground="#38BDF8" FontSize="28" FontWeight="Bold" FontFamily="Consolas" />
+                                        <TextBlock Text="{Binding Workspace.CpuLoad}" Foreground="#94A3B8" FontSize="11" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="#0D111B" BorderBrush="#252B3A" BorderThickness="1" CornerRadius="9" Padding="14" Margin="7,0,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="PLACA DE VÍDEO" Foreground="#FB7185" FontSize="10" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding Workspace.GpuModel}" Foreground="#CBD5E1" FontSize="11" Margin="0,5,0,2" TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Workspace.GpuTemp}" Foreground="#F8FAFC" FontSize="25" FontWeight="Bold" FontFamily="Consolas" />
+                                            <TextBlock Text=" / " Foreground="#64748B" FontSize="20" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Workspace.GpuHotspot}" Foreground="#FBBF24" FontSize="25" FontWeight="Bold" FontFamily="Consolas" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Workspace.GpuThermalDiagnosisText}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                            </UniformGrid>
+
+                            <UniformGrid Columns="4" Margin="0,12,0,0">
+                                <StackPanel Margin="4,0">
+                                    <TextBlock Text="CPU CLOCK" Foreground="#64748B" FontSize="9" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Workspace.CpuClock}" Foreground="#E2E8F0" FontSize="12" FontFamily="Consolas" />
+                                    <TextBlock Text="{Binding Workspace.CpuPower}" Foreground="#94A3B8" FontSize="10" />
                                 </StackPanel>
-                                <StackPanel>
-                                    <TextBlock Text="{Binding Workspace.Loc[LblCpuClockPower]}" Foreground="{StaticResource TextMuted}" FontSize="11" />
-                                    <TextBlock Text="{Binding Workspace.CpuClock}" Foreground="#E2E8F0" FontFamily="Consolas" FontWeight="Bold" />
-                                    <TextBlock Text="{Binding Workspace.CpuPower}" Foreground="#94A3B8" FontFamily="Consolas" />
+                                <StackPanel Margin="4,0">
+                                    <TextBlock Text="GPU CLOCK" Foreground="#64748B" FontSize="9" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Workspace.GpuClock}" Foreground="#E2E8F0" FontSize="12" FontFamily="Consolas" />
+                                    <TextBlock Text="{Binding Workspace.GpuPower}" Foreground="#94A3B8" FontSize="10" />
                                 </StackPanel>
-                                <StackPanel>
-                                    <TextBlock Text="{Binding Workspace.Loc[LblGpuClockPower]}" Foreground="{StaticResource TextMuted}" FontSize="11" />
-                                    <TextBlock Text="{Binding Workspace.GpuClock}" Foreground="#E2E8F0" FontFamily="Consolas" FontWeight="Bold" />
-                                    <TextBlock Text="{Binding Workspace.GpuPower}" Foreground="#94A3B8" FontFamily="Consolas" />
+                                <StackPanel Margin="4,0">
+                                    <TextBlock Text="VRAM" Foreground="#64748B" FontSize="9" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Workspace.GpuVram}" Foreground="#38BDF8" FontSize="12" FontFamily="Consolas" />
                                 </StackPanel>
-                                <StackPanel>
-                                    <TextBlock Text="{Binding Workspace.Loc[LblGpuVram]}" Foreground="{StaticResource TextMuted}" FontSize="11" />
-                                    <TextBlock Text="{Binding Workspace.GpuVram}" Foreground="#38BDF8" FontFamily="Consolas" FontWeight="Bold" />
-                                </StackPanel>
-                                <StackPanel>
-                                    <TextBlock Text="{Binding Workspace.Loc[LblGpuFanRpm]}" Foreground="{StaticResource TextMuted}" FontSize="11" />
-                                    <TextBlock Text="{Binding Workspace.GpuFanRpm}" Foreground="#22C55E" FontFamily="Consolas" FontWeight="Bold" />
+                                <StackPanel Margin="4,0">
+                                    <TextBlock Text="VENTOINHAS" Foreground="#64748B" FontSize="9" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Workspace.GpuFanRpm}" Foreground="#4ADE80" FontSize="12" FontFamily="Consolas" />
                                 </StackPanel>
                             </UniformGrid>
                         </StackPanel>
