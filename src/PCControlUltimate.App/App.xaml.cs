@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +52,34 @@ public partial class App : Application
 
             _hardwareMonitor = new LibreHardwareMonitorWrapper();
             await _hardwareMonitor.InitializeAsync();
+
+            if (_hardwareMonitor.IsAvailable)
+            {
+                var startupSnapshot = await _hardwareMonitor.CaptureSnapshotAsync();
+                string cpuTemperatureSensors = string.Join(" | ", startupSnapshot.Sensors
+                    .Where(sensor =>
+                        string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase))
+                    .Take(20)
+                    .Select(sensor => $"{sensor.Name}: {sensor.FormattedValue}"));
+
+                Log.Information(
+                    "Hardware monitor ready. Status={Status}; CPU={CpuModel}; CPU temperature={CpuTemperature}; CPU temperature sensors={CpuSensors}; Diagnostic={Diagnostic}",
+                    startupSnapshot.Status,
+                    startupSnapshot.CpuModelName ?? "N/D",
+                    startupSnapshot.CpuPackageTemp?.ToString("F1") ?? "N/D",
+                    string.IsNullOrWhiteSpace(cpuTemperatureSensors) ? "Nenhum sensor térmico de CPU exposto" : cpuTemperatureSensors,
+                    startupSnapshot.DiagnosticReason
+                );
+            }
+            else
+            {
+                Log.Warning(
+                    "Hardware monitor unavailable. Status={Status}; Error={Error}",
+                    _hardwareMonitor.CurrentStatus,
+                    _hardwareMonitor.LastCommunicationError
+                );
+            }
 
             // Single-instance check for the local Privileged Agent
             _agentMutex = new Mutex(true, @"Local\PCControlUltimate_PrivilegedAgent_Mutex_v25", out _ownsAgentMutex);
