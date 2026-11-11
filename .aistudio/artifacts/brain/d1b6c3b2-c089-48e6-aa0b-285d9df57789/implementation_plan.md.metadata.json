@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de Correção Crítica Pós-Auditoria GitHub: resolução dos 4 erros de compilação sem dependência circular, enumeração independente multi-GPU e correção de dados estimados no UniversalHardwareEngine, separação estrita ICMP vs TCP em NetworkDiagnosticsService, evolução dinâmica do WingetSoftwareCenterService com validação real de assinatura Authenticode, refinamento do GpuThermalAuditor e testes automatizados.",
-  "updatedAt":  "2026-11-11T13:52:51.318242101Z",
+  "summary":  "Plano de Correção Crítica da Última Atualização (9feb7d6): correção imediata de compilação em PrivilegedAgentServer.cs e MainViewModel.cs (NetworkDiagnosticsService gerenciado via DI + MeasureExternalThroughputAsync real + GetDiagnosticHistory), mesclagem multi-GPU LHM+WMI por PNPDeviceID em UniversalHardwareEngine.cs, tratamento estrito de perda ICMP nula/inconclusiva em NetworkDiagnosticsService.cs, validação criptográfica nativa via WinVerifyTrust (wintrust.dll) em WingetSoftwareCenterService.cs e suíte expandida de testes automatizados.",
+  "updatedAt":  "2026-11-11T14:11:01.134786553Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

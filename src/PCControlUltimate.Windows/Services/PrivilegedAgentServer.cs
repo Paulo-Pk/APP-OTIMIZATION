@@ -20,6 +20,7 @@ public class PrivilegedAgentServer : IDisposable
 {
     private readonly HttpListener _listener;
     private readonly IHardwareMonitorService? _hardwareMonitor;
+    private readonly NetworkDiagnosticsService _networkDiagnostics;
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
     private readonly ConcurrentQueue<DateTime> _requestTimestamps = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedNonces = new(StringComparer.Ordinal);
@@ -57,13 +58,17 @@ public class PrivilegedAgentServer : IDisposable
         "http://127.0.0.1:52194"
     };
 
-    public PrivilegedAgentServer(int port = DefaultPort) : this(null, port)
+    public PrivilegedAgentServer(int port = DefaultPort) : this(null, port, null)
     {
     }
 
-    public PrivilegedAgentServer(IHardwareMonitorService? hardwareMonitor, int port = DefaultPort)
+    public PrivilegedAgentServer(
+        IHardwareMonitorService? hardwareMonitor,
+        int port = DefaultPort,
+        NetworkDiagnosticsService? networkDiagnostics = null)
     {
         _hardwareMonitor = hardwareMonitor;
+        _networkDiagnostics = networkDiagnostics ?? new NetworkDiagnosticsService();
         Port = port;
         _listener = new HttpListener();
         _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
@@ -493,14 +498,14 @@ public class PrivilegedAgentServer : IDisposable
 
             if (path == "/api/network/diagnostics" && req.HttpMethod == "GET")
             {
-                var netDiag = await NetworkDiagnosticsService.RunRealDiagnosticsAsync();
+                var netDiag = await _networkDiagnostics.RunRealDiagnosticsAsync(cancellationToken);
                 await SendJsonAsync(res, netDiag);
                 return;
             }
 
             if (path == "/api/network/throughput" && req.HttpMethod == "GET")
             {
-                var throughput = await NetworkDiagnosticsService.MeasureExternalThroughputAsync(cancellationToken);
+                var throughput = await _networkDiagnostics.MeasureExternalThroughputAsync(cancellationToken);
                 await SendJsonAsync(res, throughput);
                 return;
             }

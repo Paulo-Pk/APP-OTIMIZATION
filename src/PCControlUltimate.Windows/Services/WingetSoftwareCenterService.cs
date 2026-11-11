@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text;
@@ -36,6 +37,10 @@ public enum SignatureVerificationState
     VerifiedAuthenticode,
     VerifiedOfficialWingetRepository,
     UnsignedOrInvalid,
+    TamperedOrBadDigest,
+    ExpiredCertificate,
+    UntrustedRoot,
+    InconclusiveRevocationOffline,
     VerificationUnavailable
 }
 
@@ -65,6 +70,7 @@ public record WingetDynamicPackageEntry(
 public record AuthenticodeVerificationResult(
     string FilePath,
     SignatureVerificationState State,
+    int NativeWinTrustHResult,
     string? SignerSubject,
     string? Issuer,
     string? Thumbprint,
@@ -92,12 +98,26 @@ public record WingetOperationProgress(
 
 /// <summary>
 /// Software Center — Central de Aplicativos via WinGet (§9):
-/// Combines the curated 14-category catalog with real dynamic WinGet search, installed package version querying,
-/// real X.509 Authenticode signature verification on local binaries, origin validation, streaming progress,
-/// and mandatory user confirmation. Never uses hardcoded VerifiedDigitalSignature = true flags.
+/// - Real cryptographic Authenticode signature verification via native Windows WinVerifyTrust (wintrust.dll)
+///   checking file digest integrity, certificate chain, expiration, signer identity, and revocation policy.
+/// - Never marks a package as verified merely because a certificate is attached.
+/// - Eliminates obsolete X509Certificate.CreateFromSignedFile warnings.
 /// </summary>
 public class WingetSoftwareCenterService
 {
+    private static readonly Guid WintrustActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
+
+    private const int HResultSuccess = 0;
+    private const int TrustENoSignature = unchecked((int)0x800B0100);
+    private const int TrustEExplicitDistrust = unchecked((int)0x800B0111);
+    private const int TrustESubjectNotTrusted = unchecked((int)0x800B0004);
+    private const int TrustEBadDigest = unchecked((int)0x80096010);
+    private const int CertEExpired = unchecked((int)0x800B0101);
+    private const int CertEUntrustedRoot = unchecked((int)0x800B0109);
+    private const int CertERevoked = unchecked((int)0x800B010C);
+    private const int CertERevocationFailure = unchecked((int)0x800B010E);
+    private const int CryptESecuritySettings = unchecked((int)0x80092026);
+
     private static readonly HashSet<string> AllowedWingetSources = new(StringComparer.OrdinalIgnoreCase)
     {
         "winget",
@@ -187,9 +207,6 @@ public class WingetSoftwareCenterService
         return filtered.ToList();
     }
 
-    /// <summary>
-    /// Validates whether a WinGet repository source is an approved official origin.
-    /// </summary>
     public static bool IsTrustedSourceOrigin(string? sourceName)
     {
         if (string.IsNullOrWhiteSpace(sourceName)) return false;
@@ -197,16 +214,23 @@ public class WingetSoftwareCenterService
     }
 
     /// <summary>
-    /// Performs real X.509 Authenticode signature inspection on a local executable or installer binary.
-    /// Never fakes verification when the file is unsigned or does not exist.
+    /// Performs real cryptographic Authenticode signature verification using Windows native WinVerifyTrust (wintrust.dll):
+    /// 1) Verifies PE/MSI/CAB cryptographic file digest against tampering (TRUST_E_BAD_DIGEST).
+    /// 2) Verifies certificate trust chain and root authority (CERT_E_UNTRUSTEDROOT).
+    /// 3) Verifies certificate validity period (CERT_E_EXPIRED).
+    /// 4) Checks revocation across the chain when network is available, or reports InconclusiveRevocationOffline if CRL/OCSP is unreachable.
+    /// 5) Extracts signer identity from the PKCS#7 SignedCms / X509Certificate2 structure without obsolete APIs.
     /// </summary>
-    public static AuthenticodeVerificationResult VerifyBinaryAuthenticodeSignature(string filePath)
+    public static AuthenticodeVerificationResult VerifyBinaryAuthenticodeSignature(
+        string filePath,
+        bool checkOnlineRevocation = true)
     {
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
         {
             return new AuthenticodeVerificationResult(
                 filePath ?? string.Empty,
                 SignatureVerificationState.VerificationUnavailable,
+                -1,
                 null,
                 null,
                 null,
@@ -215,49 +239,237 @@ public class WingetSoftwareCenterService
             );
         }
 
-        try
-        {
-            using var baseCert = X509Certificate.CreateFromSignedFile(filePath);
-            using var cert2 = new X509Certificate2(baseCert);
-
-            using var chain = new X509Chain();
-            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-            chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
-            bool chainValid = chain.Build(cert2);
-
-            var state = chainValid && DateTime.UtcNow <= cert2.NotAfter.ToUniversalTime()
-                ? SignatureVerificationState.VerifiedAuthenticode
-                : SignatureVerificationState.UnsignedOrInvalid;
-
-            return new AuthenticodeVerificationResult(
-                filePath,
-                state,
-                cert2.Subject,
-                cert2.Issuer,
-                cert2.Thumbprint,
-                cert2.NotAfter.ToUniversalTime(),
-                state == SignatureVerificationState.VerifiedAuthenticode
-                    ? $"Assinatura digital X.509 válida ({cert2.Subject})."
-                    : $"Certificado presente ({cert2.Subject}), porém cadeia ou validade não confirmada."
-            );
-        }
-        catch (Exception ex)
+        if (!OperatingSystem.IsWindows())
         {
             return new AuthenticodeVerificationResult(
                 filePath,
-                SignatureVerificationState.UnsignedOrInvalid,
+                SignatureVerificationState.VerificationUnavailable,
+                -1,
                 null,
                 null,
                 null,
                 null,
-                $"Binário sem assinatura Authenticode válida: {ex.Message}"
+                "Validação criptográfica nativa via WinVerifyTrust (wintrust.dll) requer sistema operacional Windows."
             );
         }
+
+        int hResult = ExecuteNativeWinVerifyTrust(filePath, checkOnlineRevocation);
+        var (subject, issuer, thumbprint, validUntilUtc) = TryReadSignerMetadata(filePath);
+
+        return MapWinTrustHResultToVerificationResult(
+            filePath,
+            hResult,
+            subject,
+            issuer,
+            thumbprint,
+            validUntilUtc
+        );
     }
 
     /// <summary>
-    /// Executes a dynamic search against the Windows Package Manager (`winget search`) and parses package IDs and versions.
+    /// Pure mapping helper from WinVerifyTrust HRESULT to AuthenticodeVerificationResult so all cryptographic error states
+    /// (tampered digest, unsigned, expired, untrusted root, revocation offline) are deterministically testable.
     /// </summary>
+    public static AuthenticodeVerificationResult MapWinTrustHResultToVerificationResult(
+        string filePath,
+        int hResult,
+        string? signerSubject = null,
+        string? issuer = null,
+        string? thumbprint = null,
+        DateTime? validUntilUtc = null)
+    {
+        return hResult switch
+        {
+            HResultSuccess => new AuthenticodeVerificationResult(
+                filePath,
+                SignatureVerificationState.VerifiedAuthenticode,
+                hResult,
+                signerSubject,
+                issuer,
+                thumbprint,
+                validUntilUtc,
+                $"Integridade criptográfica Authenticode e cadeia de confiança verificadas via WinVerifyTrust ({signerSubject ?? "Signatário confiável"})."
+            ),
+            TrustEBadDigest => new AuthenticodeVerificationResult(
+                filePath,
+                SignatureVerificationState.TamperedOrBadDigest,
+                hResult,
+                signerSubject,
+                issuer,
+                thumbprint,
+                validUntilUtc,
+                "ALERTA CRÍTICO: O hash do arquivo não corresponde à assinatura Authenticode (TRUST_E_BAD_DIGEST — arquivo corrompido ou adulterado)."
+            ),
+            CertEExpired => new AuthenticodeVerificationResult(
+                filePath,
+                SignatureVerificationState.ExpiredCertificate,
+                hResult,
+                signerSubject,
+                issuer,
+                thumbprint,
+                validUntilUtc,
+                "Assinatura rejeitada: O certificado do signatário expirou e não possui carimbo de tempo válido (CERT_E_EXPIRED)."
+            ),
+            CertEUntrustedRoot => new AuthenticodeVerificationResult(
+                filePath,
+                SignatureVerificationState.UntrustedRoot,
+                hResult,
+                signerSubject,
+                issuer,
+                thumbprint,
+                validUntilUtc,
+                "Assinatura rejeitada: A cadeia de certificação termina em uma autoridade raiz não confiável (CERT_E_UNTRUSTEDROOT)."
+            ),
+            CertERevocationFailure => new AuthenticodeVerificationResult(
+                filePath,
+                SignatureVerificationState.InconclusiveRevocationOffline,
+                hResult,
+                signerSubject,
+                issuer,
+                thumbprint,
+                validUntilUtc,
+                "Verificação inconclusiva: Não foi possível contatar o servidor de revogação CRL/OCSP (CERT_E_REVOCATION_FAILURE)."
+            ),
+            TrustENoSignature or TrustESubjectNotTrusted or TrustEExplicitDistrust or CertERevoked or CryptESecuritySettings => new AuthenticodeVerificationResult(
+                filePath,
+                SignatureVerificationState.UnsignedOrInvalid,
+                hResult,
+                signerSubject,
+                issuer,
+                thumbprint,
+                validUntilUtc,
+                $"Binário sem assinatura Authenticode válida ou revogado (HRESULT: 0x{hResult:X8})."
+            ),
+            _ => new AuthenticodeVerificationResult(
+                filePath,
+                SignatureVerificationState.UnsignedOrInvalid,
+                hResult,
+                signerSubject,
+                issuer,
+                thumbprint,
+                validUntilUtc,
+                $"Falha na validação criptográfica WinVerifyTrust (HRESULT: 0x{hResult:X8})."
+            )
+        };
+    }
+
+    private static int ExecuteNativeWinVerifyTrust(string filePath, bool checkOnlineRevocation)
+    {
+        IntPtr pFilePath = IntPtr.Zero;
+        IntPtr pFileInfo = IntPtr.Zero;
+        Guid action = WintrustActionGenericVerifyV2;
+        var trustData = new WINTRUST_DATA();
+        bool stateOpened = false;
+
+        try
+        {
+            pFilePath = Marshal.StringToCoTaskMemUni(filePath);
+            var fileInfo = new WINTRUST_FILE_INFO
+            {
+                cbStruct = (uint)Marshal.SizeOf<WINTRUST_FILE_INFO>(),
+                pcwszFilePath = pFilePath,
+                hFile = IntPtr.Zero,
+                pgKnownSubject = IntPtr.Zero
+            };
+
+            pFileInfo = Marshal.AllocHGlobal(Marshal.SizeOf<WINTRUST_FILE_INFO>());
+            Marshal.StructureToPtr(fileInfo, pFileInfo, false);
+
+            trustData = new WINTRUST_DATA
+            {
+                cbStruct = (uint)Marshal.SizeOf<WINTRUST_DATA>(),
+                pPolicyCallbackData = IntPtr.Zero,
+                pSIPClientData = IntPtr.Zero,
+                dwUIChoice = 2, // WTD_UI_NONE
+                fdwRevocationChecks = checkOnlineRevocation ? 1u : 0u, // 1 = WTD_REVOKE_WHOLECHAIN, 0 = WTD_REVOKE_NONE
+                dwUnionChoice = 1, // WTD_CHOICE_FILE
+                pFile = pFileInfo,
+                dwStateAction = 1, // WTD_STATEACTION_VERIFY
+                hWVTStateData = IntPtr.Zero,
+                pwszURLReference = IntPtr.Zero,
+                dwProvFlags = checkOnlineRevocation
+                    ? 0x00000040u | 0x00000800u // WTD_REVOCATION_CHECK_CHAIN | WTD_LifetimeSigningFlag
+                    : 0x00000010u | 0x00000800u, // WTD_CACHE_ONLY_URL_RETRIEVAL
+                dwUIContext = 0
+            };
+
+            stateOpened = true;
+            return WinVerifyTrust(IntPtr.Zero, ref action, ref trustData);
+        }
+        finally
+        {
+            if (stateOpened && trustData.hWVTStateData != IntPtr.Zero)
+            {
+                trustData.dwStateAction = 2; // WTD_STATEACTION_CLOSE
+                WinVerifyTrust(IntPtr.Zero, ref action, ref trustData);
+            }
+
+            if (pFileInfo != IntPtr.Zero)
+                Marshal.FreeHGlobal(pFileInfo);
+
+            if (pFilePath != IntPtr.Zero)
+                Marshal.FreeCoTaskMem(pFilePath);
+        }
+    }
+
+    private static (string? Subject, string? Issuer, string? Thumbprint, DateTime? ValidUntilUtc) TryReadSignerMetadata(string filePath)
+    {
+        if (!OperatingSystem.IsWindows()) return (null, null, null, null);
+
+        IntPtr hStore = IntPtr.Zero;
+        IntPtr hMsg = IntPtr.Zero;
+        IntPtr pCertContext = IntPtr.Zero;
+
+        try
+        {
+            const int CERT_QUERY_OBJECT_FILE = 1;
+            const int CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED = 1 << 10;
+            const int CERT_QUERY_FORMAT_FLAG_BINARY = 1 << 1;
+
+            bool ok = CryptQueryObject(
+                CERT_QUERY_OBJECT_FILE,
+                filePath,
+                CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
+                CERT_QUERY_FORMAT_FLAG_BINARY,
+                0,
+                out _,
+                out _,
+                out _,
+                ref hStore,
+                ref hMsg,
+                IntPtr.Zero
+            );
+
+            if (!ok || hStore == IntPtr.Zero)
+                return (null, null, null, null);
+
+            pCertContext = CertEnumCertificatesInStore(hStore, IntPtr.Zero);
+            if (pCertContext == IntPtr.Zero)
+                return (null, null, null, null);
+
+            using var cert2 = new X509Certificate2(pCertContext);
+            return (
+                cert2.Subject,
+                cert2.Issuer,
+                cert2.Thumbprint,
+                cert2.NotAfter.ToUniversalTime()
+            );
+        }
+        catch
+        {
+            return (null, null, null, null);
+        }
+        finally
+        {
+            if (pCertContext != IntPtr.Zero)
+                CertFreeCertificateContext(pCertContext);
+            if (hStore != IntPtr.Zero)
+                CertCloseStore(hStore, 0);
+            if (hMsg != IntPtr.Zero)
+                CryptMsgClose(hMsg);
+        }
+    }
+
     public async Task<IReadOnlyList<WingetDynamicPackageEntry>> SearchDynamicWingetAsync(
         string query,
         IProgress<string>? progress = null,
@@ -282,9 +494,6 @@ public class WingetSoftwareCenterService
         return ParseWingetTableOutput(output, isInstalledList: false);
     }
 
-    /// <summary>
-    /// Queries installed packages and available updates via `winget list`.
-    /// </summary>
     public async Task<IReadOnlyList<WingetDynamicPackageEntry>> GetInstalledPackagesAsync(
         string? filterQuery = null,
         IProgress<string>? progress = null,
@@ -310,9 +519,6 @@ public class WingetSoftwareCenterService
         return ParseWingetTableOutput(output, isInstalledList: true);
     }
 
-    /// <summary>
-    /// Parses tabular CLI output from `winget search` or `winget list` into structured package entries with versions.
-    /// </summary>
     public static IReadOnlyList<WingetDynamicPackageEntry> ParseWingetTableOutput(string rawOutput, bool isInstalledList)
     {
         var results = new List<WingetDynamicPackageEntry>();
@@ -690,4 +896,62 @@ public class WingetSoftwareCenterService
             return false;
         }
     }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct WINTRUST_FILE_INFO
+    {
+        public uint cbStruct;
+        public IntPtr pcwszFilePath;
+        public IntPtr hFile;
+        public IntPtr pgKnownSubject;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct WINTRUST_DATA
+    {
+        public uint cbStruct;
+        public IntPtr pPolicyCallbackData;
+        public IntPtr pSIPClientData;
+        public uint dwUIChoice;
+        public uint fdwRevocationChecks;
+        public uint dwUnionChoice;
+        public IntPtr pFile;
+        public uint dwStateAction;
+        public IntPtr hWVTStateData;
+        public IntPtr pwszURLReference;
+        public uint dwProvFlags;
+        public uint dwUIContext;
+    }
+
+    [DllImport("wintrust.dll", ExactSpelling = true, SetLastError = false, CharSet = CharSet.Unicode)]
+    private static extern int WinVerifyTrust(
+        IntPtr hwnd,
+        [MarshalAs(UnmanagedType.LPStruct)] ref Guid pgActionID,
+        ref WINTRUST_DATA pWVTData);
+
+    [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool CryptQueryObject(
+        int dwObjectType,
+        [MarshalAs(UnmanagedType.LPWStr)] string pvObject,
+        int dwExpectedContentTypeFlags,
+        int dwExpectedFormatTypeFlags,
+        int dwFlags,
+        out int pdwMsgAndCertEncodingType,
+        out int pdwContentType,
+        out int pdwFormatType,
+        ref IntPtr phCertStore,
+        ref IntPtr phMsg,
+        IntPtr ppvContext);
+
+    [DllImport("crypt32.dll", SetLastError = true)]
+    private static extern IntPtr CertEnumCertificatesInStore(IntPtr hCertStore, IntPtr pPrevCertContext);
+
+    [DllImport("crypt32.dll", SetLastError = true)]
+    private static extern bool CertFreeCertificateContext(IntPtr pCertContext);
+
+    [DllImport("crypt32.dll", SetLastError = true)]
+    private static extern bool CertCloseStore(IntPtr hCertStore, int dwFlags);
+
+    [DllImport("crypt32.dll", SetLastError = true)]
+    private static extern bool CryptMsgClose(IntPtr hCryptMsg);
 }

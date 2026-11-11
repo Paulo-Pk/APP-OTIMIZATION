@@ -1,84 +1,80 @@
-# PC Control Ultimate — Plano de Correção Crítica Pós-Auditoria GitHub
+# PC Control Ultimate — Plano de Correção Crítica da Última Atualização (`9feb7d6`)
 
 ---
 
-## 1. Correção Imediata dos 4 Erros de Compilação (Sem Dependência Circular)
+## 1. Correção Imediata dos Erros de Compilação (`PrivilegedAgentServer.cs` & `MainViewModel.cs`)
 
 ### Causa Raiz Identificada
-- `PCControlUltimate.Windows.csproj` já referencia `PCControlUltimate.Diagnostics.csproj`, enquanto `PCControlUltimate.Diagnostics.csproj` referencia apenas `PCControlUltimate.Core.csproj`.
-- Em `RecommendationEngine.cs` (`PCControlUltimate.Diagnostics`), havia `using PCControlUltimate.Windows.Services;` e referência a `NetworkDiagnosticsReport` (definido em `PCControlUltimate.Windows`), causando os erros:
-  1. `RecommendationEngine.cs: namespace PCControlUltimate.Windows não encontrado`
-  2. `RecommendationEngine.cs: NetworkDiagnosticsReport não encontrado`
-- Em `SystemDoctorService.cs` (`PCControlUltimate.Diagnostics`), havia duas referências a `SystemStabilityAuditor`, classe que ainda não estava implementada dentro de `PCControlUltimate.Diagnostics`:
-  3. `SystemDoctorService.cs: SystemStabilityAuditor não encontrado` (propriedade/construtor)
-  4. `SystemDoctorService.cs: SystemStabilityAuditor não encontrado` (instanciação default)
+- Em `src/PCControlUltimate.Windows/Services/PrivilegedAgentServer.cs` (linhas 496 e 503) e `src/PCControlUltimate.App/ViewModels/MainViewModel.cs` (linhas 900, 925, 937 e 948):
+  1. `NetworkDiagnosticsService.RunRealDiagnosticsAsync()` foi chamado estaticamente após ter sido convertido em método de instância.
+  2. `NetworkDiagnosticsService.MeasureExternalThroughputAsync()` e `GetDiagnosticHistory()` (e os records `NetworkEndpointTestResult`, `DnsQueryResult` e `ExternalThroughputResult`) foram omitidos na refatoração anterior de `NetworkDiagnosticsService.cs`.
 
 ### Solução Arquitetural
-1. Criar `src/PCControlUltimate.Core/Models/NetworkDiagnosticsModels.cs` em `PCControlUltimate.Core.Models` contendo os contratos compartilhados:
-   - `IcmpProbeStatus` (`Responded`, `PartialLoss`, `FilteredOrBlocked`, `Unreachable`, `NotTested`)
-   - `TcpConnectionProbeState` (`Connected`, `Timeout`, `ConnectionRefused`, `FilteredPort`, `ConnectionFailure`)
-   - `DnsResolutionState` (`Resolved`, `DnsResolutionFailure`, `CacheHit`)
-   - `StructuredNetworkDiagnosticFinding`, `NetworkTargetProbeResult`, `NetworkDiagnosticsReport` e `stringTargetSummary`.
-2. Atualizar `RecommendationEngine.cs` para usar exclusivamente `PCControlUltimate.Core.Models` (removendo `using PCControlUltimate.Windows.Services;`).
-3. Implementar `src/PCControlUltimate.Diagnostics/SystemStabilityAuditor.cs` (e adicionar `System.Diagnostics.EventLog` em `PCControlUltimate.Diagnostics.csproj`) para ler eventos reais do Windows Event Log (`System` — `Kernel-Power` ID 41, `WHEA-Logger`, `Display` ID 4101) com degradação segura caso o log esteja inacessível.
+1. **`NetworkDiagnosticsService.cs` & `NetworkDiagnosticsModels.cs`**:
+   - Restaurar e implementar de forma 100% real (nunca simulada):
+     - `MeasureExternalThroughputAsync(CancellationToken)`: realiza download HTTPS real contra `https://speed.cloudflare.com/__down?bytes=2000000` usando `HttpClient` com `HttpCompletionOption.ResponseHeadersRead` e `Stopwatch`, retornando `ExternalThroughputResult(bool Available, double? DownloadMbps, long BytesTransferred, long DurationMs, string SourceUrl, string? ErrorReason)`.
+     - `GetDiagnosticHistory()`: retorna o histórico real de diagnósticos e medições de throughput executados na sessão.
+     - Records de compatibilidade com a UI (`NetworkEndpointTestResult` com `Name`, `IcmpRoundtripMs`, `TcpConnectMs`, `Note`, e `DnsQueryResult`) populados diretamente pelos resultados reais em `NetworkDiagnosticsReport`.
+2. **Injeção de Dependência (`PrivilegedAgentServer.cs`, `App.xaml.cs` e `MainViewModel.cs`)**:
+   - Registrar `services.AddSingleton<NetworkDiagnosticsService>()` em `App.xaml.cs`.
+   - Receber `NetworkDiagnosticsService` via construtor em `PrivilegedAgentServer` e `MainViewModel` (mantendo sobrecarga default segura para testes existentes de `PrivilegedAgentServer`), eliminando as chamadas estáticas quebradas nas linhas 496 e 503 de `PrivilegedAgentServer.cs` e nas linhas 900–948 de `MainViewModel.cs`.
 
 ---
 
-## 2. Universal Hardware Engine — Enumeração Independente Multi-GPU e Zero Dados Estimados
+## 2. Correção da Enumeração e Mesclagem Multi-GPU (`UniversalHardwareEngine.cs`)
 
-### Correções em `HardwareSnapshot.cs`, `LibreHardwareMonitorWrapper.cs` e `UniversalHardwareEngine.cs`
-1. **Enumeração Independente de Todas as GPUs Instaladas**:
-   - Expandir `HardwareSnapshot` com `IReadOnlyList<GpuAdapterTelemetryPoint>? GpuAdapters = null` para preservar cada adaptador gráfico detectado individualmente (com nome, tipo de hardware, temperatura Core, Hotspot, carga, clock, potência, VRAM usada/total e RPM de ventoinha próprios).
-   - Em `UniversalHardwareEngine.cs`, enumerar todas as GPUs combinando `snapshot.GpuAdapters`, consulta WMI (`Win32_VideoController` para AdapterRAM, DriverVersion, PNPDeviceID e múltiplos adaptadores AMD, NVIDIA, Intel e Qualcomm) e Registro de classe de vídeo (`HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}`), mantendo identificação, sensores, capacidades e status independentes por GPU (dedicada, integrada, híbrida ou múltiplas GPUs).
-2. **Eliminação de Dados Estimados ou Fixos**:
-   - **Núcleos Físicos (`int? PhysicalCores`)**: Consultar `Win32_Processor` (`NumberOfCores` e `NumberOfLogicalProcessors`) no Windows; quando WMI não estiver disponível, retornar `null` (indisponível) em vez de dividir `Environment.ProcessorCount / 2`.
-   - **Geração e Velocidade de Memória RAM (`string? MemoryGeneration`, `int? ConfiguredSpeedMt`)**: Consultar `Win32_PhysicalMemory` (`SMBIOSMemoryType` -> DDR3/DDR4/DDR5/LPDDR4/LPDDR5 e `ConfiguredClockSpeed`); quando não reportado pelo SMBIOS/WMI, retornar `"Indisponível"` e `null` em vez da string genérica `"DDR4 / DDR5 / LPDDR"`.
-   - **Bateria (`DetectedBatteryPowerInfo`)**: Ler `SYSTEM_POWER_STATUS.BatteryLifePercent` real via Win32 `GetSystemPowerStatus` (quando `<= 100`, usar o percentual real; quando `255` / desconhecido ou sem bateria, retornar `null` em vez de `100` fixo) e `ACLineStatus` real (`0` = Bateria, `1` = AC Conectado).
-   - **Zero Prioridade para RX 7900 XTX**: Garantir que nenhuma lógica global ou adaptador trate a `RX 7900 XTX` como padrão global.
+### Causa Raiz Identificada
+- Em `UniversalHardwareEngine.cs`, a consulta complementar WMI/Registro só executava quando `snapshot.GpuAdapters == null && string.IsNullOrWhiteSpace(snapshot.GpuModelName)`. Em sistemas híbridos (Intel + NVIDIA, AMD + NVIDIA, AMD iGPU + AMD dGPU) ou multi-GPU onde o LibreHardwareMonitor detecta apenas parte dos adaptadores, os demais adaptadores do Windows eram ignorados.
 
----
-
-## 3. Network Diagnostics — Separação Estrita entre Perda ICMP e Resultado TCP
-
-### Correções em `NetworkDiagnosticsService.cs`
-- Nunca usar o sucesso do handshake TCP para definir `PacketLossPercent = 0.0` do ICMP.
-- Quando todas as sondagens ICMP falharem (`icmpSamples.Count == 0`):
-  - Se o handshake TCP:443 conectar (`TcpConnectionProbeState.Connected`), classificar `IcmpStatus = IcmpProbeStatus.FilteredOrBlocked` e `IcmpPacketLossPercent = null` (Inconclusivo / Filtrado na borda ou firewall), mantendo o resultado TCP (`Connected` + latência TCP) completamente independente!
-  - Se tanto ICMP quanto TCP falharem, reportar `IcmpStatus = IcmpProbeStatus.Unreachable` e `IcmpPacketLossPercent = 100.0`.
-- Separar em propriedades explícitas no relatório:
-  - `IcmpStatus` (`Responded`, `PartialLoss`, `FilteredOrBlocked`, `Unreachable`)
-  - `IcmpPacketLossPercent` (`double?` — `null` quando ICMP está filtrado/inconclusivo)
-  - `TcpState` (`Connected`, `Timeout`, `ConnectionRefused`, `FilteredPort`, `ConnectionFailure`)
-  - `DnsState` (`Resolved`, `DnsResolutionFailure`, `CacheHit`)
-- Adicionar testes automatizados garantindo que:
-  1. O erro anterior de 50% de perda artificial nunca retorne.
-  2. Quando ICMP está bloqueado mas TCP conecta, o estado ICMP seja `FilteredOrBlocked` (inconclusivo) sem forçar perda ICMP para 0% ou 100% com base no TCP.
+### Solução Arquitetural
+- Executar **sempre** a enumeração dos adaptadores de `snapshot.GpuAdapters` (LibreHardwareMonitor) **e** a consulta complementar de adaptadores de vídeo do Windows (`Win32_VideoController` + Registro de Classe Display `{4d36e968-e325-11ce-bfc1-08002be10318}` ou lista complementar injetável para testes determinísticos).
+- Implementar `MergeGpuAdapters(IReadOnlyList<GpuAdapterTelemetryPoint> lhmAdapters, IReadOnlyList<GpuAdapterTelemetryPoint> wmiAdapters)`:
+  - Mesclar por `PNPDeviceID` normalizado (PCI Vendor/Device/Subsys) ou nome canônico do adaptador, evitando duplicações.
+  - Preservar integralmente os sensores válidos do LibreHardwareMonitor (`CoreTempC`, `HotspotTempC`, `LoadPercent`, `CoreClockMhz`, `PowerWatts`, `FanRpm`, `VramUsedMb`) e enriquecer com metadados do WMI/Registro (`DriverVersion`, `PnpDeviceId`, `VramTotalMb` 64-bit) sem jamais sobrescrever um sensor válido com `null`.
+  - Nunca presumir que uma GPU integrada é a principal quando houver GPU dedicada presente.
 
 ---
 
-## 4. Software Center — Pesquisa Dinâmica WinGet, Versões e Assinatura Digital Real
+## 3. Correção Definitiva dos Diagnósticos de Rede (`NetworkDiagnosticsService.cs`)
 
-### Evolução em `WingetSoftwareCenterService.cs`
-- Substituir o booleano fixo `VerifiedDigitalSignature = true` por um enum real `SignatureVerificationState` (`NotVerifiedYet`, `VerifiedAuthenticode`, `VerifiedWingetManifestHash`, `UnsignedOrInvalid`, `VerificationUnavailable`) e método real `VerifyFileAuthenticodeSignature(string filePath)` usando `X509Certificate.CreateFromSignedFile` / `X509Certificate2`.
-- Adicionar métodos dinâmicos reais via CLI `winget`:
-  - `SearchDynamicWingetAsync(string query, CancellationToken ct)`: executa `winget search` e faz o parse das linhas retornadas (Nome, ID, Versão, Origem).
-  - `GetInstalledPackagesAsync(string? filterQuery, CancellationToken ct)`: executa `winget list` e identifica versão instalada e versão disponível para atualização.
-  - Progresso real via `IProgress<string>` capturando o stream de saída do `winget` linha a linha, validação estrita da origem (`--source winget`) e bloqueio total de instalação sem confirmação explícita (`userConfirmed == true`).
+### Causa Raiz Identificada
+- Em `NetworkDiagnosticsReport`, o campo `PacketLossPercent` era `double` não-anulável e usava `overallIcmpLossPercent ?? 0.0`, transformando um estado ICMP nulo/inconclusivo (`FilteredOrBlocked`) em `0.0%` de perda!
+- Além disso, ausência de resposta ICMP sem evidência complementar precisa diferenciar entre:
+  - `IcmpProbeStatus.Responded` (0% perda comprovada por amostras)
+  - `IcmpProbeStatus.PartialLoss` (perda parcial comprovada por amostras)
+  - `IcmpProbeStatus.FilteredOrBlocked` (ICMP sem resposta, mas host alcançável em TCP/DNS -> perda ICMP inconclusiva / `null`)
+  - `IcmpProbeStatus.Unreachable` (destino comprovadamente inacessível em múltiplas sondagens e protocolos)
+  - `IcmpProbeStatus.Inconclusive` (teste inconclusivo / sem evidência suficiente para afirmar 100% de perda)
 
----
-
-## 5. GPU Thermal Auditor — Limites Justificados e Transparência de Dados
-
-### Refinamento em `GpuThermalAuditor.cs`
-- Não utilizar a `RX 7900 XTX` como padrão global em nenhum método.
-- Não inventar limites térmicos arbitrários por fabricante quando o hardware não informar o limite; avaliar com base em faixas técnicas conservadoras e informar explicitamente `"Avaliação térmica limitada: sensor de Hotspot/Junction não disponibilizado por esta GPU/driver"` quando apenas a temperatura Core existir, ou `"Avaliação térmica indisponível"` quando nenhum sensor térmico estiver acessível.
+### Solução Arquitetural
+- Alterar `PacketLossPercent` em `NetworkDiagnosticsReport` para `double?` (anulável) e adicionar `string FormattedPacketLoss` que retorna `"Não mensurável (ICMP Filtrado/Inconclusivo)"` quando `PacketLossPercent == null`, nunca inventando `0.0%` ou `100.0%` sem evidência.
+- Separar `AverageIcmpLatencyMs` (`double?`) de `AverageTcpHandshakeMs` (`double?`) para que latência ICMP e tempo de handshake TCP jamais sejam misturados na mesma métrica.
 
 ---
 
-## 6. Testes Automatizados e Verificação de Build
-- Atualizar e expandir `UniversalHardwareAndCompatibilityTests.cs` e `GameNetworkAcceleratorTests.cs` cobrindo:
-  - Enumeração multi-GPU independente (AMD + Radeon, Intel + NVIDIA, Intel Arc, GPU Integrada, Notebook Híbrido iGPU + dGPU, Múltiplas GPUs dedicadas).
-  - Bateria real vs. desconhecida (nunca 100% fixo sem leitura real), núcleos físicos reais vs. indisponíveis (`null`), geração de RAM real vs. `"Indisponível"`.
-  - Separação estrita entre `IcmpProbeStatus.FilteredOrBlocked`, `TcpConnectionProbeState` e `DnsResolutionState`, e regressão contra os 50% de perda artificial.
-  - Verificação dinâmica e de assinatura no `WingetSoftwareCenterService`.
-- Verificar se o SDK `.NET` está instalado no container Linux atual (`dotnet restore`, `dotnet build`, `dotnet test`, `dotnet publish`) e relatar com 100% de transparência e evidência real o resultado de cada comando executado no ambiente.
+## 4. Validação Criptográfica Authenticode Real via `WinVerifyTrust` (`WingetSoftwareCenterService.cs`)
+
+### Causa Raiz Identificada
+- `X509Certificate.CreateFromSignedFile` apenas extrai o certificado embutido sem validar o hash criptográfico Authenticode do binário PE/MSI contra adulteração, além de gerar aviso de API obsoleta (`SYSLIB0057`).
+
+### Solução Arquitetural
+- Implementar P/Invoke nativo para `WinVerifyTrust` (`wintrust.dll`) com `WINTRUST_ACTION_GENERIC_VERIFY_V2` (`{00AAC56B-CD44-11d0-8CC2-00C04FC295EE}`), `WINTRUST_DATA` e `WINTRUST_FILE_INFO`:
+  - Validar integridade criptográfica do hash do arquivo, cadeia de confiança, validade temporal e política de revogação (`WTD_REVOKE_WHOLECHAIN` quando online, ou retorno explícito `InconclusiveRevocationOffline` quando sem rede).
+  - Extrair dados do certificado signatário sem usar `X509Certificate.CreateFromSignedFile` obsoleto, eliminando avisos de compilação e operações assíncronas inadequadas.
+
+---
+
+## 5. Testes Automatizados Obrigatórios
+- Expandir `tests/PCControlUltimate.Tests/UniversalHardwareAndCompatibilityTests.cs` com testes cobrindo:
+  1. Mesclagem multi-GPU LHM + WMI por `PNPDeviceID` sem duplicar e sem sobrescrever sensores válidos nos cenários:
+     - Notebook híbrido Intel iGPU + NVIDIA dGPU
+     - Notebook híbrido AMD iGPU + NVIDIA dGPU
+     - Sistema AMD iGPU + AMD Radeon dGPU
+     - Workstation com múltiplas GPUs dedicadas
+  2. Diagnóstico de rede nos 5 cenários:
+     - Firewall bloqueando ICMP com TCP funcionando (`FilteredOrBlocked`, `PacketLossPercent == null`, `"Não mensurável"`)
+     - ICMP funcionando com TCP bloqueado/recusado (`Responded`, `PacketLossPercent == 0.0`, `TcpState == ConnectionRefused`)
+     - Perda parcial real de pacotes ICMP (`PartialLoss`)
+     - Teste inconclusivo (`Inconclusive`)
+     - Ausência total de conectividade (`Unreachable`)
+  3. Verificação Authenticode via `WinVerifyTrust` e endpoints de `PrivilegedAgentServer` (`/api/network/diagnostics` e `/api/network/throughput`).

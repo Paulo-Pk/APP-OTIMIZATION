@@ -145,6 +145,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly AgentClientService _agentClient;
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly DatabaseService _databaseService;
+    private readonly NetworkDiagnosticsService _networkDiagnostics;
     private CancellationTokenSource? _presentMonCts;
 
     public LocalizationService Loc { get; }
@@ -567,7 +568,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
 
-    public MainViewModel() : this(new AgentClientService(), null, new LocalizationService(), new DatabaseService())
+    public MainViewModel() : this(new AgentClientService(), null, new LocalizationService(), new DatabaseService(), new NetworkDiagnosticsService())
     {
     }
 
@@ -575,12 +576,14 @@ public class MainViewModel : INotifyPropertyChanged
         AgentClientService agentClient,
         IHardwareMonitorService? hardwareMonitor,
         LocalizationService? localizationService = null,
-        DatabaseService? databaseService = null)
+        DatabaseService? databaseService = null,
+        NetworkDiagnosticsService? networkDiagnostics = null)
     {
         _agentClient = agentClient;
         _hardwareMonitor = hardwareMonitor;
         Loc = localizationService ?? new LocalizationService();
         _databaseService = databaseService ?? new DatabaseService();
+        _networkDiagnostics = networkDiagnostics ?? new NetworkDiagnosticsService();
         _restoreProgressStatus = Loc["RestoreProgressIdle"];
 
         InitializeModuleCapabilityMatrix();
@@ -897,44 +900,39 @@ public class MainViewModel : INotifyPropertyChanged
         RunNetworkDiagCommand = new RelayCommand(async _ =>
         {
             NetworkSummaryText = "Executando diagnósticos separados ICMP Echo, TCP Handshake e DNS...";
-            var resultObj = await NetworkDiagnosticsService.RunRealDiagnosticsAsync();
-            string json = JsonSerializer.Serialize(resultObj);
-            using var doc = JsonDocument.Parse(json);
+            var report = await _networkDiagnostics.RunRealDiagnosticsAsync();
 
             NetworkEndpoints.Clear();
-            if (doc.RootElement.TryGetProperty("endpointDetails", out var eps) && eps.ValueKind == JsonValueKind.Array)
+            if (report.EndpointDetails != null)
             {
-                foreach (var ep in eps.EnumerateArray())
+                foreach (var ep in report.EndpointDetails)
                 {
-                    var item = JsonSerializer.Deserialize<NetworkEndpointTestResult>(ep.GetRawText());
-                    if (item != null) NetworkEndpoints.Add(item);
+                    NetworkEndpoints.Add(ep);
                 }
             }
 
             DnsResults.Clear();
-            if (doc.RootElement.TryGetProperty("dnsChecks", out var dnsArr) && dnsArr.ValueKind == JsonValueKind.Array)
+            if (report.DnsChecks != null)
             {
-                foreach (var d in dnsArr.EnumerateArray())
+                foreach (var d in report.DnsChecks)
                 {
-                    var item = JsonSerializer.Deserialize<DnsQueryResult>(d.GetRawText());
-                    if (item != null) DnsResults.Add(item);
+                    DnsResults.Add(d);
                 }
             }
 
             NetworkHistory.Clear();
-            foreach (var h in NetworkDiagnosticsService.GetDiagnosticHistory())
+            foreach (var h in _networkDiagnostics.GetDiagnosticHistory())
             {
                 NetworkHistory.Add(h);
             }
 
-            double loss = doc.RootElement.TryGetProperty("packetLoss", out var pl) ? pl.GetDouble() : 0;
-            NetworkSummaryText = $"Diagnóstico concluído ({DateTime.Now:HH:mm:ss}) · Perda TCP medida: {loss:F1}%";
+            NetworkSummaryText = $"Diagnóstico concluído ({DateTime.Now:HH:mm:ss}) · Perda ICMP: {report.FormattedPacketLoss} · TCP: {report.TcpState} ({report.TcpReachabilityPercent:F0}%)";
         });
 
         RunExternalThroughputCommand = new RelayCommand(async _ =>
         {
             ExternalThroughputText = "Medindo download real contra https://speed.cloudflare.com/__down ...";
-            var res = await NetworkDiagnosticsService.MeasureExternalThroughputAsync();
+            var res = await _networkDiagnostics.MeasureExternalThroughputAsync();
             if (res.Available && res.DownloadMbps.HasValue)
             {
                 ExternalThroughputText = $"Throughput Real: {res.DownloadMbps.Value:F1} Mbps ({res.BytesTransferred / 1024} KB em {res.DurationMs} ms via Cloudflare CDN)";
@@ -945,7 +943,7 @@ public class MainViewModel : INotifyPropertyChanged
             }
 
             NetworkHistory.Clear();
-            foreach (var h in NetworkDiagnosticsService.GetDiagnosticHistory())
+            foreach (var h in _networkDiagnostics.GetDiagnosticHistory())
             {
                 NetworkHistory.Add(h);
             }

@@ -6,6 +6,7 @@ using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
@@ -16,12 +17,19 @@ namespace PCControlUltimate.Hardware;
 
 /// <summary>
 /// Universal Hardware Engine (§3 & §5):
-/// Multi-source hardware detection, independent multi-GPU enumeration (LHM + WMI Win32_VideoController + Registry Display Class),
-/// real SMBIOS memory generation/speed detection, real WMI physical core detection, and real Win32 battery status.
-/// Never presents estimated or hardcoded values as real hardware readings.
+/// - Enumerates adapters from LibreHardwareMonitor AND independently queries Windows WMI/Registry video adapters.
+/// - Merges results by normalized PNPDeviceID (PCI VEN/DEV/SUBSYS) and canonical model name, avoiding duplicates
+///   while preserving valid LHM sensors and never overwriting valid readings with null.
+/// - Never presumes an integrated GPU is primary when a discrete GPU is installed.
+/// - Never invents or estimates values for CPU physical cores, RAM generation, or battery percentage.
 /// </summary>
 public class UniversalHardwareEngine
 {
+    private static readonly Regex PciVenDevRegex = new(
+        @"VEN_[0-9A-F]{4}&DEV_[0-9A-F]{4}(?:&SUBSYS_[0-9A-F]{8})?",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant
+    );
+
     private readonly IHardwareMonitorService _monitorService;
 
     public UniversalHardwareEngine(IHardwareMonitorService monitorService)
@@ -38,7 +46,8 @@ public class UniversalHardwareEngine
         int? batteryChargePercentOverride = null,
         int? physicalCoresOverride = null,
         string? memoryGenerationOverride = null,
-        int? memorySpeedMtOverride = null)
+        int? memorySpeedMtOverride = null,
+        IReadOnlyList<GpuAdapterTelemetryPoint>? complementaryWmiGpuAdaptersOverride = null)
     {
         var snapshot = existingSnapshot ?? await _monitorService.CaptureSnapshotAsync();
         DateTime now = DateTime.UtcNow;
@@ -56,7 +65,7 @@ public class UniversalHardwareEngine
         var cpuVendor = DetectCpuVendor(rawCpuName);
         string cpuArch = RuntimeInformation.OSArchitecture.ToString();
         int logicalCores = wmiLogicalProcessors ?? Math.Max(1, Environment.ProcessorCount);
-        int? physicalCores = physicalCoresOverride ?? wmiPhysicalCores; // Null when WMI is unavailable; never estimated by dividing by 2
+        int? physicalCores = physicalCoresOverride ?? wmiPhysicalCores;
         bool isHybridCpu = IsHybridCpuArchitecture(rawCpuName, cpuVendor);
 
         var cpuCapabilities = new HardwareComponentCapabilityMatrix(
@@ -89,12 +98,16 @@ public class UniversalHardwareEngine
             Capabilities: cpuCapabilities
         );
 
-        // 2. Independent Multi-GPU Enumeration (LHM GpuAdapters + WMI Win32_VideoController + Registry Display Class)
-        var gpus = EnumerateAllGpusIndependently(snapshot, sensorSubsystemAvailable, isAdmin);
-        var primaryGpu = gpus
-            .OrderByDescending(g => g.IsDiscrete)
-            .ThenByDescending(g => g.VramTotalMb.Value ?? 0f)
-            .FirstOrDefault();
+        // 2. Independent Multi-GPU Enumeration & Merging (Always combines LHM + WMI/Registry adapters)
+        var gpus = EnumerateAllGpusIndependently(
+            snapshot,
+            sensorSubsystemAvailable,
+            isAdmin,
+            complementaryWmiGpuAdaptersOverride
+        );
+
+        // Never presume an integrated GPU is primary when a discrete GPU is present
+        var primaryGpu = SelectPrimaryGpuAdapter(gpus);
 
         // 3. Memory Identification (Queries real SMBIOSMemoryType and ConfiguredClockSpeed; null when unavailable)
         float? ramUsed = snapshot.RamUsedGb;
@@ -181,6 +194,176 @@ public class UniversalHardwareEngine
         );
     }
 
+    public static DetectedGpuAdapterInfo? SelectPrimaryGpuAdapter(IReadOnlyList<DetectedGpuAdapterInfo> gpus)
+    {
+        if (gpus == null || gpus.Count == 0) return null;
+
+        // Always prioritize discrete GPUs over integrated GPUs, then by available sensors, then by VRAM capacity
+        return gpus
+            .OrderByDescending(g => g.IsDiscrete)
+            .ThenByDescending(g => g.Capabilities.SensorAvailable)
+            .ThenByDescending(g => g.VramTotalMb.Value ?? 0f)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Merges GPU adapters enumerated by LibreHardwareMonitor with GPU adapters enumerated via WMI/Registry.
+    /// - Deduplicates by normalized PCI PNPDeviceID (VEN_xxxx&DEV_xxxx) or canonical model name.
+    /// - Preserves all valid sensor values from LHM without overwriting them with null values from WMI.
+    /// - Adds any GPU detected by WMI that LHM missed (e.g., sleeping dGPU in hybrid laptop or secondary adapter).
+    /// </summary>
+    public static IReadOnlyList<GpuAdapterTelemetryPoint> MergeGpuAdapters(
+        IReadOnlyList<GpuAdapterTelemetryPoint>? lhmAdapters,
+        IReadOnlyList<GpuAdapterTelemetryPoint>? wmiAdapters)
+    {
+        var merged = new List<GpuAdapterTelemetryPoint>();
+
+        if (lhmAdapters != null)
+        {
+            foreach (var lhm in lhmAdapters)
+            {
+                if (!string.IsNullOrWhiteSpace(lhm.Model))
+                {
+                    merged.Add(lhm);
+                }
+            }
+        }
+
+        if (wmiAdapters == null || wmiAdapters.Count == 0)
+        {
+            return merged;
+        }
+
+        var matchedLhmIndices = new HashSet<int>();
+
+        foreach (var wmi in wmiAdapters)
+        {
+            if (string.IsNullOrWhiteSpace(wmi.Model)) continue;
+
+            int matchIndex = FindMatchingAdapterIndex(merged, matchedLhmIndices, wmi);
+            if (matchIndex >= 0)
+            {
+                matchedLhmIndices.Add(matchIndex);
+                var existing = merged[matchIndex];
+
+                // Merge without ever overwriting valid LHM sensor readings with null from WMI
+                merged[matchIndex] = new GpuAdapterTelemetryPoint(
+                    Model: !string.IsNullOrWhiteSpace(existing.Model) ? existing.Model : wmi.Model,
+                    HardwareType: !string.IsNullOrWhiteSpace(existing.HardwareType) ? existing.HardwareType : wmi.HardwareType,
+                    CoreTempC: existing.CoreTempC ?? wmi.CoreTempC,
+                    HotspotTempC: existing.HotspotTempC ?? wmi.HotspotTempC,
+                    LoadPercent: existing.LoadPercent ?? wmi.LoadPercent,
+                    CoreClockMhz: existing.CoreClockMhz ?? wmi.CoreClockMhz,
+                    PowerWatts: existing.PowerWatts ?? wmi.PowerWatts,
+                    FanRpm: existing.FanRpm ?? wmi.FanRpm,
+                    VramUsedMb: existing.VramUsedMb ?? wmi.VramUsedMb,
+                    VramTotalMb: existing.VramTotalMb ?? wmi.VramTotalMb,
+                    DriverVersion: !string.IsNullOrWhiteSpace(existing.DriverVersion) ? existing.DriverVersion : wmi.DriverVersion,
+                    PnpDeviceId: PreferPnpDeviceId(existing.PnpDeviceId, wmi.PnpDeviceId)
+                );
+            }
+            else
+            {
+                merged.Add(wmi);
+            }
+        }
+
+        return merged;
+    }
+
+    private static int FindMatchingAdapterIndex(
+        List<GpuAdapterTelemetryPoint> existingList,
+        HashSet<int> alreadyMatchedIndices,
+        GpuAdapterTelemetryPoint candidate)
+    {
+        string? candidatePciKey = ExtractNormalizedPciKey(candidate.PnpDeviceId);
+
+        // Pass 1: Match by exact or normalized PCI VEN_xxxx&DEV_xxxx key
+        if (!string.IsNullOrEmpty(candidatePciKey))
+        {
+            for (int i = 0; i < existingList.Count; i++)
+            {
+                if (alreadyMatchedIndices.Contains(i)) continue;
+                string? existingPciKey = ExtractNormalizedPciKey(existingList[i].PnpDeviceId);
+                if (!string.IsNullOrEmpty(existingPciKey) &&
+                    string.Equals(existingPciKey, candidatePciKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+        }
+
+        // Pass 2: Match by full PnpDeviceId if neither had a standard PCI VEN/DEV substring
+        if (!string.IsNullOrWhiteSpace(candidate.PnpDeviceId))
+        {
+            for (int i = 0; i < existingList.Count; i++)
+            {
+                if (alreadyMatchedIndices.Contains(i)) continue;
+                if (!string.IsNullOrWhiteSpace(existingList[i].PnpDeviceId) &&
+                    string.Equals(existingList[i].PnpDeviceId!.Trim(), candidate.PnpDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+        }
+
+        // Pass 3: Match by canonical GPU model name (only if the existing item did not have a conflicting PCI key)
+        string candidateCanonical = NormalizeGpuModelName(candidate.Model);
+        for (int i = 0; i < existingList.Count; i++)
+        {
+            if (alreadyMatchedIndices.Contains(i)) continue;
+            string? existingPciKey = ExtractNormalizedPciKey(existingList[i].PnpDeviceId);
+            if (!string.IsNullOrEmpty(existingPciKey) && !string.IsNullOrEmpty(candidatePciKey) &&
+                !string.Equals(existingPciKey, candidatePciKey, StringComparison.OrdinalIgnoreCase))
+            {
+                // Different physical PCI devices (e.g., two identical GPUs in a multi-GPU workstation with different instance IDs)
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(existingList[i].PnpDeviceId) &&
+                !string.IsNullOrWhiteSpace(candidate.PnpDeviceId) &&
+                existingList[i].PnpDeviceId!.StartsWith("PCI\\", StringComparison.OrdinalIgnoreCase) &&
+                candidate.PnpDeviceId.StartsWith("PCI\\", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(existingList[i].PnpDeviceId!.Trim(), candidate.PnpDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                // Distinct full PCI instance paths (e.g., two identical cards in different PCIe slots) -> do not merge!
+                continue;
+            }
+
+            string existingCanonical = NormalizeGpuModelName(existingList[i].Model);
+            if (string.Equals(existingCanonical, candidateCanonical, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    public static string? ExtractNormalizedPciKey(string? pnpDeviceId)
+    {
+        if (string.IsNullOrWhiteSpace(pnpDeviceId)) return null;
+        var match = PciVenDevRegex.Match(pnpDeviceId);
+        return match.Success ? match.Value.ToUpperInvariant() : null;
+    }
+
+    private static string NormalizeGpuModelName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+        return name
+            .Replace("(TM)", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("(R)", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("Series", "", StringComparison.OrdinalIgnoreCase)
+            .Trim();
+    }
+
+    private static string? PreferPnpDeviceId(string? existingId, string? wmiId)
+    {
+        if (!string.IsNullOrWhiteSpace(wmiId) && wmiId.StartsWith("PCI\\", StringComparison.OrdinalIgnoreCase))
+            return wmiId;
+        return !string.IsNullOrWhiteSpace(existingId) ? existingId : wmiId;
+    }
+
     public static HardwareVendor DetectCpuVendor(string? cpuName)
     {
         if (string.IsNullOrWhiteSpace(cpuName)) return HardwareVendor.Unknown;
@@ -243,7 +426,10 @@ public class UniversalHardwareEngine
 
         return gpuName.Contains("Radeon 780M", StringComparison.OrdinalIgnoreCase) ||
                gpuName.Contains("Radeon 760M", StringComparison.OrdinalIgnoreCase) ||
+               gpuName.Contains("Radeon 740M", StringComparison.OrdinalIgnoreCase) ||
                gpuName.Contains("Radeon 680M", StringComparison.OrdinalIgnoreCase) ||
+               gpuName.Contains("Radeon 660M", StringComparison.OrdinalIgnoreCase) ||
+               gpuName.Contains("Radeon 890M", StringComparison.OrdinalIgnoreCase) ||
                gpuName.Contains("Radeon Vega", StringComparison.OrdinalIgnoreCase) ||
                gpuName.Contains("Adreno", StringComparison.OrdinalIgnoreCase) ||
                gpuName.Contains("Intel(R) Graphics", StringComparison.OrdinalIgnoreCase);
@@ -265,7 +451,6 @@ public class UniversalHardwareEngine
         string cpuName = cpu.Name;
         string gpuName = primaryGpu?.Name ?? string.Empty;
 
-        // 1. Corporate / Policy-managed PC
         if (isCorporateManaged)
         {
             return (
@@ -274,13 +459,13 @@ public class UniversalHardwareEngine
             );
         }
 
-        // 2. Workstation (Threadripper / Xeon / Radeon PRO / NVIDIA RTX A-series / >= 64GB RAM + >= 24 threads)
         if (cpuName.Contains("Threadripper", StringComparison.OrdinalIgnoreCase) ||
             cpuName.Contains("Xeon", StringComparison.OrdinalIgnoreCase) ||
             cpuName.Contains("EPYC", StringComparison.OrdinalIgnoreCase) ||
             gpuName.Contains("Radeon PRO", StringComparison.OrdinalIgnoreCase) ||
             gpuName.Contains("RTX A", StringComparison.OrdinalIgnoreCase) ||
             gpuName.Contains("Quadro", StringComparison.OrdinalIgnoreCase) ||
+            gpus.Count(g => g.IsDiscrete) >= 2 ||
             (ramGb >= 64f && cpu.LogicalProcessors >= 24))
         {
             return (
@@ -289,7 +474,6 @@ public class UniversalHardwareEngine
             );
         }
 
-        // 3. Notebook / Portable (Has battery; may be hybrid iGPU + dGPU or ultra-portable)
         if (hasBattery)
         {
             string gpuNote = isHybridMultiGpu
@@ -303,7 +487,6 @@ public class UniversalHardwareEngine
             );
         }
 
-        // 4. High Performance / Enthusiast Desktop (High core count + high VRAM/RAM)
         if (hasDiscreteGpu && (vramMb >= 12000f || (ramGb >= 32f && cpu.LogicalProcessors >= 16)))
         {
             return (
@@ -312,7 +495,6 @@ public class UniversalHardwareEngine
             );
         }
 
-        // 5. Gamer Desktop (Any discrete GPU)
         if (hasDiscreteGpu)
         {
             return (
@@ -321,34 +503,27 @@ public class UniversalHardwareEngine
             );
         }
 
-        // 6. Basic / Integrated Graphics PC
         return (
             SystemHardwareProfile.Basic,
             "Computador com vídeo integrado ou sem GPU dedicada detectado. Foco em responsividade do Windows, redução de consumo de RAM e inicialização rápida."
         );
     }
 
-    /// <summary>
-    /// Enumerates all GPUs present in the system independently:
-    /// 1) All adapters captured in snapshot.GpuAdapters (LibreHardwareMonitor / multi-GPU snapshot)
-    /// 2) WMI Win32_VideoController + Registry Display Class adapters not yet in the list
-    /// 3) Fallback to snapshot.GpuModelName when GpuAdapters is null/empty
-    /// Each GPU receives its own independent identification, sensors, capabilities, and status.
-    /// </summary>
     private static List<DetectedGpuAdapterInfo> EnumerateAllGpusIndependently(
         HardwareSnapshot snapshot,
         bool sensorSubsystemAvailable,
-        bool isAdmin)
+        bool isAdmin,
+        IReadOnlyList<GpuAdapterTelemetryPoint>? complementaryWmiGpuAdaptersOverride)
     {
-        var adapterPoints = new List<GpuAdapterTelemetryPoint>();
+        var lhmPoints = new List<GpuAdapterTelemetryPoint>();
 
         if (snapshot.GpuAdapters != null && snapshot.GpuAdapters.Count > 0)
         {
-            adapterPoints.AddRange(snapshot.GpuAdapters);
+            lhmPoints.AddRange(snapshot.GpuAdapters);
         }
         else if (!string.IsNullOrWhiteSpace(snapshot.GpuModelName))
         {
-            adapterPoints.Add(new GpuAdapterTelemetryPoint(
+            lhmPoints.Add(new GpuAdapterTelemetryPoint(
                 Model: snapshot.GpuModelName!,
                 HardwareType: "Gpu",
                 CoreTempC: snapshot.GpuCoreTemp,
@@ -364,26 +539,26 @@ public class UniversalHardwareEngine
             ));
         }
 
-        // Merge with OS-level WMI & Registry video controllers when running on Windows and not using a synthetic test snapshot
-        if (OperatingSystem.IsWindows() && snapshot.GpuAdapters == null && string.IsNullOrWhiteSpace(snapshot.GpuModelName))
+        // Always query complementary Windows WMI + Registry adapters (or use provided complementary list in tests)
+        // so that GPUs not exposed by LibreHardwareMonitor are still enumerated and merged by PNPDeviceID!
+        IReadOnlyList<GpuAdapterTelemetryPoint> wmiPoints;
+        if (complementaryWmiGpuAdaptersOverride != null)
         {
-            foreach (var osGpu in QueryWmiAndRegistryGpuAdapters())
-            {
-                bool alreadyPresent = adapterPoints.Any(existing =>
-                    string.Equals(existing.Model, osGpu.Model, StringComparison.OrdinalIgnoreCase) ||
-                    (!string.IsNullOrWhiteSpace(existing.PnpDeviceId) &&
-                     !string.IsNullOrWhiteSpace(osGpu.PnpDeviceId) &&
-                     string.Equals(existing.PnpDeviceId, osGpu.PnpDeviceId, StringComparison.OrdinalIgnoreCase)));
-
-                if (!alreadyPresent)
-                {
-                    adapterPoints.Add(osGpu);
-                }
-            }
+            wmiPoints = complementaryWmiGpuAdaptersOverride;
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            wmiPoints = QueryWmiAndRegistryGpuAdapters();
+        }
+        else
+        {
+            wmiPoints = Array.Empty<GpuAdapterTelemetryPoint>();
         }
 
+        var mergedPoints = MergeGpuAdapters(lhmPoints, wmiPoints);
         var list = new List<DetectedGpuAdapterInfo>();
-        foreach (var pt in adapterPoints)
+
+        foreach (var pt in mergedPoints)
         {
             if (string.IsNullOrWhiteSpace(pt.Model)) continue;
 
@@ -436,7 +611,8 @@ public class UniversalHardwareEngine
                 RequiresDriver: !hasCoreTemp && !pt.LoadPercent.HasValue,
                 RequiresAdmin: !isAdmin && !hasCoreTemp,
                 NotSupported: false,
-                CapabilityNotes: $"Adaptador independente ({archFamily}): {(isDiscrete ? "GPU Dedicada" : "GPU Integrada")}. Telemetria somente-leitura."
+                CapabilityNotes: $"Adaptador independente ({archFamily}): {(isDiscrete ? "GPU Dedicada" : "GPU Integrada")}. " +
+                                 (hasCoreTemp ? "Sensores físicos ativos." : "Componente identificado via WMI; sensores físicos indisponíveis ou adaptador em economia de energia.")
             );
 
             list.Add(new DetectedGpuAdapterInfo(
@@ -459,7 +635,12 @@ public class UniversalHardwareEngine
             ));
         }
 
-        return list;
+        // Order so discrete GPUs come before integrated GPUs
+        return list
+            .OrderByDescending(g => g.IsDiscrete)
+            .ThenByDescending(g => g.Capabilities.SensorAvailable)
+            .ThenByDescending(g => g.VramTotalMb.Value ?? 0f)
+            .ToList();
     }
 
     [SupportedOSPlatform("windows")]
@@ -720,7 +901,7 @@ public class UniversalHardwareEngine
 
         return hasTempSensor
             ? $"{vendorStr}: sensores térmicos e de carga ativos."
-            : $"{vendorStr}: identificação ativa; leitura térmica física requer driver de sensores/elevação UAC.";
+            : $"{vendorStr}: componente identificado; sensores térmicos físicos requerem driver/elevação UAC.";
     }
 
     private static bool IsHybridCpuArchitecture(string cpuName, HardwareVendor vendor)

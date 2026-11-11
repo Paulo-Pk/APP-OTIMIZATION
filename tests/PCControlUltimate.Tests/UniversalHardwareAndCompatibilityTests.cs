@@ -240,13 +240,220 @@ public class UniversalHardwareAndCompatibilityTests
     }
 
     [Fact]
-    public void NetworkDiagnosticsService_SeparatesIcmpLossFromTcpStates_AndEliminates50PercentArtificialLossBug()
+    public async Task UniversalHardwareEngine_MergesLhmAndWmiGpuAdapters_WithoutDuplicationOrOverwritingValidSensors()
     {
-        // 1. Default endpoints must never contain Valve UDP port 27015 or unreachable edge targets
+        // Hybrid Notebook: Intel Iris Xe iGPU + NVIDIA RTX 4070 Laptop dGPU
+        // Simulate LHM detecting ONLY the NVIDIA dGPU with rich telemetry, while WMI enumerates BOTH Intel iGPU and NVIDIA dGPU (with null telemetry for temperature/load)
+        var lhmAdapters = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                Model: "NVIDIA GeForce RTX 4070 Laptop GPU",
+                HardwareType: "GpuNvidia",
+                CoreTempC: 66f,
+                HotspotTempC: 78f,
+                LoadPercent: 85f,
+                CoreClockMhz: 2190f,
+                PowerWatts: 108f,
+                FanRpm: 3100f,
+                VramUsedMb: 5120f,
+                VramTotalMb: 8192f,
+                DriverVersion: null,
+                PnpDeviceId: "PCI\\VEN_10DE&DEV_2860&SUBSYS_12341043&REV_A1\\4&112233&0&0008"
+            )
+        };
+
+        var wmiAdapters = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                Model: "Intel(R) Iris(R) Xe Graphics",
+                HardwareType: "GpuIntel",
+                CoreTempC: null,
+                HotspotTempC: null,
+                LoadPercent: null,
+                CoreClockMhz: null,
+                PowerWatts: null,
+                FanRpm: null,
+                VramUsedMb: null,
+                VramTotalMb: 1024f,
+                DriverVersion: "31.0.101.5333",
+                PnpDeviceId: "PCI\\VEN_8086&DEV_A7A0&SUBSYS_12341043&REV_04\\3&11583659&0&10"
+            ),
+            new GpuAdapterTelemetryPoint(
+                Model: "NVIDIA GeForce RTX 4070 Laptop GPU",
+                HardwareType: "GpuNvidia",
+                CoreTempC: null,
+                HotspotTempC: null,
+                LoadPercent: null,
+                CoreClockMhz: null,
+                PowerWatts: null,
+                FanRpm: null,
+                VramUsedMb: null,
+                VramTotalMb: 4095f, // WMI uint32 AdapterRAM cap
+                DriverVersion: "32.0.15.6094",
+                PnpDeviceId: "PCI\\VEN_10DE&DEV_2860&SUBSYS_12341043&REV_A1\\4&112233&0&0008"
+            )
+        };
+
+        var snapshot = CreateSnapshot(
+            cpuModel: "Intel Core i7-13700H",
+            cpuTemp: 69f,
+            gpuModel: "Intel(R) Iris(R) Xe Graphics", // Even if snapshot top-level model pointed to iGPU, PrimaryGpu must pick the discrete GPU
+            gpuTemp: 66f,
+            gpuHotspot: 78f,
+            vramTotalMb: 8192f,
+            ramUsedGb: 12f,
+            ramTotalGb: 32f,
+            gpuAdapters: lhmAdapters
+        );
+
+        using var stub = new ConfigurableHardwareMonitorStub(snapshot);
+        var engine = new UniversalHardwareEngine(stub);
+
+        var report = await engine.BuildUniversalReportAsync(
+            snapshot,
+            hasBatteryOverride: true,
+            batteryChargePercentOverride: 76,
+            isRunningAsAdminOverride: true,
+            complementaryWmiGpuAdaptersOverride: wmiAdapters);
+
+        // Must contain both GPUs without duplicating the NVIDIA dGPU
+        Assert.Equal(2, report.Gpus.Count);
+
+        var intelIgpu = Assert.Single(report.Gpus, g => g.Vendor == HardwareVendor.Intel);
+        Assert.True(intelIgpu.IsIntegrated);
+        Assert.False(intelIgpu.IsDiscrete);
+        Assert.Equal("31.0.101.5333", intelIgpu.DriverVersion);
+        Assert.False(intelIgpu.CoreTemperatureC.IsAvailable);
+
+        var nvidiaDgpu = Assert.Single(report.Gpus, g => g.Vendor == HardwareVendor.Nvidia);
+        Assert.True(nvidiaDgpu.IsDiscrete);
+        Assert.False(nvidiaDgpu.IsIntegrated);
+        // Valid LHM sensors must NEVER be overwritten by WMI null values
+        Assert.True(nvidiaDgpu.CoreTemperatureC.IsAvailable);
+        Assert.Equal(66f, nvidiaDgpu.CoreTemperatureC.Value);
+        Assert.True(nvidiaDgpu.HotspotTemperatureC.IsAvailable);
+        Assert.Equal(78f, nvidiaDgpu.HotspotTemperatureC.Value);
+        Assert.Equal(8192f, nvidiaDgpu.VramTotalMb.Value);
+        // DriverVersion missing in LHM is enriched from WMI
+        Assert.Equal("32.0.15.6094", nvidiaDgpu.DriverVersion);
+
+        // Primary GPU must be the discrete NVIDIA GPU, never presuming the integrated Intel GPU is primary
+        Assert.NotNull(report.PrimaryGpu);
+        Assert.Equal(nvidiaDgpu.Name, report.PrimaryGpu!.Name);
+        Assert.True(report.PrimaryGpu.IsDiscrete);
+    }
+
+    [Fact]
+    public async Task UniversalHardwareEngine_SupportsAmdIntegratedPlusAmdDiscrete_AndMultiDiscreteGpuWorkstations()
+    {
+        // Case 1: AMD Integrated (Radeon 780M) + AMD Discrete (Radeon RX 7800 XT)
+        var lhmAmdOnlyDiscrete = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                Model: "AMD Radeon RX 7800 XT",
+                HardwareType: "GpuAmd",
+                CoreTempC: 61f,
+                HotspotTempC: 79f,
+                LoadPercent: 94f,
+                CoreClockMhz: 2430f,
+                PowerWatts: 252f,
+                FanRpm: 1680f,
+                VramUsedMb: 9200f,
+                VramTotalMb: 16384f,
+                DriverVersion: "31.0.24033.1003",
+                PnpDeviceId: "PCI\\VEN_1002&DEV_747E&SUBSYS_E4711DA2&REV_C8\\6&2A3B4C5D&0&00000008"
+            )
+        };
+
+        var wmiBothAmd = new[]
+        {
+            new GpuAdapterTelemetryPoint(
+                Model: "AMD Radeon(TM) 780M",
+                HardwareType: "GpuAmd",
+                CoreTempC: null,
+                HotspotTempC: null,
+                LoadPercent: null,
+                CoreClockMhz: null,
+                PowerWatts: null,
+                FanRpm: null,
+                VramUsedMb: null,
+                VramTotalMb: 512f,
+                DriverVersion: "31.0.24033.1003",
+                PnpDeviceId: "PCI\\VEN_1002&DEV_15BF&SUBSYS_88771043&REV_C1\\4&1A2B3C4D&0&0041"
+            ),
+            new GpuAdapterTelemetryPoint(
+                Model: "AMD Radeon RX 7800 XT",
+                HardwareType: "GpuAmd",
+                CoreTempC: null,
+                HotspotTempC: null,
+                LoadPercent: null,
+                CoreClockMhz: null,
+                PowerWatts: null,
+                FanRpm: null,
+                VramUsedMb: null,
+                VramTotalMb: 16384f,
+                DriverVersion: "31.0.24033.1003",
+                PnpDeviceId: "PCI\\VEN_1002&DEV_747E&SUBSYS_E4711DA2&REV_C8\\6&2A3B4C5D&0&00000008"
+            )
+        };
+
+        var amdSnapshot = CreateSnapshot(
+            cpuModel: "AMD Ryzen 7 8700G",
+            cpuTemp: 62f,
+            gpuModel: "AMD Radeon(TM) 780M",
+            gpuTemp: 61f,
+            gpuHotspot: 79f,
+            vramTotalMb: 16384f,
+            ramUsedGb: 16f,
+            ramTotalGb: 32f,
+            gpuAdapters: lhmAmdOnlyDiscrete
+        );
+
+        using var amdStub = new ConfigurableHardwareMonitorStub(amdSnapshot);
+        var amdEngine = new UniversalHardwareEngine(amdStub);
+        var amdReport = await amdEngine.BuildUniversalReportAsync(
+            amdSnapshot,
+            hasBatteryOverride: false,
+            isRunningAsAdminOverride: true,
+            complementaryWmiGpuAdaptersOverride: wmiBothAmd);
+
+        Assert.Equal(2, amdReport.Gpus.Count);
+        Assert.Single(amdReport.Gpus, g => g.IsIntegrated && g.Name.Contains("780M", StringComparison.OrdinalIgnoreCase));
+        var amdDiscrete = Assert.Single(amdReport.Gpus, g => g.IsDiscrete && g.Name.Contains("7800 XT", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(amdDiscrete.Name, amdReport.PrimaryGpu?.Name);
+        Assert.Equal(61f, amdDiscrete.CoreTemperatureC.Value);
+
+        // Case 2: Multi-GPU Workstation with 2 Discrete GPUs (RTX 4090 + RTX A5000)
+        var multiGpuMerged = UniversalHardwareEngine.MergeGpuAdapters(
+            new[]
+            {
+                new GpuAdapterTelemetryPoint(
+                    "NVIDIA GeForce RTX 4090", "GpuNvidia", 64f, 75f, 92f, 2715f, 410f, 1850f, 18000f, 24576f, "32.0.15.6094",
+                    "PCI\\VEN_10DE&DEV_2684&SUBSYS_165A10DE&REV_A1\\4&111111&0&0008")
+            },
+            new[]
+            {
+                new GpuAdapterTelemetryPoint(
+                    "NVIDIA GeForce RTX 4090", "GpuNvidia", null, null, null, null, null, null, null, 24576f, "32.0.15.6094",
+                    "PCI\\VEN_10DE&DEV_2684&SUBSYS_165A10DE&REV_A1\\4&111111&0&0008"),
+                new GpuAdapterTelemetryPoint(
+                    "NVIDIA RTX A5000", "GpuNvidia", null, null, null, null, null, null, null, 24576f, "32.0.15.6094",
+                    "PCI\\VEN_10DE&DEV_2231&SUBSYS_145910DE&REV_A1\\4&222222&0&0010")
+            });
+
+        Assert.Equal(2, multiGpuMerged.Count);
+        Assert.Contains(multiGpuMerged, g => g.Model == "NVIDIA GeForce RTX 4090" && g.CoreTempC == 64f);
+        Assert.Contains(multiGpuMerged, g => g.Model == "NVIDIA RTX A5000" && g.VramTotalMb == 24576f);
+    }
+
+    [Fact]
+    public void NetworkDiagnosticsService_CoversAllFiveScenarios_NeverConfusesNullLossWithZero_AndSeparatesIcmpFromTcp()
+    {
+        // Default endpoints must never contain Valve UDP port 27015 or unreachable edge targets
         Assert.All(NetworkDiagnosticsService.DefaultVerifiedEndpoints, ep => Assert.Equal(443, ep.TcpPort));
         Assert.DoesNotContain(NetworkDiagnosticsService.DefaultVerifiedEndpoints, ep => ep.TcpPort == 27015);
 
-        // 2. When ICMP is blocked (0 replies) but TCP 443 connects, ICMP status must be FilteredOrBlocked and IcmpPacketLossPercent must be null (inconclusive), never 0% or 100% from TCP!
+        // Scenario 1: Firewall blocking ICMP (0/4 replies) while TCP 443 works -> FilteredOrBlocked, PacketLossPercent = null (never 0% or 100%)
         var blockedIcmpProbe = NetworkDiagnosticsService.EvaluateTargetProbeOutcome(
             "Cloudflare Edge",
             "1.1.1.1",
@@ -262,7 +469,6 @@ public class UniversalHardwareAndCompatibilityTests
         Assert.Equal(TcpConnectionProbeState.Connected, blockedIcmpProbe.TcpState);
         Assert.True(blockedIcmpProbe.IsTcpConnected);
 
-        // 3. Aggregate report with blocked ICMP and connected TCP keeps IcmpStatus = FilteredOrBlocked and IcmpPacketLossPercent = null
         var aggregateFiltered = NetworkDiagnosticsService.BuildAggregateReportFromTargets(
             "Test-Filtered-ICMP",
             new[] { blockedIcmpProbe },
@@ -270,17 +476,21 @@ public class UniversalHardwareAndCompatibilityTests
             dnsState: DnsResolutionState.Resolved
         );
         Assert.Equal(IcmpProbeStatus.FilteredOrBlocked, aggregateFiltered.IcmpStatus);
+        Assert.Null(aggregateFiltered.PacketLossPercent);
         Assert.Null(aggregateFiltered.IcmpPacketLossPercent);
+        Assert.Contains("Não mensurável", aggregateFiltered.FormattedPacketLoss, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(aggregateFiltered.AverageIcmpLatencyMs);
+        Assert.Equal(14.2, aggregateFiltered.AverageTcpHandshakeMs);
         Assert.Equal(TcpConnectionProbeState.Connected, aggregateFiltered.TcpState);
         Assert.Equal(DnsResolutionState.Resolved, aggregateFiltered.DnsState);
 
-        // 4. When ICMP responds (4/4) and TCP refuses connection (ConnectionRefused), ICMP loss is 0% while TCP state is ConnectionRefused
+        // Scenario 2: ICMP working (4/4 replies) while TCP is refused/blocked -> Responded, PacketLossPercent = 0.0%, TcpState = ConnectionRefused
         var icmpOkTcpRefused = NetworkDiagnosticsService.EvaluateTargetProbeOutcome(
             "Custom Host",
             "9.9.9.9",
             443,
             icmpSent: 4,
-            icmpSamplesMs: new[] { 18.0, 19.0, 18.5, 19.2 },
+            icmpSamplesMs: new[] { 18.0, 20.0, 18.0, 20.0 },
             tcpState: TcpConnectionProbeState.ConnectionRefused,
             tcpHandshakeMs: null
         );
@@ -288,10 +498,83 @@ public class UniversalHardwareAndCompatibilityTests
         Assert.Equal(0.0, icmpOkTcpRefused.IcmpPacketLossPercent);
         Assert.Equal(TcpConnectionProbeState.ConnectionRefused, icmpOkTcpRefused.TcpState);
         Assert.False(icmpOkTcpRefused.IsTcpConnected);
+
+        // Scenario 3: Partial ICMP loss proven by samples (3/4 replies = 25% loss) -> PartialLoss, PacketLossPercent = 25.0%, separate ICMP vs TCP latency
+        var partialLossProbe = NetworkDiagnosticsService.EvaluateTargetProbeOutcome(
+            "Google Public DNS",
+            "8.8.8.8",
+            443,
+            icmpSent: 4,
+            icmpSamplesMs: new[] { 10.0, 12.0, 14.0 },
+            tcpState: TcpConnectionProbeState.Connected,
+            tcpHandshakeMs: 22.5
+        );
+        Assert.Equal(IcmpProbeStatus.PartialLoss, partialLossProbe.IcmpStatus);
+        Assert.Equal(25.0, partialLossProbe.IcmpPacketLossPercent);
+
+        var aggregatePartial = NetworkDiagnosticsService.BuildAggregateReportFromTargets(
+            "Test-Partial-Loss",
+            new[] { partialLossProbe },
+            dnsLatencyMs: 6.0,
+            dnsState: DnsResolutionState.Resolved
+        );
+        Assert.Equal(IcmpProbeStatus.PartialLoss, aggregatePartial.IcmpStatus);
+        Assert.Equal(25.0, aggregatePartial.PacketLossPercent);
+        Assert.Equal("25.0%", aggregatePartial.FormattedPacketLoss);
+        Assert.Equal(12.0, aggregatePartial.AverageIcmpLatencyMs);
+        Assert.Equal(22.5, aggregatePartial.AverageTcpHandshakeMs);
+
+        // Scenario 4: Inconclusive ICMP test (e.g., insufficient samples or DNS resolved while single probe timed out without DestinationUnreachable)
+        var inconclusiveProbe = NetworkDiagnosticsService.EvaluateTargetProbeOutcome(
+            "Inconclusive Target",
+            "208.67.222.222",
+            443,
+            icmpSent: 1,
+            icmpSamplesMs: Array.Empty<double>(),
+            tcpState: TcpConnectionProbeState.TimedOut,
+            tcpHandshakeMs: null,
+            explicitDestinationUnreachableCount: 0
+        );
+        Assert.Equal(IcmpProbeStatus.Inconclusive, inconclusiveProbe.IcmpStatus);
+        Assert.Null(inconclusiveProbe.IcmpPacketLossPercent);
+
+        var aggregateInconclusive = NetworkDiagnosticsService.BuildAggregateReportFromTargets(
+            "Test-Inconclusive",
+            new[] { inconclusiveProbe },
+            dnsLatencyMs: 9.0,
+            dnsState: DnsResolutionState.Resolved
+        );
+        Assert.Equal(IcmpProbeStatus.Inconclusive, aggregateInconclusive.IcmpStatus);
+        Assert.Null(aggregateInconclusive.PacketLossPercent);
+        Assert.Equal("Inconclusivo", aggregateInconclusive.FormattedPacketLoss);
+
+        // Scenario 5: Total absence of connectivity with sufficient evidence -> Unreachable, PacketLossPercent = 100.0%
+        var unreachableProbe = NetworkDiagnosticsService.EvaluateTargetProbeOutcome(
+            "Offline Target",
+            "1.1.1.1",
+            443,
+            icmpSent: 4,
+            icmpSamplesMs: Array.Empty<double>(),
+            tcpState: TcpConnectionProbeState.NetworkUnreachable,
+            tcpHandshakeMs: null,
+            explicitDestinationUnreachableCount: 2
+        );
+        Assert.Equal(IcmpProbeStatus.Unreachable, unreachableProbe.IcmpStatus);
+        Assert.Equal(100.0, unreachableProbe.IcmpPacketLossPercent);
+
+        var aggregateUnreachable = NetworkDiagnosticsService.BuildAggregateReportFromTargets(
+            "Test-Unreachable",
+            new[] { unreachableProbe },
+            dnsLatencyMs: 0.0,
+            dnsState: DnsResolutionState.ServerUnreachable
+        );
+        Assert.Equal(IcmpProbeStatus.Unreachable, aggregateUnreachable.IcmpStatus);
+        Assert.Equal(100.0, aggregateUnreachable.PacketLossPercent);
+        Assert.Equal("100.0%", aggregateUnreachable.FormattedPacketLoss);
     }
 
     [Fact]
-    public void WingetSoftwareCenterService_ParsesDynamicWingetOutput_VerifiesRealSignatures_AndHasNoHardcodedVerifiedFlags()
+    public void WingetSoftwareCenterService_ParsesDynamicWingetOutput_VerifiesWinVerifyTrustStates_AndHasNoHardcodedVerifiedFlags()
     {
         // 1. Catalog items must not pretend to have a pre-verified local binary signature before execution
         Assert.All(WingetSoftwareCenterService.OfficialCatalog, pkg =>
@@ -316,13 +599,83 @@ Mozilla Firefox                  Mozilla.Firefox                   131.0.3      
         Assert.Equal("24.08", parsed[1].Version);
         Assert.Null(parsed[1].AvailableUpdateVersion);
 
-        // 3. Authenticode verification on an unsigned temporary file must return UnsignedOrInvalid, never fake success
+        // 3. Test deterministic WinVerifyTrust cryptographic HRESULT classification across all required states
+        var validSig = WingetSoftwareCenterService.MapWinTrustHResultToVerificationResult(
+            WingetSoftwareCenterService.HResultSuccess,
+            "C:\\Windows\\System32\\winget.exe",
+            "CN=Microsoft Corporation, O=Microsoft Corporation",
+            "CN=Microsoft Code Signing PCA 2011",
+            "AABBCCDDEEFF0011",
+            isTimestamped: true);
+        Assert.Equal(SignatureVerificationState.VerifiedAuthenticode, validSig.State);
+        Assert.True(validSig.IsCryptographicallyValid);
+        Assert.True(validSig.IsTimestamped);
+
+        var tamperedSig = WingetSoftwareCenterService.MapWinTrustHResultToVerificationResult(
+            WingetSoftwareCenterService.TrustEBadDigest,
+            "C:\\Temp\\tampered.exe",
+            "CN=Publisher",
+            "CN=Root CA",
+            "11223344",
+            isTimestamped: false);
+        Assert.Equal(SignatureVerificationState.TamperedOrBadDigest, tamperedSig.State);
+        Assert.False(tamperedSig.IsCryptographicallyValid);
+
+        var expiredSig = WingetSoftwareCenterService.MapWinTrustHResultToVerificationResult(
+            WingetSoftwareCenterService.CertEExpired,
+            "C:\\Temp\\expired.exe",
+            "CN=Expired Publisher",
+            "CN=Root CA",
+            "55667788",
+            isTimestamped: false);
+        Assert.Equal(SignatureVerificationState.ExpiredCertificate, expiredSig.State);
+        Assert.False(expiredSig.IsCryptographicallyValid);
+
+        var untrustedSig = WingetSoftwareCenterService.MapWinTrustHResultToVerificationResult(
+            WingetSoftwareCenterService.CertEUntrustedRoot,
+            "C:\\Temp\\selfsigned.exe",
+            "CN=Self Signed",
+            "CN=Self Signed",
+            "99AABBCC",
+            isTimestamped: false);
+        Assert.Equal(SignatureVerificationState.UntrustedRoot, untrustedSig.State);
+        Assert.False(untrustedSig.IsCryptographicallyValid);
+
+        var offlineRevocationSig = WingetSoftwareCenterService.MapWinTrustHResultToVerificationResult(
+            WingetSoftwareCenterService.CertERevocationFailure,
+            "C:\\Temp\\offline.exe",
+            "CN=Publisher",
+            "CN=Root CA",
+            "DDEEFF00",
+            isTimestamped: true);
+        Assert.Equal(SignatureVerificationState.InconclusiveRevocationOffline, offlineRevocationSig.State);
+        Assert.False(offlineRevocationSig.IsCryptographicallyValid);
+
+        var unsignedSig = WingetSoftwareCenterService.MapWinTrustHResultToVerificationResult(
+            WingetSoftwareCenterService.TrustENoSignature,
+            "C:\\Temp\\unsigned.exe",
+            null,
+            null,
+            null,
+            isTimestamped: false);
+        Assert.Equal(SignatureVerificationState.UnsignedOrInvalid, unsignedSig.State);
+        Assert.False(unsignedSig.IsCryptographicallyValid);
+
+        // 4. Live call on an unsigned temporary file: on Windows returns UnsignedOrInvalid via WinVerifyTrust; on non-Windows returns VerificationUnavailable
         string tempFile = Path.GetTempFileName();
         try
         {
             File.WriteAllText(tempFile, "unsigned-content");
             var sigResult = WingetSoftwareCenterService.VerifyBinaryAuthenticodeSignature(tempFile);
-            Assert.Equal(SignatureVerificationState.UnsignedOrInvalid, sigResult.State);
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.Equal(SignatureVerificationState.UnsignedOrInvalid, sigResult.State);
+            }
+            else
+            {
+                Assert.Equal(SignatureVerificationState.VerificationUnavailable, sigResult.State);
+            }
+            Assert.False(sigResult.IsCryptographicallyValid);
         }
         finally
         {

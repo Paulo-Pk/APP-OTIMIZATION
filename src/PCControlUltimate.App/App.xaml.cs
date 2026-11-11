@@ -55,12 +55,13 @@ public partial class App : Application
             // Single-instance check for the local Privileged Agent
             _agentMutex = new Mutex(true, @"Local\PCControlUltimate_PrivilegedAgent_Mutex_v25", out _ownsAgentMutex);
 
+            var networkDiagnosticsService = new NetworkDiagnosticsService();
             string? inMemoryToken = null;
             if (_ownsAgentMutex)
             {
                 try
                 {
-                    _agentServer = new PrivilegedAgentServer(_hardwareMonitor);
+                    _agentServer = new PrivilegedAgentServer(_hardwareMonitor, PrivilegedAgentServer.DefaultPort, networkDiagnosticsService);
                     _agentServer.Start();
                     inMemoryToken = _agentServer.SessionToken;
                     Log.Information("PrivilegedAgentServer started on 127.0.0.1:{Port}", PrivilegedAgentServer.DefaultPort);
@@ -82,6 +83,7 @@ public partial class App : Application
             services.AddSingleton<DatabaseService>(_databaseService);
             services.AddTransient<AppDbContext>(sp => sp.GetRequiredService<DatabaseService>().CreateDbContext());
             services.AddSingleton<IHardwareMonitorService>(_hardwareMonitor);
+            services.AddSingleton<NetworkDiagnosticsService>(networkDiagnosticsService);
             services.AddSingleton<UniversalHardwareEngine>();
             services.AddSingleton<WindowsCompatibilityEngine>();
             services.AddSingleton<WingetSoftwareCenterService>();
