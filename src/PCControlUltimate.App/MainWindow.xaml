@@ -760,7 +760,7 @@
         <!-- ========================================================================= -->
         <!-- 5. GPU HEALTH LAB VIEW                                                    -->
         <!-- ========================================================================= -->
-        <DataTemplate DataType="{x:Type vm:GpuHealthViewModel}">
+        <DataTemplate DataType="{x:Type vm:GpuHealthLabViewModel}">
             <StackPanel DataContext="{Binding Shell}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
@@ -976,7 +976,7 @@
         <!-- ========================================================================= -->
         <!-- 9. WINDOWS TWEAKS VIEW                                                    -->
         <!-- ========================================================================= -->
-        <DataTemplate DataType="{x:Type vm:WindowsTweaksViewModel}">
+        <DataTemplate DataType="{x:Type vm:RegistryOptimizerViewModel}">
             <StackPanel DataContext="{Binding Shell}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
@@ -1144,7 +1144,7 @@
         <!-- ========================================================================= -->
         <!-- 12. GAME NETWORK ACCELERATOR VIEW                                         -->
         <!-- ========================================================================= -->
-        <DataTemplate DataType="{x:Type vm:GameAcceleratorViewModel}">
+        <DataTemplate DataType="{x:Type vm:GameNetworkAcceleratorViewModel}">
             <StackPanel DataContext="{Binding Shell}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
@@ -1223,7 +1223,7 @@
         <!-- ========================================================================= -->
         <!-- 13. PERIPHERAL TEST VIEW                                                  -->
         <!-- ========================================================================= -->
-        <DataTemplate DataType="{x:Type vm:PeripheralsViewModel}">
+        <DataTemplate DataType="{x:Type vm:PeripheralTestViewModel}">
             <StackPanel DataContext="{Binding Shell}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
@@ -1252,7 +1252,7 @@
         <!-- ========================================================================= -->
         <!-- 14. DRIVER CENTER VIEW                                                    -->
         <!-- ========================================================================= -->
-        <DataTemplate DataType="{x:Type vm:DriversViewModel}">
+        <DataTemplate DataType="{x:Type vm:DriverCenterViewModel}">
             <StackPanel DataContext="{Binding Shell}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
