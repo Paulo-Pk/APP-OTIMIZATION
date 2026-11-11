@@ -1,12 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using PCControlUltimate.App.Services;
 using PCControlUltimate.Core.Entities;
 using PCControlUltimate.Core.Interfaces;
@@ -248,6 +252,26 @@ public class MainViewModel : INotifyPropertyChanged
     private string _benchmarkResultSummary = "Clique em Executar Benchmark Determinístico para medir throughput real de CPU e Memória.";
     private string _peripheralCadenceSummary = "Inspecione a taxa nativa Win32 do monitor e meça a estabilidade de eventos de input.";
 
+    // Preview Visual Parity & Extended Real Hardware Properties
+    private string _detectedProfileDisplay = "Desktop";
+    private string _cpuCoresThreadsText = $"{Environment.ProcessorCount} Threads";
+    private string _ramTotalAndTypeText = "N/D";
+    private string _ramUsedText = "N/D";
+    private string _ramAvailableText = "N/D";
+    private string _primaryDiskModel = "Disco Principal do Sistema";
+    private string _primaryDiskSmartStatus = "Saudável (Online)";
+    private string _primaryDiskFreeSpaceText = "N/D";
+    private string _primaryDiskTotalSpaceText = "N/D";
+    private double _primaryDiskUsagePercent;
+
+    private readonly List<(double CpuLoad, double GpuLoad, double CpuTemp)> _telemetryHistory = new();
+    private PointCollection _cpuLoadChartPoints = new();
+    private PointCollection _gpuLoadChartPoints = new();
+    private PointCollection _cpuTempChartPoints = new();
+    private PointCollection _frametimeChartPoints = new();
+    private bool _hasTelemetryHistory;
+    private bool _hasFrametimeHistory;
+
     public string Language
     {
         get => Loc.CurrentCulture;
@@ -256,10 +280,40 @@ public class MainViewModel : INotifyPropertyChanged
             Loc.CurrentCulture = value;
             UpdateLocalizedCollections();
             OnPropertyChanged();
+            OnPropertyChanged(nameof(LanguageCodeDisplay));
+            OnPropertyChanged(nameof(IsPortugueseActive));
+            OnPropertyChanged(nameof(IsEnglishActive));
+            OnPropertyChanged(nameof(AppliedTweaksBadgeText));
             OnPropertyChanged(nameof(HeaderTitle));
             OnPropertyChanged(nameof(ActiveModuleDisplayTitle));
         }
     }
+
+    public string LanguageCodeDisplay => string.Equals(Loc.CurrentCulture, "pt-BR", StringComparison.OrdinalIgnoreCase) ? "PT-BR" : "EN-US";
+    public bool IsPortugueseActive => string.Equals(Loc.CurrentCulture, "pt-BR", StringComparison.OrdinalIgnoreCase);
+    public bool IsEnglishActive => !IsPortugueseActive;
+
+    public int AppliedTweaksCount => CatalogTweaks.Count(t => t.IsApplied);
+    public string AppliedTweaksBadgeText => IsPortugueseActive ? $"{AppliedTweaksCount} Ativos" : $"{AppliedTweaksCount} Active";
+    public string DetectedProfileDisplay { get => _detectedProfileDisplay; set { _detectedProfileDisplay = value; OnPropertyChanged(); } }
+    public string RamUsageWithPercent => RamUsagePercent > 0 ? $"{RamUsage} ({RamUsagePercent:F0}%)" : RamUsage;
+
+    public string CpuCoresThreadsText { get => _cpuCoresThreadsText; set { _cpuCoresThreadsText = value; OnPropertyChanged(); } }
+    public string RamTotalAndTypeText { get => _ramTotalAndTypeText; set { _ramTotalAndTypeText = value; OnPropertyChanged(); } }
+    public string RamUsedText { get => _ramUsedText; set { _ramUsedText = value; OnPropertyChanged(); } }
+    public string RamAvailableText { get => _ramAvailableText; set { _ramAvailableText = value; OnPropertyChanged(); } }
+    public string PrimaryDiskModel { get => _primaryDiskModel; set { _primaryDiskModel = value; OnPropertyChanged(); } }
+    public string PrimaryDiskSmartStatus { get => _primaryDiskSmartStatus; set { _primaryDiskSmartStatus = value; OnPropertyChanged(); } }
+    public string PrimaryDiskFreeSpaceText { get => _primaryDiskFreeSpaceText; set { _primaryDiskFreeSpaceText = value; OnPropertyChanged(); } }
+    public string PrimaryDiskTotalSpaceText { get => _primaryDiskTotalSpaceText; set { _primaryDiskTotalSpaceText = value; OnPropertyChanged(); } }
+    public double PrimaryDiskUsagePercent { get => _primaryDiskUsagePercent; set { _primaryDiskUsagePercent = Math.Clamp(value, 0, 100); OnPropertyChanged(); } }
+
+    public PointCollection CpuLoadChartPoints { get => _cpuLoadChartPoints; set { _cpuLoadChartPoints = value; OnPropertyChanged(); } }
+    public PointCollection GpuLoadChartPoints { get => _gpuLoadChartPoints; set { _gpuLoadChartPoints = value; OnPropertyChanged(); } }
+    public PointCollection CpuTempChartPoints { get => _cpuTempChartPoints; set { _cpuTempChartPoints = value; OnPropertyChanged(); } }
+    public PointCollection FrametimeChartPoints { get => _frametimeChartPoints; set { _frametimeChartPoints = value; OnPropertyChanged(); } }
+    public bool HasTelemetryHistory { get => _hasTelemetryHistory; set { _hasTelemetryHistory = value; OnPropertyChanged(); } }
+    public bool HasFrametimeHistory { get => _hasFrametimeHistory; set { _hasFrametimeHistory = value; OnPropertyChanged(); } }
 
     public string HeaderTitle => Loc["HeaderSubtitle"];
     public string ActiveModuleDisplayTitle => Navigation.CurrentViewModel?.ModuleTitle ?? Loc["NavDashboard"];
@@ -538,6 +592,8 @@ public class MainViewModel : INotifyPropertyChanged
     // Commands
     public ICommand SelectTabCommand { get; }
     public ICommand ToggleLanguageCommand { get; }
+    public ICommand SetLanguagePtCommand { get; }
+    public ICommand SetLanguageEnCommand { get; }
     public ICommand CreateSnapshotCommand { get; }
     public ICommand RefreshStatusCommand { get; }
     public ICommand ApplyTweakCommand { get; }
@@ -633,11 +689,27 @@ public class MainViewModel : INotifyPropertyChanged
             Loc.ToggleLanguage();
             UpdateLocalizedCollections();
             OnPropertyChanged(nameof(Language));
+            OnPropertyChanged(nameof(LanguageCodeDisplay));
+            OnPropertyChanged(nameof(IsPortugueseActive));
+            OnPropertyChanged(nameof(IsEnglishActive));
+            OnPropertyChanged(nameof(AppliedTweaksBadgeText));
             OnPropertyChanged(nameof(HeaderTitle));
             OnPropertyChanged(nameof(ActiveModuleDisplayTitle));
             StatusMessage = Loc.CurrentCulture == "pt-BR"
                 ? "Idioma alterado imediatamente para Português Brasileiro (PT-BR)."
                 : "Language immediately switched to American English (EN-US).";
+        });
+
+        SetLanguagePtCommand = new RelayCommand(_ =>
+        {
+            Language = "pt-BR";
+            StatusMessage = "Idioma definido para Português Brasileiro (PT-BR).";
+        });
+
+        SetLanguageEnCommand = new RelayCommand(_ =>
+        {
+            Language = "en-US";
+            StatusMessage = "Language set to American English (EN-US).";
         });
 
         CreateSnapshotCommand = new RelayCommand(async _ =>
@@ -686,6 +758,8 @@ public class MainViewModel : INotifyPropertyChanged
 
                     tweak.IsApplied = true;
                     tweak.VerificationState = $"Verificado ({tweak.RecommendedValue})";
+                    OnPropertyChanged(nameof(AppliedTweaksCount));
+                    OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     await _databaseService.UpsertOptimizationActionAsync(
                         tweak.TweakId,
                         tweak.Name,
@@ -722,6 +796,8 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     tweak.IsApplied = false;
                     tweak.VerificationState = "Restaurado (Ledger Seguro)";
+                    OnPropertyChanged(nameof(AppliedTweaksCount));
+                    OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     await _databaseService.UpsertOptimizationActionAsync(
                         tweak.TweakId,
                         tweak.Name,
@@ -990,6 +1066,7 @@ public class MainViewModel : INotifyPropertyChanged
                             RecentFrametimeSamples.Add(ft);
                         }
                     }
+                    RebuildFrametimeChartPoints();
 
                     PresentMonHistory.Clear();
                     foreach (var s in PresentMonSessionParser.GetSessionHistory())
@@ -1455,14 +1532,27 @@ public class MainViewModel : INotifyPropertyChanged
 
                 if (snap.RamUsedGb.HasValue && snap.RamTotalGb.HasValue && snap.RamTotalGb.Value > 0)
                 {
-                    RamUsage = $"{snap.RamUsedGb.Value:F1} GB / {snap.RamTotalGb.Value:F1} GB";
-                    RamUsagePercent = Math.Round((snap.RamUsedGb.Value / snap.RamTotalGb.Value) * 100.0, 1);
+                    double used = snap.RamUsedGb.Value;
+                    double total = snap.RamTotalGb.Value;
+                    double avail = Math.Max(0, total - used);
+                    RamUsage = $"{used:F1} GB / {total:F1} GB";
+                    RamUsagePercent = Math.Round((used / total) * 100.0, 1);
+                    RamTotalAndTypeText = $"{total:F0} GB Physical RAM";
+                    RamUsedText = $"{used:F1} GB";
+                    RamAvailableText = $"{avail:F1} GB";
                 }
                 else
                 {
                     RamUsage = notSupported;
                     RamUsagePercent = 0;
+                    RamTotalAndTypeText = notSupported;
+                    RamUsedText = notSupported;
+                    RamAvailableText = notSupported;
                 }
+                OnPropertyChanged(nameof(RamUsageWithPercent));
+
+                UpdatePrimaryDiskAndProfileTelemetry(snap.GpuModelName, snap.RamTotalGb);
+                AppendTelemetryChartSample(snap.CpuTotalLoad ?? 0, snap.GpuLoadPercent ?? 0, snap.CpuPackageTemp ?? 0);
 
                 RefreshAssistantInsights();
                 return;
@@ -1492,8 +1582,108 @@ public class MainViewModel : INotifyPropertyChanged
         GpuThermalDiagnosisText = unavailable;
         RamUsage = unavailable;
         RamUsagePercent = 0;
+        RamTotalAndTypeText = unavailable;
+        RamUsedText = unavailable;
+        RamAvailableText = unavailable;
+        OnPropertyChanged(nameof(RamUsageWithPercent));
+        UpdatePrimaryDiskAndProfileTelemetry(null, null);
         OverallHealthScore = "--";
         RefreshAssistantInsights();
+    }
+
+    private void UpdatePrimaryDiskAndProfileTelemetry(string? gpuName, double? ramTotalGb)
+    {
+        CpuCoresThreadsText = $"{Math.Max(1, Environment.ProcessorCount / 2)} Cores / {Environment.ProcessorCount} Threads";
+
+        try
+        {
+            var sysRoot = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+            var drive = new DriveInfo(sysRoot);
+            if (drive.IsReady && drive.TotalSize > 0)
+            {
+                double totalGb = drive.TotalSize / (1024.0 * 1024.0 * 1024.0);
+                double freeGb = drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0);
+                double usedPercent = ((totalGb - freeGb) / totalGb) * 100.0;
+                PrimaryDiskModel = string.IsNullOrWhiteSpace(drive.VolumeLabel)
+                    ? $"Unidade do Sistema ({drive.Name.TrimEnd('\\')}) · {drive.DriveFormat}"
+                    : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')}) · {drive.DriveFormat}";
+                PrimaryDiskSmartStatus = usedPercent < 90.0 ? "Saudável (Online)" : "Atenção (Pouco Espaço)";
+                PrimaryDiskFreeSpaceText = $"{freeGb:F0} GB";
+                PrimaryDiskTotalSpaceText = $"{totalGb:F0} GB";
+                PrimaryDiskUsagePercent = Math.Round(usedPercent, 1);
+            }
+        }
+        catch
+        {
+            // Keep safe defaults if drive inspection is restricted
+        }
+
+        if (!string.IsNullOrWhiteSpace(gpuName) &&
+            (gpuName.Contains("RTX", StringComparison.OrdinalIgnoreCase) ||
+             gpuName.Contains("RX ", StringComparison.OrdinalIgnoreCase) ||
+             gpuName.Contains("Radeon", StringComparison.OrdinalIgnoreCase) ||
+             gpuName.Contains("GTX", StringComparison.OrdinalIgnoreCase) ||
+             gpuName.Contains("Arc", StringComparison.OrdinalIgnoreCase)))
+        {
+            DetectedProfileDisplay = (ramTotalGb ?? 0) >= 64 ? "Workstation" : "Gamer";
+        }
+        else
+        {
+            DetectedProfileDisplay = "Desktop";
+        }
+    }
+
+    private void AppendTelemetryChartSample(double cpuLoad, double gpuLoad, double cpuTemp)
+    {
+        _telemetryHistory.Add((Math.Clamp(cpuLoad, 0, 100), Math.Clamp(gpuLoad, 0, 100), Math.Clamp(cpuTemp, 0, 110)));
+        if (_telemetryHistory.Count > 30)
+        {
+            _telemetryHistory.RemoveAt(0);
+        }
+
+        const double chartWidth = 500.0;
+        const double chartHeight = 140.0;
+        var cpuPts = new PointCollection();
+        var gpuPts = new PointCollection();
+        var tempPts = new PointCollection();
+
+        int count = _telemetryHistory.Count;
+        for (int i = 0; i < count; i++)
+        {
+            double x = count == 1 ? chartWidth : (i * (chartWidth / Math.Max(1, count - 1)));
+            double cpuY = chartHeight - (_telemetryHistory[i].CpuLoad / 100.0 * (chartHeight - 16.0)) - 8.0;
+            double gpuY = chartHeight - (_telemetryHistory[i].GpuLoad / 100.0 * (chartHeight - 16.0)) - 8.0;
+            double tempY = chartHeight - (_telemetryHistory[i].CpuTemp / 110.0 * (chartHeight - 16.0)) - 8.0;
+
+            cpuPts.Add(new Point(Math.Round(x, 1), Math.Round(cpuY, 1)));
+            gpuPts.Add(new Point(Math.Round(x, 1), Math.Round(gpuY, 1)));
+            tempPts.Add(new Point(Math.Round(x, 1), Math.Round(tempY, 1)));
+        }
+
+        CpuLoadChartPoints = cpuPts;
+        GpuLoadChartPoints = gpuPts;
+        CpuTempChartPoints = tempPts;
+        HasTelemetryHistory = count > 0;
+    }
+
+    private void RebuildFrametimeChartPoints()
+    {
+        const double chartWidth = 500.0;
+        const double chartHeight = 130.0;
+        var pts = new PointCollection();
+        int count = RecentFrametimeSamples.Count;
+        if (count > 0)
+        {
+            double maxFt = Math.Max(33.3, RecentFrametimeSamples.Max());
+            for (int i = 0; i < count; i++)
+            {
+                double x = count == 1 ? chartWidth : (i * (chartWidth / Math.Max(1, count - 1)));
+                double y = chartHeight - (Math.Clamp(RecentFrametimeSamples[i], 0, maxFt) / maxFt * (chartHeight - 16.0)) - 8.0;
+                pts.Add(new Point(Math.Round(x, 1), Math.Round(y, 1)));
+            }
+        }
+        FrametimeChartPoints = pts;
+        HasFrametimeHistory = count > 0;
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? name = null)

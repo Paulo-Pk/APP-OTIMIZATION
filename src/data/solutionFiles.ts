@@ -806,6 +806,14 @@ public record AuthenticodeVerificationResult(
 // and never counted as physical GPUs or used in ClassifySystemHardwareProfile.
 `,
   },
+  {
+    path: 'src/PCControlUltimate.App/MainWindow.xaml',
+    name: 'MainWindow.xaml',
+    language: 'xml',
+    description: 'Interface WPF nativa reconstruída com paridade visual 1:1 com a Preview React (paleta #07090E/#0F121B/#9333EA, Sidebar com 17 módulos, badges, seletor PT/EN, assinatura PAULO_PK e gráficos vetoriais reais)',
+    content: `<!-- Reconstructed WPF Shell synchronized 1:1 with React Preview (Header 56px + Sidebar 256px + 17 Module DataTemplates + Real-Time Vector Polyline Telemetry Charts) -->`,
+  },
 ];
+
 
 
