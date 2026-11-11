@@ -1545,23 +1545,39 @@
                             AutomationProperties.HelpText="{Binding AppliedTweaksBadgeText}"
                             Uid="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
 
-                            <TextBlock Text="{Binding Loc[NavSectionGames]}" Style="{StaticResource SidebarSectionLabel}"/>
-                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavGameCenter]}"
-                            Command="{Binding SelectTabCommand}" CommandParameter="game-center"
-                            Tag="{Binding IsGameCenterVisible}"
-                            Uid="M6 12h4m-2-2v4m7-1h.01M18 11h.01M4 8h16a2 2 0 012 2v6a3 3 0 01-3 3h-2l-2-2H9l-2 2H5a3 3 0 01-3-3v-6a2 2 0 012-2z"/>
-
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavGaming]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="gaming"
                             Tag="{Binding IsGamingVisible}"
                             AutomationProperties.HelpText="PresentMon"
                             Uid="M22 12h-4l-3 9L9 3l-3 9H2"/>
 
+                            <TextBlock Text="{Binding Loc[NavSectionGames]}" Style="{StaticResource SidebarSectionLabel}"/>
+                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavGameCenter]}"
+                            Command="{Binding SelectTabCommand}" CommandParameter="game-center"
+                            Tag="{Binding IsGameCenterVisible}"
+                            Uid="M6 12h4m-2-2v4m7-1h.01M18 11h.01M4 8h16a2 2 0 012 2v6a3 3 0 01-3 3h-2l-2-2H9l-2 2H5a3 3 0 01-3-3v-6a2 2 0 012-2z"/>
+
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavAccelerator]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="accelerator"
                             Tag="{Binding IsAcceleratorVisible}"
                             AutomationProperties.HelpText="WireGuard"
                             Uid="M12 2L19 21l-7-4-7 4 7-19z"/>
+
+                            <TextBlock Text="{Binding Loc[NavSectionWindows]}" Style="{StaticResource SidebarSectionLabel}"/>
+                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavTweaks]}"
+                            Command="{Binding SelectTabCommand}" CommandParameter="tweaks"
+                            Tag="{Binding IsTweaksVisible}"
+                            Uid="M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3"/>
+
+                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDebloat]}"
+                            Command="{Binding SelectTabCommand}" CommandParameter="debloat"
+                            Tag="{Binding IsDebloatVisible}"
+                            Uid="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+
+                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavRestore]}"
+                            Command="{Binding SelectTabCommand}" CommandParameter="restore"
+                            Tag="{Binding IsRestoreVisible}"
+                            Uid="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5"/>
 
                             <TextBlock Text="{Binding Loc[NavSectionMonitoring]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavHardware]}"
@@ -1586,33 +1602,17 @@
                             Tag="{Binding IsPeripheralsVisible}"
                             Uid="M2 3h20v14H2z M8 21h8 M12 17v4"/>
 
-                            <TextBlock Text="{Binding Loc[NavSectionWindows]}" Style="{StaticResource SidebarSectionLabel}"/>
-                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavTweaks]}"
-                            Command="{Binding SelectTabCommand}" CommandParameter="tweaks"
-                            Tag="{Binding IsTweaksVisible}"
-                            Uid="M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3"/>
-
-                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDebloat]}"
-                            Command="{Binding SelectTabCommand}" CommandParameter="debloat"
-                            Tag="{Binding IsDebloatVisible}"
-                            Uid="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-
-                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavRestore]}"
-                            Command="{Binding SelectTabCommand}" CommandParameter="restore"
-                            Tag="{Binding IsRestoreVisible}"
-                            Uid="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5"/>
-
-                            <TextBlock Text="{Binding Loc[NavSectionDiagnostics]}" Style="{StaticResource SidebarSectionLabel}"/>
-                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDiagnostics]}"
-                            Command="{Binding SelectTabCommand}" CommandParameter="diagnostics"
-                            Tag="{Binding IsDiagnosticsVisible}"
-                            Uid="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavNetwork]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="network"
                             Tag="{Binding IsNetworkVisible}"
                             Uid="M5 12.55a11 11 0 0 1 14.08 0 M1.42 9a16 16 0 0 1 21.16 0 M8.53 16.11a6 6 0 0 1 6.95 0 M12 20h.01"/>
 
+                            <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDiagnostics]}"
+                            Command="{Binding SelectTabCommand}" CommandParameter="diagnostics"
+                            Tag="{Binding IsDiagnosticsVisible}"
+                            Uid="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+
+                            <TextBlock Text="{Binding Loc[NavSectionHardware]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDrivers]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="drivers"
                             Tag="{Binding IsDriversVisible}"
