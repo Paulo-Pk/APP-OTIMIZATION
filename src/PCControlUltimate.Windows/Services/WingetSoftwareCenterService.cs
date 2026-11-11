@@ -75,8 +75,12 @@ public record AuthenticodeVerificationResult(
     string? Issuer,
     string? Thumbprint,
     DateTime? ValidUntilUtc,
-    stringVerificationMessage Message
-);
+    stringVerificationMessage Message,
+    bool IsTimestamped = false
+)
+{
+    public bool IsCryptographicallyValid => State == SignatureVerificationState.VerifiedAuthenticode;
+}
 
 public record stringVerificationMessage(string Value)
 {
@@ -107,16 +111,16 @@ public class WingetSoftwareCenterService
 {
     private static readonly Guid WintrustActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
 
-    private const int HResultSuccess = 0;
-    private const int TrustENoSignature = unchecked((int)0x800B0100);
-    private const int TrustEExplicitDistrust = unchecked((int)0x800B0111);
-    private const int TrustESubjectNotTrusted = unchecked((int)0x800B0004);
-    private const int TrustEBadDigest = unchecked((int)0x80096010);
-    private const int CertEExpired = unchecked((int)0x800B0101);
-    private const int CertEUntrustedRoot = unchecked((int)0x800B0109);
-    private const int CertERevoked = unchecked((int)0x800B010C);
-    private const int CertERevocationFailure = unchecked((int)0x800B010E);
-    private const int CryptESecuritySettings = unchecked((int)0x80092026);
+    public const int HResultSuccess = 0;
+    public const int TrustENoSignature = unchecked((int)0x800B0100);
+    public const int TrustEExplicitDistrust = unchecked((int)0x800B0111);
+    public const int TrustESubjectNotTrusted = unchecked((int)0x800B0004);
+    public const int TrustEBadDigest = unchecked((int)0x80096010);
+    public const int CertEExpired = unchecked((int)0x800B0101);
+    public const int CertEUntrustedRoot = unchecked((int)0x800B0109);
+    public const int CertERevoked = unchecked((int)0x800B010C);
+    public const int CertERevocationFailure = unchecked((int)0x800B010E);
+    public const int CryptESecuritySettings = unchecked((int)0x80092026);
 
     private static readonly HashSet<string> AllowedWingetSources = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -219,7 +223,7 @@ public class WingetSoftwareCenterService
     /// 2) Verifies certificate trust chain and root authority (CERT_E_UNTRUSTEDROOT).
     /// 3) Verifies certificate validity period (CERT_E_EXPIRED).
     /// 4) Checks revocation across the chain when network is available, or reports InconclusiveRevocationOffline if CRL/OCSP is unreachable.
-    /// 5) Extracts signer identity from the PKCS#7 SignedCms / X509Certificate2 structure without obsolete APIs.
+    /// 5) Extracts signer identity and PKCS#7 countersignature timestamp status via CryptQueryObject/CryptMsgGetParam without obsolete APIs.
     /// </summary>
     public static AuthenticodeVerificationResult VerifyBinaryAuthenticodeSignature(
         string filePath,
@@ -235,7 +239,8 @@ public class WingetSoftwareCenterService
                 null,
                 null,
                 null,
-                "Arquivo binário não encontrado no disco para verificação Authenticode."
+                "Arquivo binário não encontrado no disco para verificação Authenticode.",
+                IsTimestamped: false
             );
         }
 
@@ -249,12 +254,13 @@ public class WingetSoftwareCenterService
                 null,
                 null,
                 null,
-                "Validação criptográfica nativa via WinVerifyTrust (wintrust.dll) requer sistema operacional Windows."
+                "Validação criptográfica nativa via WinVerifyTrust (wintrust.dll) requer sistema operacional Windows.",
+                IsTimestamped: false
             );
         }
 
         int hResult = ExecuteNativeWinVerifyTrust(filePath, checkOnlineRevocation);
-        var (subject, issuer, thumbprint, validUntilUtc) = TryReadSignerMetadata(filePath);
+        var (subject, issuer, thumbprint, validUntilUtc, isTimestamped) = TryReadSignerMetadata(filePath);
 
         return MapWinTrustHResultToVerificationResult(
             filePath,
@@ -262,7 +268,31 @@ public class WingetSoftwareCenterService
             subject,
             issuer,
             thumbprint,
-            validUntilUtc
+            validUntilUtc,
+            isTimestamped
+        );
+    }
+
+    /// <summary>
+    /// Overload accepting (int hResult, string filePath, ...) for deterministic unit testing of WinVerifyTrust HRESULT states.
+    /// </summary>
+    public static AuthenticodeVerificationResult MapWinTrustHResultToVerificationResult(
+        int hResult,
+        string filePath,
+        string? signerSubject = null,
+        string? issuer = null,
+        string? thumbprint = null,
+        bool isTimestamped = false,
+        DateTime? validUntilUtc = null)
+    {
+        return MapWinTrustHResultToVerificationResult(
+            filePath,
+            hResult,
+            signerSubject,
+            issuer,
+            thumbprint,
+            validUntilUtc,
+            isTimestamped
         );
     }
 
@@ -276,7 +306,8 @@ public class WingetSoftwareCenterService
         string? signerSubject = null,
         string? issuer = null,
         string? thumbprint = null,
-        DateTime? validUntilUtc = null)
+        DateTime? validUntilUtc = null,
+        bool isTimestamped = false)
     {
         return hResult switch
         {
@@ -288,7 +319,8 @@ public class WingetSoftwareCenterService
                 issuer,
                 thumbprint,
                 validUntilUtc,
-                $"Integridade criptográfica Authenticode e cadeia de confiança verificadas via WinVerifyTrust ({signerSubject ?? "Signatário confiável"})."
+                $"Integridade criptográfica Authenticode e cadeia de confiança verificadas via WinVerifyTrust ({signerSubject ?? "Signatário confiável"}).",
+                IsTimestamped: isTimestamped
             ),
             TrustEBadDigest => new AuthenticodeVerificationResult(
                 filePath,
@@ -298,7 +330,8 @@ public class WingetSoftwareCenterService
                 issuer,
                 thumbprint,
                 validUntilUtc,
-                "ALERTA CRÍTICO: O hash do arquivo não corresponde à assinatura Authenticode (TRUST_E_BAD_DIGEST — arquivo corrompido ou adulterado)."
+                "ALERTA CRÍTICO: O hash do arquivo não corresponde à assinatura Authenticode (TRUST_E_BAD_DIGEST — arquivo corrompido ou adulterado).",
+                IsTimestamped: isTimestamped
             ),
             CertEExpired => new AuthenticodeVerificationResult(
                 filePath,
@@ -308,7 +341,8 @@ public class WingetSoftwareCenterService
                 issuer,
                 thumbprint,
                 validUntilUtc,
-                "Assinatura rejeitada: O certificado do signatário expirou e não possui carimbo de tempo válido (CERT_E_EXPIRED)."
+                "Assinatura rejeitada: O certificado do signatário expirou e não possui carimbo de tempo válido (CERT_E_EXPIRED).",
+                IsTimestamped: isTimestamped
             ),
             CertEUntrustedRoot => new AuthenticodeVerificationResult(
                 filePath,
@@ -318,7 +352,8 @@ public class WingetSoftwareCenterService
                 issuer,
                 thumbprint,
                 validUntilUtc,
-                "Assinatura rejeitada: A cadeia de certificação termina em uma autoridade raiz não confiável (CERT_E_UNTRUSTEDROOT)."
+                "Assinatura rejeitada: A cadeia de certificação termina em uma autoridade raiz não confiável (CERT_E_UNTRUSTEDROOT).",
+                IsTimestamped: isTimestamped
             ),
             CertERevocationFailure => new AuthenticodeVerificationResult(
                 filePath,
@@ -328,7 +363,8 @@ public class WingetSoftwareCenterService
                 issuer,
                 thumbprint,
                 validUntilUtc,
-                "Verificação inconclusiva: Não foi possível contatar o servidor de revogação CRL/OCSP (CERT_E_REVOCATION_FAILURE)."
+                "Verificação inconclusiva: Não foi possível contatar o servidor de revogação CRL/OCSP (CERT_E_REVOCATION_FAILURE).",
+                IsTimestamped: isTimestamped
             ),
             TrustENoSignature or TrustESubjectNotTrusted or TrustEExplicitDistrust or CertERevoked or CryptESecuritySettings => new AuthenticodeVerificationResult(
                 filePath,
@@ -338,7 +374,8 @@ public class WingetSoftwareCenterService
                 issuer,
                 thumbprint,
                 validUntilUtc,
-                $"Binário sem assinatura Authenticode válida ou revogado (HRESULT: 0x{hResult:X8})."
+                $"Binário sem assinatura Authenticode válida ou revogado (HRESULT: 0x{hResult:X8}).",
+                IsTimestamped: isTimestamped
             ),
             _ => new AuthenticodeVerificationResult(
                 filePath,
@@ -348,7 +385,8 @@ public class WingetSoftwareCenterService
                 issuer,
                 thumbprint,
                 validUntilUtc,
-                $"Falha na validação criptográfica WinVerifyTrust (HRESULT: 0x{hResult:X8})."
+                $"Falha na validação criptográfica WinVerifyTrust (HRESULT: 0x{hResult:X8}).",
+                IsTimestamped: isTimestamped
             )
         };
     }
@@ -389,7 +427,7 @@ public class WingetSoftwareCenterService
                 pwszURLReference = IntPtr.Zero,
                 dwProvFlags = checkOnlineRevocation
                     ? 0x00000040u | 0x00000800u // WTD_REVOCATION_CHECK_CHAIN | WTD_LifetimeSigningFlag
-                    : 0x00000010u | 0x00000800u, // WTD_CACHE_ONLY_URL_RETRIEVAL
+                    : 0x00000010u | 0x00000800u, // WTD_CACHE_ONLY_URL_RETRIVIAL
                 dwUIContext = 0
             };
 
@@ -412,9 +450,9 @@ public class WingetSoftwareCenterService
         }
     }
 
-    private static (string? Subject, string? Issuer, string? Thumbprint, DateTime? ValidUntilUtc) TryReadSignerMetadata(string filePath)
+    private static (string? Subject, string? Issuer, string? Thumbprint, DateTime? ValidUntilUtc, bool IsTimestamped) TryReadSignerMetadata(string filePath)
     {
-        if (!OperatingSystem.IsWindows()) return (null, null, null, null);
+        if (!OperatingSystem.IsWindows()) return (null, null, null, null, false);
 
         IntPtr hStore = IntPtr.Zero;
         IntPtr hMsg = IntPtr.Zero;
@@ -441,23 +479,35 @@ public class WingetSoftwareCenterService
             );
 
             if (!ok || hStore == IntPtr.Zero)
-                return (null, null, null, null);
+                return (null, null, null, null, false);
+
+            bool hasTimestamp = false;
+            if (hMsg != IntPtr.Zero)
+            {
+                const int CMSG_SIGNER_UNAUTH_ATTR_PARAM = 10;
+                uint cbData = 0;
+                if (CryptMsgGetParam(hMsg, CMSG_SIGNER_UNAUTH_ATTR_PARAM, 0, IntPtr.Zero, ref cbData) && cbData > 0)
+                {
+                    hasTimestamp = true;
+                }
+            }
 
             pCertContext = CertEnumCertificatesInStore(hStore, IntPtr.Zero);
             if (pCertContext == IntPtr.Zero)
-                return (null, null, null, null);
+                return (null, null, null, null, hasTimestamp);
 
             using var cert2 = new X509Certificate2(pCertContext);
             return (
                 cert2.Subject,
                 cert2.Issuer,
                 cert2.Thumbprint,
-                cert2.NotAfter.ToUniversalTime()
+                cert2.NotAfter.ToUniversalTime(),
+                hasTimestamp
             );
         }
         catch
         {
-            return (null, null, null, null);
+            return (null, null, null, null, false);
         }
         finally
         {
@@ -951,6 +1001,14 @@ public class WingetSoftwareCenterService
 
     [DllImport("crypt32.dll", SetLastError = true)]
     private static extern bool CertCloseStore(IntPtr hCertStore, int dwFlags);
+
+    [DllImport("crypt32.dll", SetLastError = true)]
+    private static extern bool CryptMsgGetParam(
+        IntPtr hCryptMsg,
+        int dwParamType,
+        int dwIndex,
+        IntPtr pvData,
+        ref uint pcbData);
 
     [DllImport("crypt32.dll", SetLastError = true)]
     private static extern bool CryptMsgClose(IntPtr hCryptMsg);

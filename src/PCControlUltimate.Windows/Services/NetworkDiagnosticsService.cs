@@ -47,7 +47,7 @@ public class NetworkDiagnosticsService
     /// <summary>
     /// Evaluates a single target's ICMP and TCP outcomes independently.
     /// Never uses TCP handshake results to calculate ICMP packet loss.
-    /// Does not classify absence of ICMP response as 100% loss unless there is sufficient multi-probe + TCP failure evidence.
+    /// Does not classify absence of ICMP response as 100% loss unless there is sufficient multi-probe + TCP failure or explicit ICMP DestinationUnreachable evidence.
     /// </summary>
     public static NetworkTargetProbeResult EvaluateTargetProbeOutcome(
         string targetName,
@@ -56,7 +56,8 @@ public class NetworkDiagnosticsService
         int icmpSent,
         IReadOnlyList<double> icmpSamplesMs,
         TcpConnectionProbeState tcpState,
-        double? tcpHandshakeMs)
+        double? tcpHandshakeMs,
+        int explicitDestinationUnreachableCount = 0)
     {
         int sent = Math.Max(0, icmpSent);
         int received = icmpSamplesMs?.Count ?? 0;
@@ -84,6 +85,12 @@ public class NetworkDiagnosticsService
             // Host responded at the TCP stack (SYN-ACK or RST), so the host is alive; absence of ICMP Echo Reply means ICMP is filtered/blocked
             icmpStatus = IcmpProbeStatus.FilteredOrBlocked;
             icmpLossPct = null;
+        }
+        else if (explicitDestinationUnreachableCount > 0 || tcpState == TcpConnectionProbeState.NetworkUnreachable)
+        {
+            // Explicit ICMP DestinationUnreachable reply or OS routing table NetworkUnreachable confirms destination unreachability
+            icmpStatus = IcmpProbeStatus.Unreachable;
+            icmpLossPct = 100.0;
         }
         else if (sent < 2 || tcpState == TcpConnectionProbeState.FilteredPort)
         {
@@ -133,6 +140,7 @@ public class NetworkDiagnosticsService
     {
         var icmpSamples = new List<double>();
         int icmpSent = Math.Max(3, sampleCount);
+        int explicitUnreachable = 0;
 
         using var ping = new Ping();
         for (int i = 0; i < icmpSent; i++)
@@ -144,6 +152,12 @@ public class NetworkDiagnosticsService
                 if (reply.Status == IPStatus.Success)
                 {
                     icmpSamples.Add(reply.RoundtripTime);
+                }
+                else if (reply.Status is IPStatus.DestinationHostUnreachable
+                         or IPStatus.DestinationNetworkUnreachable
+                         or IPStatus.DestinationUnreachable)
+                {
+                    explicitUnreachable++;
                 }
             }
             catch { }
@@ -162,7 +176,8 @@ public class NetworkDiagnosticsService
             icmpSent,
             icmpSamples,
             tcpResult.State,
-            tcpResult.LatencyMs
+            tcpResult.LatencyMs,
+            explicitUnreachable
         );
 
         var report = BuildAggregateReportFromTargets(
@@ -189,6 +204,7 @@ public class NetworkDiagnosticsService
             cancellationToken.ThrowIfCancellationRequested();
 
             int epIcmpSent = 3;
+            int epExplicitUnreachable = 0;
             var epIcmpSamples = new List<double>();
 
             using (var ping = new Ping())
@@ -201,6 +217,12 @@ public class NetworkDiagnosticsService
                         if (reply.Status == IPStatus.Success)
                         {
                             epIcmpSamples.Add(reply.RoundtripTime);
+                        }
+                        else if (reply.Status is IPStatus.DestinationHostUnreachable
+                                 or IPStatus.DestinationNetworkUnreachable
+                                 or IPStatus.DestinationUnreachable)
+                        {
+                            epExplicitUnreachable++;
                         }
                     }
                     catch { }
@@ -216,7 +238,8 @@ public class NetworkDiagnosticsService
                 epIcmpSent,
                 epIcmpSamples,
                 tcpProbe.State,
-                tcpProbe.LatencyMs
+                tcpProbe.LatencyMs,
+                epExplicitUnreachable
             );
 
             targetResults.Add(probeOutcome);
@@ -372,7 +395,7 @@ public class NetworkDiagnosticsService
                         jitter < 15.0 &&
                         (!overallIcmpLossPercent.HasValue || overallIcmpLossPercent.Value < 2.0) &&
                         overallIcmpStatus != IcmpProbeStatus.Unreachable &&
-                        dnsState != DnsResolutionState.DnsResolutionFailure;
+                        dnsState is not (DnsResolutionState.DnsResolutionFailure or DnsResolutionState.ServerUnreachable);
 
         var finding = BuildStructuredFinding(
             summaryLabel,
@@ -461,7 +484,9 @@ public class NetworkDiagnosticsService
             {
                 SocketError.ConnectionRefused => (null, TcpConnectionProbeState.ConnectionRefused),
                 SocketError.TimedOut => (null, TcpConnectionProbeState.Timeout),
-                SocketError.AccessDenied or SocketError.NetworkUnreachable or SocketError.HostUnreachable =>
+                SocketError.NetworkUnreachable or SocketError.HostUnreachable =>
+                    (null, TcpConnectionProbeState.NetworkUnreachable),
+                SocketError.AccessDenied =>
                     (null, TcpConnectionProbeState.FilteredPort),
                 _ => (null, TcpConnectionProbeState.ConnectionFailure)
             };
@@ -489,6 +514,10 @@ public class NetworkDiagnosticsService
             double ms = Math.Round(sw.Elapsed.TotalMilliseconds, 1);
             var state = ms < 2.0 ? DnsResolutionState.CacheHit : DnsResolutionState.Resolved;
             return (ms, state);
+        }
+        catch (SocketException sockEx) when (sockEx.SocketErrorCode is SocketError.NetworkUnreachable or SocketError.HostUnreachable or SocketError.TimedOut)
+        {
+            return (null, DnsResolutionState.ServerUnreachable);
         }
         catch
         {
@@ -527,11 +556,11 @@ public class NetworkDiagnosticsService
         double tcpReachabilityPct,
         DnsResolutionState dnsState)
     {
-        if (dnsState == DnsResolutionState.DnsResolutionFailure)
+        if (dnsState is DnsResolutionState.DnsResolutionFailure or DnsResolutionState.ServerUnreachable)
         {
             return new StructuredNetworkDiagnosticFinding(
                 WhatWasTested: testedScope,
-                WhatFailed: "Falha de resolução de nomes DNS (DnsResolutionFailure)",
+                WhatFailed: $"Falha de resolução de nomes DNS ({dnsState})",
                 EvidenceFound: $"Estado DNS: {dnsState} | Estado TCP: {tcpState} | Estado ICMP: {icmpStatus}",
                 ProbableCause: "Servidor DNS configurado indisponível, bloqueio na porta UDP 53 ou queda de link.",
                 RecommendedSolution: "Verifique a configuração de DNS do adaptador (ex.: 1.1.1.1 ou 8.8.8.8).",

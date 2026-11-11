@@ -706,7 +706,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 `,
   },
 
-  // 9. Automated Tests
+  // 9. Automated Tests & CI Contract Alignment
   {
     path: 'tests/PCControlUltimate.Tests/OptimizationSafetyTests.cs',
     name: 'OptimizationSafetyTests.cs',
@@ -733,4 +733,65 @@ public class OptimizationSafetyTests
 }
 `,
   },
+  {
+    path: 'src/PCControlUltimate.Core/Models/NetworkDiagnosticsModels.cs',
+    name: 'NetworkDiagnosticsModels.cs',
+    language: 'csharp',
+    description: 'Contratos compartilhados de diagnóstico de rede com separação estrita entre estados ICMP (Responded, PartialLoss, FilteredOrBlocked, Inconclusive, Unreachable), TCP (Connected, Timeout, TimedOut, ConnectionRefused, FilteredPort, NetworkUnreachable) e DNS (Resolved, DnsResolutionFailure, ServerUnreachable, CacheHit)',
+    content: `namespace PCControlUltimate.Core.Models;
+
+public enum IcmpProbeStatus
+{
+    Responded,
+    PartialLoss,
+    FilteredOrBlocked,
+    Unreachable,
+    Inconclusive,
+    NotTested
+}
+
+public enum TcpConnectionProbeState
+{
+    Connected,
+    Timeout,
+    TimedOut,
+    ConnectionRefused,
+    FilteredPort,
+    NetworkUnreachable,
+    ConnectionFailure
+}
+
+public enum DnsResolutionState
+{
+    Resolved,
+    DnsResolutionFailure,
+    ServerUnreachable,
+    CacheHit
+}
+`,
+  },
+  {
+    path: 'src/PCControlUltimate.Windows/Services/WingetSoftwareCenterService.cs',
+    name: 'WingetSoftwareCenterService.cs',
+    language: 'csharp',
+    description: 'Validação criptográfica nativa via WinVerifyTrust (wintrust.dll) e CryptQueryObject/CryptMsgGetParam (crypt32.dll) com constantes públicas de HRESULT e AuthenticodeVerificationResult (IsCryptographicallyValid, IsTimestamped)',
+    content: `namespace PCControlUltimate.Windows.Services;
+
+public record AuthenticodeVerificationResult(
+    string FilePath,
+    SignatureVerificationState State,
+    int NativeWinTrustHResult,
+    string? SignerSubject,
+    string? Issuer,
+    string? Thumbprint,
+    DateTime? ValidUntilUtc,
+    stringVerificationMessage Message,
+    bool IsTimestamped = false
+)
+{
+    public bool IsCryptographicallyValid => State == SignatureVerificationState.VerifiedAuthenticode;
+}
+`,
+  },
 ];
+

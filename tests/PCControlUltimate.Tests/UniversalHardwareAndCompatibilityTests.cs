@@ -538,6 +538,19 @@ public class UniversalHardwareAndCompatibilityTests
         Assert.Equal(IcmpProbeStatus.Inconclusive, inconclusiveProbe.IcmpStatus);
         Assert.Null(inconclusiveProbe.IcmpPacketLossPercent);
 
+        var inconclusiveTimeoutProbe = NetworkDiagnosticsService.EvaluateTargetProbeOutcome(
+            "Inconclusive Timeout Target",
+            "208.67.222.222",
+            443,
+            icmpSent: 1,
+            icmpSamplesMs: Array.Empty<double>(),
+            tcpState: TcpConnectionProbeState.Timeout,
+            tcpHandshakeMs: null,
+            explicitDestinationUnreachableCount: 0
+        );
+        Assert.Equal(IcmpProbeStatus.Inconclusive, inconclusiveTimeoutProbe.IcmpStatus);
+        Assert.Null(inconclusiveTimeoutProbe.IcmpPacketLossPercent);
+
         var aggregateInconclusive = NetworkDiagnosticsService.BuildAggregateReportFromTargets(
             "Test-Inconclusive",
             new[] { inconclusiveProbe },

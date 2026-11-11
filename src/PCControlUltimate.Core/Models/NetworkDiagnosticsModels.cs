@@ -18,8 +18,10 @@ public enum TcpConnectionProbeState
 {
     Connected,
     Timeout,
+    TimedOut,
     ConnectionRefused,
     FilteredPort,
+    NetworkUnreachable,
     ConnectionFailure
 }
 
@@ -27,6 +29,7 @@ public enum DnsResolutionState
 {
     Resolved,
     DnsResolutionFailure,
+    ServerUnreachable,
     CacheHit
 }
 
