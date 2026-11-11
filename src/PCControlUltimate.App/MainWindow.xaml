@@ -165,7 +165,12 @@
                             <TextBlock Text="{Binding Workspace.Loc[GpuHealthTitle]}" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" />
                             <TextBlock Text="{Binding Workspace.GpuThermalDiagnosisText}" Foreground="#F59E0B" FontFamily="Consolas" FontSize="13" FontWeight="Bold" Margin="0,8,0,6" TextWrapping="Wrap" />
                             <TextBlock Text="{Binding Workspace.Loc[GpuHealthNotice]}" Foreground="{StaticResource TextMuted}" FontSize="11" TextWrapping="Wrap" />
-                            <UniformGrid Columns="4" Margin="0,14,0,0">
+                            <UniformGrid Columns="5" Margin="0,14,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Temperatura da CPU" Foreground="{StaticResource TextMuted}" FontSize="11" />
+                                    <TextBlock Text="{Binding Workspace.CpuTemp}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="17" FontWeight="Bold" Margin="0,3,0,0" />
+                                    <TextBlock Text="{Binding Workspace.CpuModel}" Foreground="#94A3B8" FontSize="10" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
                                 <StackPanel>
                                     <TextBlock Text="{Binding Workspace.Loc[LblCpuClockPower]}" Foreground="{StaticResource TextMuted}" FontSize="11" />
                                     <TextBlock Text="{Binding Workspace.CpuClock}" Foreground="#E2E8F0" FontFamily="Consolas" FontWeight="Bold" />
@@ -188,10 +193,15 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="18">
-                        <StackPanel>
-                            <TextBlock Text="{Binding Workspace.Loc[SensorsListTitle]}" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" Margin="0,0,0,10" />
-                            <ItemsControl ItemsSource="{Binding Workspace.AllHardwareSensors}">
+                    <Border Background="{StaticResource CardBackground}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="14">
+                        <Expander IsExpanded="False">
+                            <Expander.Header>
+                                <StackPanel>
+                                    <TextBlock Text="Sensores detalhados" Foreground="#E2E8F0" FontSize="13" FontWeight="Bold" />
+                                    <TextBlock Text="Leituras individuais e dados avançados (opcional)" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
+                                </StackPanel>
+                            </Expander.Header>
+                            <ItemsControl ItemsSource="{Binding Workspace.AllHardwareSensors}" Margin="0,12,0,0">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Border BorderBrush="#1E2333" BorderThickness="0,0,0,1" Padding="6,6">
@@ -211,7 +221,7 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                        </StackPanel>
+                        </Expander>
                     </Border>
                 </StackPanel>
             </views:HardwareMonitorView>
