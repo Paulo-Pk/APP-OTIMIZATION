@@ -183,6 +183,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
           <div className="bg-purple-500 h-full w-[35.6%]" />
         </div>
+
+        <div className="pt-2 mt-1 border-t border-slate-800/70 text-center">
+          <div className="text-[9px] uppercase tracking-[0.18em] text-slate-500">
+            Desenvolvido por
+          </div>
+          <div className="mt-0.5 text-[11px] font-black tracking-[0.16em] bg-gradient-to-r from-violet-300 via-purple-300 to-cyan-300 bg-clip-text text-transparent">
+            PAULO_PK
+          </div>
+        </div>
       </div>
     </aside>
   );
