@@ -1181,22 +1181,9 @@ public class MainViewModel : INotifyPropertyChanged
 
         AuditWireGuardConfigCommand = new RelayCommand(_ =>
         {
-            var node = GameNetworkAcceleratorService.GetRegisteredRelayNodes().FirstOrDefault();
-            if (node == null)
-            {
-                WireGuardConfigAuditText = "Cadastre ao menos um nó WireGuard/VPS antes de validar a configuração.";
-                return;
-            }
-
-            string selectiveCfg = WireGuardTunnelManager.BuildSelectiveGameTunnelConfig(
-                "wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=",
-                "10.66.66.2/32",
-                node
-            );
-            var audit = WireGuardTunnelManager.ValidateAndAuditConfig(selectiveCfg, allowDefaultRouteOverride: false);
-            WireGuardConfigAuditText = audit.IsValid
-                ? (Loc.CurrentCulture == "pt-BR" ? audit.RouteImpactExplanationPt : audit.RouteImpactExplanationEn)
-                : $"Configuração bloqueada: {audit.ErrorReason}";
+            WireGuardConfigAuditText = Loc.CurrentCulture == "pt-BR"
+                ? "A validação só é confiável com os dados reais do seu túnel: chave privada local, chave pública do VPS, endereço, porta e redes do jogo. O aplicativo não vai gerar uma chave de exemplo nem declarar um túnel fictício como válido. O cadastro seguro desses dados ainda precisa ser concluído."
+                : "Validation is only meaningful with your real tunnel data: local private key, VPS public key, endpoint, port, and game networks. The app will not generate a sample key or report a fictitious tunnel as valid. Secure entry of these settings still needs to be completed.";
         });
 
         CheckWireGuardTunnelCommand = new RelayCommand(async _ =>
