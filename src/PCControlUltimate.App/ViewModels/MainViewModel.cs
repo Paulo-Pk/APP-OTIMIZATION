@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using System.Windows.Media;
 using PCControlUltimate.App.Services;
 using PCControlUltimate.Core.Entities;
@@ -151,6 +152,8 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly DatabaseService _databaseService;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
     private CancellationTokenSource? _presentMonCts;
+    private readonly SemaphoreSlim _telemetryRefreshGate = new(1, 1);
+    private readonly DispatcherTimer _telemetryRefreshTimer;
 
     public LocalizationService Loc { get; }
     public INavigationService Navigation { get; }
@@ -1169,43 +1172,11 @@ public class MainViewModel : INotifyPropertyChanged
             }
         });
 
-        RegisterSampleVpsNodeCommand = new RelayCommand(async _ =>
+        RegisterSampleVpsNodeCommand = new RelayCommand(_ =>
         {
-            var (ok, err, node) = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
-                nodeId: "sa-gru-relay-01",
-                displayName: "Nó São Paulo (GRU-01 WireGuard Seletivo)",
-                regionCode: "SA-EAST-1",
-                endpointHost: "1.1.1.1",
-                endpointPort: 51820,
-                publicKey: "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
-                gameTargetCidrs: new[] { "155.133.248.0/24", "104.160.152.0/24" },
-                isCustomVps: true
-            );
-
-            if (ok && node != null)
-            {
-                await _databaseService.UpsertRelayNodeAsync(new RelayNodeEntity
-                {
-                    NodeId = node.NodeId,
-                    DisplayName = node.DisplayName,
-                    RegionCode = node.RegionCode,
-                    EndpointHost = node.EndpointHost,
-                    EndpointPort = node.EndpointPort,
-                    PublicKey = node.PublicKey,
-                    AllowedTargetCidrs = string.Join(", ", node.GameTargetCidrs),
-                    IsCustomVps = node.IsCustomVps
-                });
-
-                RelayNodes.Clear();
-                foreach (var n in GameNetworkAcceleratorService.GetRegisteredRelayNodes())
-                {
-                    RelayNodes.Add(n);
-                }
-            }
-            else
-            {
-                RouteVerdictText = $"Erro ao cadastrar nó: {err}";
-            }
+            RouteVerdictText = Loc.CurrentCulture == "pt-BR"
+                ? "Nenhum servidor relay real vem incluído no aplicativo. O antigo GRU-01 era apenas um exemplo com endereço e chave fictícios e foi removido. Para testar uma rota por WireGuard, é necessário cadastrar um VPS próprio com endereço, porta UDP, chave pública e redes de destino reais."
+                : "The app does not include a real relay server. The old GRU-01 entry used a fictitious address and key and has been removed. To test a WireGuard route, configure your own VPS with a real endpoint, UDP port, public key, and destination networks.";
         });
 
         AuditWireGuardConfigCommand = new RelayCommand(_ =>
@@ -1234,27 +1205,97 @@ public class MainViewModel : INotifyPropertyChanged
             WireGuardStatusText = status.DiagnosticMessage;
         });
 
-        ApplySafeBoostProfileCommand = new RelayCommand(_ =>
+        ApplySafeBoostProfileCommand = new RelayCommand(async _ =>
         {
-            CreateSnapshotCommand.Execute(null);
-            var safeTweaks = CatalogTweaks.Where(t => string.Equals(t.RiskLevel, "Safe", StringComparison.OrdinalIgnoreCase) || string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase)).Take(3).ToList();
+            var safeTweaks = CatalogTweaks
+                .Where(t => !t.IsApplied &&
+                    (string.Equals(t.RiskLevel, "Safe", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            if (safeTweaks.Count == 0)
+            {
+                StatusMessage = Loc.CurrentCulture == "pt-BR"
+                    ? "As otimizações seguras já estão aplicadas ou não há itens seguros disponíveis."
+                    : "Safe optimizations are already applied or no safe items are available.";
+                return;
+            }
+
+            StatusMessage = Loc.CurrentCulture == "pt-BR"
+                ? "Criando e verificando um ponto de restauração antes das otimizações..."
+                : "Creating and verifying a restore point before applying optimizations.";
+
+            var (snapshotCreated, snapshotDetails) = await _agentClient.CreateSnapshotAsync();
+            RefreshBackupsList();
+            RefreshAuditLogs();
+
+            if (!snapshotCreated)
+            {
+                StatusMessage = Loc.CurrentCulture == "pt-BR"
+                    ? $"Nenhuma alteração foi aplicada porque o backup não foi confirmado: {snapshotDetails}"
+                    : $"No changes were applied because the backup could not be verified: {snapshotDetails}";
+                return;
+            }
+
+            int appliedCount = 0;
+            int failedCount = 0;
+
             foreach (var tweak in safeTweaks)
             {
-                ApplyTweakCommand.Execute(tweak);
+                var (success, details) = await _agentClient.ApplyCatalogTweakAsync(tweak.TweakId, tweak.RecommendedValue);
+                if (!success)
+                {
+                    tweak.VerificationState = "Falha / Requer UAC";
+                    failedCount++;
+                    continue;
+                }
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(details);
+                    if (doc.RootElement.TryGetProperty("operationId", out var operationId))
+                        tweak.LastOperationId = operationId.GetString();
+                }
+                catch { }
+
+                tweak.IsApplied = true;
+                tweak.VerificationState = $"Verificado ({tweak.RecommendedValue})";
+                await _databaseService.UpsertOptimizationActionAsync(
+                    tweak.TweakId,
+                    tweak.Name,
+                    tweak.Category,
+                    tweak.RegistryPath,
+                    tweak.ValueName,
+                    "Ledger-DPAPI",
+                    tweak.RecommendedValue,
+                    isApplied: true,
+                    backupId: tweak.LastOperationId
+                );
+                appliedCount++;
             }
+
+            RefreshAuditLogs();
+            OnPropertyChanged(nameof(AppliedTweaksCount));
+            OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+
+            StatusMessage = Loc.CurrentCulture == "pt-BR"
+                ? $"Backup confirmado. {appliedCount} otimização(ões) segura(s) aplicada(s) e verificadas; {failedCount} falha(s)."
+                : $"Backup verified. {appliedCount} safe optimization(s) applied and verified; {failedCount} failure(s).";
         });
 
         RunBenchmarkCommand = new RelayCommand(async _ =>
         {
-            BenchmarkResultSummary = "Executando benchmark determinístico local (CPU + Alocação de Memória)...";
-            await Task.Run(() =>
+            BenchmarkResultSummary = Loc.CurrentCulture == "pt-BR"
+                ? "Executando teste local de CPU e memória..."
+                : "Running local CPU and memory test...";
+
+            var result = await Task.Run(() =>
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 double acc = 0;
                 for (int i = 1; i <= 2_500_000; i++)
-                {
                     acc += Math.Sqrt(i) * Math.Sin(i & 0xFF);
-                }
+
                 sw.Stop();
                 long cpuMs = Math.Max(1, sw.ElapsedMilliseconds);
                 int opsScore = (int)Math.Round(250_000.0 / cpuMs * 10.0);
@@ -1262,19 +1303,23 @@ public class MainViewModel : INotifyPropertyChanged
                 var memSw = System.Diagnostics.Stopwatch.StartNew();
                 byte[] buffer = new byte[32 * 1024 * 1024];
                 for (int i = 0; i < buffer.Length; i += 64)
-                {
                     buffer[i] = (byte)(i & 0xFF);
-                }
+
                 memSw.Stop();
                 double memBandwidthGbS = Math.Round((32.0 / 1024.0) / Math.Max(0.0005, memSw.Elapsed.TotalSeconds), 2);
-
-                BenchmarkResultSummary = $"CPU Arithmetic Score: {opsScore} pts ({cpuMs} ms) · Largura de Banda RAM Sequencial: {memBandwidthGbS:F2} GB/s · (Checksum={acc:F0})";
+                return (opsScore, cpuMs, memBandwidthGbS, checksum: acc);
             });
+
+            BenchmarkResultSummary = Loc.CurrentCulture == "pt-BR"
+                ? $"CPU: {result.opsScore} pontos ({result.cpuMs} ms) · Memória: {result.memBandwidthGbS:F2} GB/s · Teste local concluído."
+                : $"CPU: {result.opsScore} points ({result.cpuMs} ms) · Memory: {result.memBandwidthGbS:F2} GB/s · Local test completed.";
         });
 
         MeasureInputCadenceCommand = new RelayCommand(_ =>
         {
-            PeripheralCadenceSummary = $"Monitor Primário: {DisplayInfoText} · Timer de Alta Resolução (QPC): {System.Diagnostics.Stopwatch.Frequency / 1_000_000.0:F2} MHz · Sem perda de eventos detectada.";
+            PeripheralCadenceSummary = Loc.CurrentCulture == "pt-BR"
+                ? $"Monitor: {DisplayInfoText} · Frequência do contador de alta resolução: {System.Diagnostics.Stopwatch.Frequency / 1_000_000.0:F2} MHz. Esta verificação não mede a taxa de polling do mouse/teclado nem detecta perda de eventos."
+                : $"Monitor: {DisplayInfoText} · High-resolution counter frequency: {System.Diagnostics.Stopwatch.Frequency / 1_000_000.0:F2} MHz. This check does not measure mouse/keyboard polling rate or detect dropped input events.";
         });
 
         GenerateDiagnosticInsightsCommand = new RelayCommand(_ => RefreshAssistantInsights());
@@ -1286,6 +1331,23 @@ public class MainViewModel : INotifyPropertyChanged
         RefreshBackupsList();
         RefreshAuditLogs();
         _ = _databaseService.InitializeAndVerifyAsync();
+
+        _telemetryRefreshTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(2)
+        };
+        _telemetryRefreshTimer.Tick += async (_, _) =>
+        {
+            try
+            {
+                await RefreshTelemetryAndStatusAsync();
+            }
+            catch (Exception ex)
+            {
+                HardwareSubsystemStatusText = $"Falha ao atualizar sensores: {ex.Message}";
+            }
+        };
+        _telemetryRefreshTimer.Start();
         _ = RefreshTelemetryAndStatusAsync();
     }
 
@@ -1437,6 +1499,9 @@ public class MainViewModel : INotifyPropertyChanged
 
     public async Task RefreshTelemetryAndStatusAsync()
     {
+        if (!await _telemetryRefreshGate.WaitAsync(0)) return;
+        try
+        {
         string unavailable = Loc["SensorUnavailable"];
 
         IsAgentConnected = await _agentClient.CheckConnectionAsync();
@@ -1589,8 +1654,12 @@ public class MainViewModel : INotifyPropertyChanged
         UpdatePrimaryDiskAndProfileTelemetry(null, null);
         OverallHealthScore = "--";
         RefreshAssistantInsights();
+        }
+        finally
+        {
+            _telemetryRefreshGate.Release();
+        }
     }
-
     private void UpdatePrimaryDiskAndProfileTelemetry(string? gpuName, double? ramTotalGb)
     {
         CpuCoresThreadsText = $"{Math.Max(1, Environment.ProcessorCount / 2)} Cores / {Environment.ProcessorCount} Threads";
