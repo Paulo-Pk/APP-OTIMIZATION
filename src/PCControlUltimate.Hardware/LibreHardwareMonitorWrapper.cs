@@ -427,7 +427,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     /// AMD Ryzen sensors such as Core (Tctl/Tdie), CCDx (Tdie), and CCDs Max (Tdie) are explicitly recognized.
     /// Any other valid temperature sensor exposed by the CPU is retained as a last-resort real reading.
     /// </summary>
-    internal static int GetCpuTemperatureSensorPriority(string? sensorName)
+    public static int GetCpuTemperatureSensorPriority(string? sensorName)
     {
         if (string.IsNullOrWhiteSpace(sensorName)) return 0;
 
