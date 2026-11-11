@@ -40,6 +40,25 @@ public record StorageTelemetryPoint(
     float? TemperatureC
 );
 
+/// <summary>
+/// Per-adapter GPU telemetry point so systems with multiple GPUs (e.g. Hybrid iGPU + dGPU or Multi-GPU)
+/// preserve independent sensors, clocks, VRAM, and status for every installed adapter.
+/// </summary>
+public record GpuAdapterTelemetryPoint(
+    string Model,
+    string HardwareType,
+    float? CoreTempC,
+    float? HotspotTempC,
+    float? LoadPercent,
+    float? CoreClockMhz,
+    float? PowerWatts,
+    float? FanRpm,
+    float? VramUsedMb,
+    float? VramTotalMb,
+    string? DriverVersion = null,
+    string? PnpDeviceId = null
+);
+
 public record HardwareSnapshot(
     DateTime TimestampUtc,
     float? CpuPackageTemp,
@@ -61,7 +80,8 @@ public record HardwareSnapshot(
     float? GpuFanRpm = null,
     IReadOnlyList<StorageTelemetryPoint>? StorageDrives = null,
     SensorReadingStatus MonitorStatus = SensorReadingStatus.Available,
-    string? DiagnosticMessage = null
+    string? DiagnosticMessage = null,
+    IReadOnlyList<GpuAdapterTelemetryPoint>? GpuAdapters = null
 )
 {
     public SensorReadingStatus Status => MonitorStatus;

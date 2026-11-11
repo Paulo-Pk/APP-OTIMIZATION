@@ -1,6 +1,6 @@
 {
-  "summary":  "Relatório Técnico Inicial e Plano de Implementação em 10 Fases do PC Control Ultimate — Master Upgrade (Universal Hardware Engine, Windows Compatibility Engine, Correção do Bug de 50% de Perda TCP, Software Center via WinGet, System Doctor, e Testes Multi-Hardware A–N).",
-  "updatedAt":  "2026-11-11T13:28:25.542368234Z",
+  "summary":  "Plano de Correção Crítica Pós-Auditoria GitHub: resolução dos 4 erros de compilação sem dependência circular, enumeração independente multi-GPU e correção de dados estimados no UniversalHardwareEngine, separação estrita ICMP vs TCP em NetworkDiagnosticsService, evolução dinâmica do WingetSoftwareCenterService com validação real de assinatura Authenticode, refinamento do GpuThermalAuditor e testes automatizados.",
+  "updatedAt":  "2026-11-11T13:52:51.318242101Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

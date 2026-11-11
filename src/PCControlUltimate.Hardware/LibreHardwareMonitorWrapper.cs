@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using LibreHardwareMonitor.Hardware;
@@ -105,11 +104,11 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
         var sensorList = new List<SensorDataPoint>();
         var storageDrives = new List<StorageTelemetryPoint>();
+        var gpuAdapters = new List<GpuAdapterTelemetryPoint>();
 
         try
         {
-            // Order hardware so dedicated/discrete GPUs (AMD Radeon RX, NVIDIA GeForce/RTX, Intel Arc Discrete) are processed
-            // before integrated GPUs (e.g., "AMD Radeon(TM) Graphics", "Intel(R) UHD Graphics", "Intel(R) Iris")
+            // Order hardware so discrete GPUs are listed before integrated GPUs without favoring any specific vendor/model
             var orderedHardware = new List<IHardware>(_computer.Hardware);
             orderedHardware.Sort((a, b) => GetHardwarePriorityScore(b).CompareTo(GetHardwarePriorityScore(a)));
 
@@ -135,19 +134,28 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                     continue;
                 }
 
+                bool isGpuHardware = hardware.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel;
                 bool isPrimaryGpuCandidate = false;
+
                 if (hardware.HardwareType == HardwareType.Cpu && string.IsNullOrWhiteSpace(cpuModel))
                 {
                     cpuModel = hardware.Name;
                 }
-                else if (hardware.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel &&
-                         string.IsNullOrWhiteSpace(gpuModel))
+                else if (isGpuHardware && string.IsNullOrWhiteSpace(gpuModel))
                 {
                     gpuModel = hardware.Name;
                     isPrimaryGpuCandidate = true;
                 }
 
                 float? driveTemp = null;
+                float? adapterCoreTemp = null;
+                float? adapterHotspot = null;
+                float? adapterLoad = null;
+                float? adapterClock = null;
+                float? adapterPower = null;
+                float? adapterFanRpm = null;
+                float? adapterVramUsed = null;
+                float? adapterVramTotal = null;
 
                 foreach (var sensor in hardware.Sensors)
                 {
@@ -199,7 +207,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             cpuPower ??= sensor.Value;
                         }
                     }
-                    else if (isPrimaryGpuCandidate && hardware.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel)
+                    else if (isGpuHardware)
                     {
                         if (sensor.SensorType == SensorType.Temperature)
                         {
@@ -207,7 +215,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                                 sensor.Name.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
                                 sensor.Name.Contains("Junction", StringComparison.OrdinalIgnoreCase))
                             {
-                                gpuHotspot ??= sensor.Value;
+                                adapterHotspot ??= sensor.Value;
                             }
                             else if ((sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
                                       sensor.Name.Equals("GPU", StringComparison.OrdinalIgnoreCase) ||
@@ -215,21 +223,33 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                                      !sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase) &&
                                      !sensor.Name.Contains("SoC", StringComparison.OrdinalIgnoreCase))
                             {
-                                gpuTemp ??= sensor.Value;
+                                adapterCoreTemp ??= sensor.Value;
                             }
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                            gpuLoad ??= sensor.Value;
+                            adapterLoad ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Clock && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                            gpuClock ??= sensor.Value;
+                            adapterClock ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Power)
-                            gpuPower ??= sensor.Value;
+                            adapterPower ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Fan)
-                            gpuFanRpm ??= sensor.Value;
+                            adapterFanRpm ??= sensor.Value;
                         if (sensor.SensorType == SensorType.SmallData && sensor.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase))
-                            gpuVramUsed ??= sensor.Value;
+                            adapterVramUsed ??= sensor.Value;
                         if (sensor.SensorType == SensorType.SmallData && sensor.Name.Contains("Memory Total", StringComparison.OrdinalIgnoreCase))
-                            gpuVramTotal ??= sensor.Value;
+                            adapterVramTotal ??= sensor.Value;
+
+                        if (isPrimaryGpuCandidate)
+                        {
+                            gpuTemp ??= adapterCoreTemp;
+                            gpuHotspot ??= adapterHotspot;
+                            gpuLoad ??= adapterLoad;
+                            gpuClock ??= adapterClock;
+                            gpuPower ??= adapterPower;
+                            gpuFanRpm ??= adapterFanRpm;
+                            gpuVramUsed ??= adapterVramUsed;
+                            gpuVramTotal ??= adapterVramTotal;
+                        }
                     }
                     else if (hardware.HardwareType == HardwareType.Memory)
                     {
@@ -243,6 +263,24 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         if (sensor.SensorType == SensorType.Temperature)
                             driveTemp ??= sensor.Value;
                     }
+                }
+
+                if (isGpuHardware)
+                {
+                    gpuAdapters.Add(new GpuAdapterTelemetryPoint(
+                        Model: hardware.Name,
+                        HardwareType: hardware.HardwareType.ToString(),
+                        CoreTempC: adapterCoreTemp,
+                        HotspotTempC: adapterHotspot,
+                        LoadPercent: adapterLoad,
+                        CoreClockMhz: adapterClock,
+                        PowerWatts: adapterPower,
+                        FanRpm: adapterFanRpm,
+                        VramUsedMb: adapterVramUsed,
+                        VramTotalMb: adapterVramTotal,
+                        DriverVersion: null,
+                        PnpDeviceId: hardware.Identifier.ToString()
+                    ));
                 }
 
                 if (hardware.HardwareType == HardwareType.Storage)
@@ -320,7 +358,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             gpuFanRpm,
             storageDrives,
             CurrentStatus,
-            LastCommunicationError
+            LastCommunicationError,
+            gpuAdapters
         );
 
         return Task.FromResult(snapshot);
@@ -362,18 +401,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                 return 10; // iGPU processed after discrete GPUs
             }
 
-            // Prioritize any discrete GPU across all vendors equally without favoring a specific model
-            if (hardware.Name.Contains("Radeon RX", StringComparison.OrdinalIgnoreCase) ||
-                hardware.Name.Contains("Radeon PRO", StringComparison.OrdinalIgnoreCase) ||
-                hardware.Name.Contains("GeForce RTX", StringComparison.OrdinalIgnoreCase) ||
-                hardware.Name.Contains("GeForce GTX", StringComparison.OrdinalIgnoreCase) ||
-                hardware.Name.Contains("NVIDIA RTX", StringComparison.OrdinalIgnoreCase) ||
-                hardware.Name.Contains("Intel(R) Arc", StringComparison.OrdinalIgnoreCase))
-            {
-                return 100;
-            }
-
-            return 85;
+            return 95; // All discrete GPUs across AMD, NVIDIA, and Intel Arc have equal priority
         }
 
         return hardware.HardwareType switch

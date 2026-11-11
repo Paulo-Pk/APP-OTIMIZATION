@@ -30,7 +30,6 @@ public enum MetricReliability
 {
     VerifiedPhysicalSensor,
     OsReportedCounter,
-    HeuristicFallback,
     Unavailable
 }
 
@@ -65,7 +64,7 @@ public enum OperationCompatibilityState
 
 /// <summary>
 /// Represents any hardware metric with full provenance, timestamp, reliability, and limitation metadata (§3.3).
-/// Never fabricates values when unavailable.
+/// Never fabricates or estimates values when unavailable.
 /// </summary>
 public record DetectedMetric<T>(
     T? Value,
@@ -128,14 +127,15 @@ public record DetectedGpuAdapterInfo(
     DetectedMetric<float?> VramTotalMb,
     DetectedMetric<float?> FanRpm,
     string? DriverVersion,
-    HardwareComponentCapabilityMatrix Capabilities
+    HardwareComponentCapabilityMatrix Capabilities,
+    string? PnpDeviceId = null
 );
 
 public record DetectedCpuInfo(
     string Name,
     HardwareVendor Vendor,
     string Architecture,
-    int PhysicalCores,
+    int? PhysicalCores,
     int LogicalProcessors,
     DetectedMetric<float?> PackageTemperatureC,
     DetectedMetric<float?> TotalLoadPercent,
@@ -150,7 +150,7 @@ public record DetectedMemoryInfo(
     DetectedMetric<float?> UsedGb,
     DetectedMetric<float?> AvailableGb,
     DetectedMetric<float?> UsagePercent,
-    string MemoryGeneration,
+    string? MemoryGeneration,
     int? ConfiguredSpeedMt,
     HardwareComponentCapabilityMatrix Capabilities
 );

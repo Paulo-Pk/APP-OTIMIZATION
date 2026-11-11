@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using PCControlUltimate.Core.Models;
-using PCControlUltimate.Windows.Services;
 
 namespace PCControlUltimate.Diagnostics;
 
@@ -20,7 +19,7 @@ public record EvidenceBasedRecommendation(
 /// <summary>
 /// Intelligent Evidence-Based Recommendation Engine (§14):
 /// Generates hardware-agnostic recommendations strictly from real telemetry, storage, network, and compatibility findings.
-/// Never recommends actions without measurable evidence and never favors a specific hardware vendor.
+/// Uses shared contracts in PCControlUltimate.Core.Models without referencing PCControlUltimate.Windows.
 /// </summary>
 public class RecommendationEngine
 {
@@ -48,7 +47,7 @@ public class RecommendationEngine
             ));
         }
 
-        // 2. Hybrid Notebook / Battery recommendation
+        // 2. Hybrid Notebook / Multi-GPU Battery recommendation
         if (hardwareReport.DetectedProfile == SystemHardwareProfile.Notebook || hardwareReport.BatteryAndPower.HasBattery)
         {
             list.Add(new EvidenceBasedRecommendation(

@@ -10,4 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="../PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Diagnostics.EventLog" Version="9.0.2" />
+  </ItemGroup>
 </Project>

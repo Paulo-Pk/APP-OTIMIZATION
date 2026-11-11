@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
+using System.Management;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 using PCControlUltimate.Core.Interfaces;
 using PCControlUltimate.Core.Models;
 
@@ -14,8 +16,9 @@ namespace PCControlUltimate.Hardware;
 
 /// <summary>
 /// Universal Hardware Engine (§3 & §5):
-/// Multi-source hardware detection, telemetry provenance, capability matrix, and automatic system profile classification
-/// across Intel, AMD, NVIDIA, Qualcomm, and generic Windows 10/11 systems without global model hardcoding.
+/// Multi-source hardware detection, independent multi-GPU enumeration (LHM + WMI Win32_VideoController + Registry Display Class),
+/// real SMBIOS memory generation/speed detection, real WMI physical core detection, and real Win32 battery status.
+/// Never presents estimated or hardcoded values as real hardware readings.
 /// </summary>
 public class UniversalHardwareEngine
 {
@@ -31,32 +34,39 @@ public class UniversalHardwareEngine
         bool? hasBatteryOverride = null,
         bool? isDomainOrPolicyManagedOverride = null,
         bool? isRunningAsAdminOverride = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? batteryChargePercentOverride = null,
+        int? physicalCoresOverride = null,
+        string? memoryGenerationOverride = null,
+        int? memorySpeedMtOverride = null)
     {
         var snapshot = existingSnapshot ?? await _monitorService.CaptureSnapshotAsync();
         DateTime now = DateTime.UtcNow;
         bool isAdmin = isRunningAsAdminOverride ?? CheckIsRunningAsAdministrator();
         bool sensorSubsystemAvailable = snapshot.IsHardwareMonitorAvailable;
 
-        // 1. CPU Identification & Capabilities
+        // 1. CPU Identification & Capabilities (Never divides threads by 2 to guess physical cores)
+        var (wmiCpuName, wmiPhysicalCores, wmiLogicalProcessors) = QueryWmiCpuDetails();
         string rawCpuName = !string.IsNullOrWhiteSpace(snapshot.CpuModelName)
             ? snapshot.CpuModelName!
-            : Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? "Processador Compatível x64/ARM64";
+            : !string.IsNullOrWhiteSpace(wmiCpuName)
+                ? wmiCpuName!
+                : Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? "Indisponível";
 
         var cpuVendor = DetectCpuVendor(rawCpuName);
         string cpuArch = RuntimeInformation.OSArchitecture.ToString();
-        int logicalCores = Math.Max(1, Environment.ProcessorCount);
-        int physicalCores = Math.Max(1, logicalCores / 2);
+        int logicalCores = wmiLogicalProcessors ?? Math.Max(1, Environment.ProcessorCount);
+        int? physicalCores = physicalCoresOverride ?? wmiPhysicalCores; // Null when WMI is unavailable; never estimated by dividing by 2
         bool isHybridCpu = IsHybridCpuArchitecture(rawCpuName, cpuVendor);
 
         var cpuCapabilities = new HardwareComponentCapabilityMatrix(
             ComponentCategory: "CPU",
             ComponentName: rawCpuName,
             Vendor: cpuVendor,
-            Identified: !string.IsNullOrWhiteSpace(rawCpuName),
+            Identified: !string.IsNullOrWhiteSpace(rawCpuName) && rawCpuName != "Indisponível",
             Monitorable: true,
             SensorAvailable: snapshot.CpuPackageTemp.HasValue || snapshot.CpuTotalLoad.HasValue,
-            Adjustable: true, // Power Plan & Process Affinity/Priority
+            Adjustable: true,
             BenchmarkCompatible: true,
             DiagnosticCompatible: true,
             RequiresDriver: !sensorSubsystemAvailable,
@@ -74,25 +84,29 @@ public class UniversalHardwareEngine
             PackageTemperatureC: WrapSensorMetric(snapshot.CpuPackageTemp, sensorSubsystemAvailable, isAdmin, "°C", "Sensor térmico de pacote CPU"),
             TotalLoadPercent: WrapSensorMetric(snapshot.CpuTotalLoad, sensorSubsystemAvailable, isAdmin, "%", "Carga total de utilização CPU"),
             CoreClockMhz: WrapSensorMetric(snapshot.CpuClockMhz, sensorSubsystemAvailable, isAdmin, "MHz", "Frequência de clock de núcleo"),
-            PackagePowerWatts: WrapSensorMetric(snapshot.CpuPowerWatts, sensorSubsystemAvailable, isAdmin, "W", "Consumo energético de pacote (RAPL/SVI2)"),
+            PackagePowerWatts: WrapSensorMetric(snapshot.CpuPowerWatts, sensorSubsystemAvailable, isAdmin, "W", "Consumo energético de pacote"),
             IsHybridArchitecture: isHybridCpu,
             Capabilities: cpuCapabilities
         );
 
-        // 2. GPU Identification & Multi-Vendor Optional Adapters
-        var gpus = BuildDetectedGpuList(snapshot, sensorSubsystemAvailable, isAdmin);
+        // 2. Independent Multi-GPU Enumeration (LHM GpuAdapters + WMI Win32_VideoController + Registry Display Class)
+        var gpus = EnumerateAllGpusIndependently(snapshot, sensorSubsystemAvailable, isAdmin);
         var primaryGpu = gpus
             .OrderByDescending(g => g.IsDiscrete)
             .ThenByDescending(g => g.VramTotalMb.Value ?? 0f)
             .FirstOrDefault();
 
-        // 3. Memory Identification
+        // 3. Memory Identification (Queries real SMBIOSMemoryType and ConfiguredClockSpeed; null when unavailable)
         float? ramUsed = snapshot.RamUsedGb;
         float? ramTotal = snapshot.RamTotalGb;
         float? ramAvail = (ramTotal.HasValue && ramUsed.HasValue) ? Math.Max(0f, ramTotal.Value - ramUsed.Value) : null;
         float? ramPct = (ramTotal.HasValue && ramTotal.Value > 0 && ramUsed.HasValue)
             ? (float)Math.Round(ramUsed.Value / ramTotal.Value * 100.0, 1)
             : null;
+
+        var (smbiosGeneration, smbiosSpeedMt) = QueryWmiMemoryDetails();
+        string? resolvedMemGen = memoryGenerationOverride ?? smbiosGeneration;
+        int? resolvedMemSpeed = memorySpeedMtOverride ?? smbiosSpeedMt;
 
         var memCapabilities = new HardwareComponentCapabilityMatrix(
             ComponentCategory: "Memory",
@@ -107,7 +121,9 @@ public class UniversalHardwareEngine
             RequiresDriver: false,
             RequiresAdmin: false,
             NotSupported: false,
-            CapabilityNotes: "Monitoramento de alocação física e limpeza segura de Working Set disponíveis."
+            CapabilityNotes: resolvedMemGen != null
+                ? $"Memória {resolvedMemGen} detectada via SMBIOS."
+                : "Monitoramento de alocação física ativo; geração SMBIOS não reportada nesta sessão."
         );
 
         var memoryInfo = new DetectedMemoryInfo(
@@ -115,8 +131,8 @@ public class UniversalHardwareEngine
             UsedGb: WrapSensorMetric(ramUsed, sensorSubsystemAvailable, isAdmin, "GB", "Memória física em uso"),
             AvailableGb: WrapSensorMetric(ramAvail, sensorSubsystemAvailable, isAdmin, "GB", "Memória física livre"),
             UsagePercent: WrapSensorMetric(ramPct, sensorSubsystemAvailable, isAdmin, "%", "Percentual de ocupação RAM"),
-            MemoryGeneration: "DDR4 / DDR5 / LPDDR",
-            ConfiguredSpeedMt: null,
+            MemoryGeneration: resolvedMemGen,
+            ConfiguredSpeedMt: resolvedMemSpeed,
             Capabilities: memCapabilities
         );
 
@@ -126,15 +142,8 @@ public class UniversalHardwareEngine
         // 5. Network Adapters
         var networkList = BuildNetworkAdapterList();
 
-        // 6. Battery & Power
-        bool hasBattery = hasBatteryOverride ?? DetectSystemHasBattery();
-        var batteryInfo = new DetectedBatteryPowerInfo(
-            HasBattery: hasBattery,
-            IsOnBatteryPower: false,
-            ChargePercent: hasBattery ? 100 : null,
-            PowerLineStatus: hasBattery ? "AC / Bateria Detectada" : "AC Direto (Desktop)",
-            ActivePowerSchemeName: "Plano de Energia Ativo do Windows"
-        );
+        // 6. Battery & Power (Reads real Win32 SYSTEM_POWER_STATUS; never hardcodes 100%)
+        var batteryInfo = ReadRealBatteryPowerInfo(hasBatteryOverride, batteryChargePercentOverride);
 
         // 7. Automatic System Profile Classification (§5.1)
         bool isCorporateManaged = isDomainOrPolicyManagedOverride ?? DetectCorporateDomainOrPolicyEnvironment();
@@ -143,7 +152,7 @@ public class UniversalHardwareEngine
             gpus,
             primaryGpu,
             memoryInfo,
-            hasBattery,
+            batteryInfo.HasBattery,
             isCorporateManaged
         );
 
@@ -248,9 +257,11 @@ public class UniversalHardwareEngine
         bool hasBattery,
         bool isCorporateManaged)
     {
-        float ramGb = memory.TotalGb.Value ?? 8f;
+        float ramGb = memory.TotalGb.Value ?? 0f;
         float vramMb = primaryGpu?.VramTotalMb.Value ?? 0f;
         bool hasDiscreteGpu = gpus.Any(g => g.IsDiscrete);
+        bool hasIntegratedGpu = gpus.Any(g => g.IsIntegrated);
+        bool isHybridMultiGpu = hasDiscreteGpu && hasIntegratedGpu;
         string cpuName = cpu.Name;
         string gpuName = primaryGpu?.Name ?? string.Empty;
 
@@ -263,7 +274,7 @@ public class UniversalHardwareEngine
             );
         }
 
-        // 2. Workstation (Threadripper / Xeon / Radeon PRO / NVIDIA RTX A-series / >= 64GB RAM + >= 16 threads)
+        // 2. Workstation (Threadripper / Xeon / Radeon PRO / NVIDIA RTX A-series / >= 64GB RAM + >= 24 threads)
         if (cpuName.Contains("Threadripper", StringComparison.OrdinalIgnoreCase) ||
             cpuName.Contains("Xeon", StringComparison.OrdinalIgnoreCase) ||
             cpuName.Contains("EPYC", StringComparison.OrdinalIgnoreCase) ||
@@ -274,16 +285,18 @@ public class UniversalHardwareEngine
         {
             return (
                 SystemHardwareProfile.Workstation,
-                $"Estação de trabalho detectada ({cpu.Name}, {ramGb:F0} GB RAM). Foco em estabilidade sustentada e cargas multi-thread."
+                $"Estação de trabalho detectada ({cpu.Name}, {ramGb:F0} GB RAM, {gpus.Count} GPU(s)). Foco em estabilidade sustentada e cargas multi-thread."
             );
         }
 
         // 3. Notebook / Portable (Has battery; may be hybrid iGPU + dGPU or ultra-portable)
         if (hasBattery)
         {
-            string gpuNote = hasDiscreteGpu
-                ? $"com gráficos híbridos ({primaryGpu?.Name})"
-                : "com gráficos integrados de eficiência energética";
+            string gpuNote = isHybridMultiGpu
+                ? $"com gráficos híbridos iGPU + dGPU ({gpus.Count} adaptadores: {string.Join(" + ", gpus.Select(g => g.Name))})"
+                : hasDiscreteGpu
+                    ? $"com GPU dedicada ({primaryGpu?.Name})"
+                    : "com gráficos integrados de eficiência energética";
             return (
                 SystemHardwareProfile.Notebook,
                 $"Dispositivo portátil com bateria detectado {gpuNote}. Otimizações priorizam eficiência térmica, autonomia e alternância gráfica."
@@ -291,11 +304,11 @@ public class UniversalHardwareEngine
         }
 
         // 4. High Performance / Enthusiast Desktop (High core count + high VRAM/RAM)
-        if (hasDiscreteGpu && (vramMb >= 16000f || (ramGb >= 32f && cpu.LogicalProcessors >= 16)))
+        if (hasDiscreteGpu && (vramMb >= 12000f || (ramGb >= 32f && cpu.LogicalProcessors >= 16)))
         {
             return (
                 SystemHardwareProfile.HighPerformance,
-                $"Desktop de alto desempenho detectado ({cpu.Name} + {primaryGpu?.Name}). Sensores avançados, telemetria de hotspot e ajustes de baixa latência habilitados."
+                $"Desktop de alto desempenho detectado ({cpu.Name} + {primaryGpu?.Name}, {gpus.Count} GPU(s) instalada(s))."
             );
         }
 
@@ -311,31 +324,81 @@ public class UniversalHardwareEngine
         // 6. Basic / Integrated Graphics PC
         return (
             SystemHardwareProfile.Basic,
-            "Computador com vídeo integrado ou configuração essencial detectado. Foco em responsividade do Windows, redução de consumo de RAM e inicialização rápida."
+            "Computador com vídeo integrado ou sem GPU dedicada detectado. Foco em responsividade do Windows, redução de consumo de RAM e inicialização rápida."
         );
     }
 
-    private static List<DetectedGpuAdapterInfo> BuildDetectedGpuList(
+    /// <summary>
+    /// Enumerates all GPUs present in the system independently:
+    /// 1) All adapters captured in snapshot.GpuAdapters (LibreHardwareMonitor / multi-GPU snapshot)
+    /// 2) WMI Win32_VideoController + Registry Display Class adapters not yet in the list
+    /// 3) Fallback to snapshot.GpuModelName when GpuAdapters is null/empty
+    /// Each GPU receives its own independent identification, sensors, capabilities, and status.
+    /// </summary>
+    private static List<DetectedGpuAdapterInfo> EnumerateAllGpusIndependently(
         HardwareSnapshot snapshot,
         bool sensorSubsystemAvailable,
         bool isAdmin)
     {
-        var list = new List<DetectedGpuAdapterInfo>();
+        var adapterPoints = new List<GpuAdapterTelemetryPoint>();
 
-        if (!string.IsNullOrWhiteSpace(snapshot.GpuModelName))
+        if (snapshot.GpuAdapters != null && snapshot.GpuAdapters.Count > 0)
         {
-            string name = snapshot.GpuModelName!;
+            adapterPoints.AddRange(snapshot.GpuAdapters);
+        }
+        else if (!string.IsNullOrWhiteSpace(snapshot.GpuModelName))
+        {
+            adapterPoints.Add(new GpuAdapterTelemetryPoint(
+                Model: snapshot.GpuModelName!,
+                HardwareType: "Gpu",
+                CoreTempC: snapshot.GpuCoreTemp,
+                HotspotTempC: snapshot.GpuHotspotTemp,
+                LoadPercent: snapshot.GpuLoadPercent,
+                CoreClockMhz: snapshot.GpuClockMhz,
+                PowerWatts: snapshot.GpuPowerWatts,
+                FanRpm: snapshot.GpuFanRpm,
+                VramUsedMb: snapshot.GpuVramUsedMb,
+                VramTotalMb: snapshot.GpuVramTotalMb,
+                DriverVersion: null,
+                PnpDeviceId: null
+            ));
+        }
+
+        // Merge with OS-level WMI & Registry video controllers when running on Windows and not using a synthetic test snapshot
+        if (OperatingSystem.IsWindows() && snapshot.GpuAdapters == null && string.IsNullOrWhiteSpace(snapshot.GpuModelName))
+        {
+            foreach (var osGpu in QueryWmiAndRegistryGpuAdapters())
+            {
+                bool alreadyPresent = adapterPoints.Any(existing =>
+                    string.Equals(existing.Model, osGpu.Model, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrWhiteSpace(existing.PnpDeviceId) &&
+                     !string.IsNullOrWhiteSpace(osGpu.PnpDeviceId) &&
+                     string.Equals(existing.PnpDeviceId, osGpu.PnpDeviceId, StringComparison.OrdinalIgnoreCase)));
+
+                if (!alreadyPresent)
+                {
+                    adapterPoints.Add(osGpu);
+                }
+            }
+        }
+
+        var list = new List<DetectedGpuAdapterInfo>();
+        foreach (var pt in adapterPoints)
+        {
+            if (string.IsNullOrWhiteSpace(pt.Model)) continue;
+
+            string name = pt.Model.Trim();
             var vendor = DetectGpuVendor(name);
             bool isIntegrated = IsIntegratedGpu(name);
             bool isDiscrete = !isIntegrated;
             string archFamily = ResolveOptionalVendorAdapterFamily(name, vendor, isDiscrete);
 
-            bool hasCoreTemp = snapshot.GpuCoreTemp.HasValue;
-            bool hasHotspot = snapshot.GpuHotspotTemp.HasValue;
+            bool hasCoreTemp = pt.CoreTempC.HasValue;
+            bool hasHotspot = pt.HotspotTempC.HasValue;
 
             var hotspotMetric = hasHotspot
                 ? new DetectedMetric<float?>(
-                    snapshot.GpuHotspotTemp,
+                    pt.HotspotTempC,
                     HardwareDataSource.LibreHardwareMonitor,
                     DateTime.UtcNow,
                     MetricReliability.VerifiedPhysicalSensor,
@@ -345,8 +408,20 @@ public class UniversalHardwareEngine
                     "°C")
                 : DetectedMetric<float?>.Unavailable(
                     UniversalSensorStatus.NotSupported,
-                    "Sensor de Hotspot/Junction não exposto por este modelo/driver de GPU.",
+                    "Sensor de Hotspot/Junction não exposto por este adaptador gráfico ou driver.",
                     "°C");
+
+            var vramTotalMetric = pt.VramTotalMb.HasValue
+                ? new DetectedMetric<float?>(
+                    pt.VramTotalMb,
+                    hasCoreTemp ? HardwareDataSource.LibreHardwareMonitor : HardwareDataSource.Wmi,
+                    DateTime.UtcNow,
+                    hasCoreTemp ? MetricReliability.VerifiedPhysicalSensor : MetricReliability.OsReportedCounter,
+                    true,
+                    UniversalSensorStatus.Available,
+                    null,
+                    "MB")
+                : DetectedMetric<float?>.Unavailable(UniversalSensorStatus.Unavailable, "Capacidade total de VRAM indisponível.", "MB");
 
             var caps = new HardwareComponentCapabilityMatrix(
                 ComponentCategory: "GPU",
@@ -354,14 +429,14 @@ public class UniversalHardwareEngine
                 Vendor: vendor,
                 Identified: true,
                 Monitorable: true,
-                SensorAvailable: hasCoreTemp || snapshot.GpuLoadPercent.HasValue,
-                Adjustable: false, // Safe mode: never alters GPU voltages or clocks automatically
+                SensorAvailable: hasCoreTemp || pt.LoadPercent.HasValue,
+                Adjustable: false,
                 BenchmarkCompatible: true,
                 DiagnosticCompatible: true,
-                RequiresDriver: !hasCoreTemp && !snapshot.GpuLoadPercent.HasValue,
+                RequiresDriver: !hasCoreTemp && !pt.LoadPercent.HasValue,
                 RequiresAdmin: !isAdmin && !hasCoreTemp,
                 NotSupported: false,
-                CapabilityNotes: $"Adaptador {archFamily}: telemetria somente-leitura sem overclock ou alteração de voltagem."
+                CapabilityNotes: $"Adaptador independente ({archFamily}): {(isDiscrete ? "GPU Dedicada" : "GPU Integrada")}. Telemetria somente-leitura."
             );
 
             list.Add(new DetectedGpuAdapterInfo(
@@ -370,20 +445,247 @@ public class UniversalHardwareEngine
                 ArchitectureFamily: archFamily,
                 IsIntegrated: isIntegrated,
                 IsDiscrete: isDiscrete,
-                CoreTemperatureC: WrapSensorMetric(snapshot.GpuCoreTemp, sensorSubsystemAvailable, isAdmin, "°C", "Temperatura Core GPU"),
+                CoreTemperatureC: WrapSensorMetric(pt.CoreTempC, sensorSubsystemAvailable, isAdmin, "°C", $"Temperatura Core ({name})"),
                 HotspotTemperatureC: hotspotMetric,
-                CoreLoadPercent: WrapSensorMetric(snapshot.GpuLoadPercent, sensorSubsystemAvailable, isAdmin, "%", "Carga do núcleo gráfico"),
-                CoreClockMhz: WrapSensorMetric(snapshot.GpuClockMhz, sensorSubsystemAvailable, isAdmin, "MHz", "Frequência do núcleo gráfico"),
-                PowerWatts: WrapSensorMetric(snapshot.GpuPowerWatts, sensorSubsystemAvailable, isAdmin, "W", "Potência elétrica da placa/chip"),
-                VramUsedMb: WrapSensorMetric(snapshot.GpuVramUsedMb, sensorSubsystemAvailable, isAdmin, "MB", "Memória de vídeo alocada"),
-                VramTotalMb: WrapSensorMetric(snapshot.GpuVramTotalMb, sensorSubsystemAvailable, isAdmin, "MB", "Memória de vídeo total"),
-                FanRpm: WrapSensorMetric(snapshot.GpuFanRpm, sensorSubsystemAvailable, isAdmin, "RPM", "Rotação da ventoinha GPU"),
-                DriverVersion: null,
-                Capabilities: caps
+                CoreLoadPercent: WrapSensorMetric(pt.LoadPercent, sensorSubsystemAvailable, isAdmin, "%", $"Carga do núcleo ({name})"),
+                CoreClockMhz: WrapSensorMetric(pt.CoreClockMhz, sensorSubsystemAvailable, isAdmin, "MHz", $"Frequência do núcleo ({name})"),
+                PowerWatts: WrapSensorMetric(pt.PowerWatts, sensorSubsystemAvailable, isAdmin, "W", $"Potência elétrica ({name})"),
+                VramUsedMb: WrapSensorMetric(pt.VramUsedMb, sensorSubsystemAvailable, isAdmin, "MB", $"VRAM em uso ({name})"),
+                VramTotalMb: vramTotalMetric,
+                FanRpm: WrapSensorMetric(pt.FanRpm, sensorSubsystemAvailable, isAdmin, "RPM", $"Ventoinha ({name})"),
+                DriverVersion: pt.DriverVersion,
+                Capabilities: caps,
+                PnpDeviceId: pt.PnpDeviceId
             ));
         }
 
         return list;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static List<GpuAdapterTelemetryPoint> QueryWmiAndRegistryGpuAdapters()
+    {
+        var results = new List<GpuAdapterTelemetryPoint>();
+        if (!OperatingSystem.IsWindows()) return results;
+
+        var registryVramByDesc = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var displayClassKey = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}", false);
+            if (displayClassKey != null)
+            {
+                foreach (var subName in displayClassKey.GetSubKeyNames())
+                {
+                    if (!subName.StartsWith("0", StringComparison.Ordinal)) continue;
+                    using var subKey = displayClassKey.OpenSubKey(subName, false);
+                    string? desc = subKey?.GetValue("DriverDesc")?.ToString();
+                    object? qwMem = subKey?.GetValue("HardwareInformation.qwMemorySize");
+                    if (!string.IsNullOrWhiteSpace(desc) && qwMem != null)
+                    {
+                        long bytes = qwMem switch
+                        {
+                            long l => l,
+                            byte[] b when b.Length >= 8 => BitConverter.ToInt64(b, 0),
+                            int i => i,
+                            _ => 0L
+                        };
+                        if (bytes > 0)
+                        {
+                            registryVramByDesc[desc.Trim()] = (float)Math.Round(bytes / (1024.0 * 1024.0), 0);
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT Name, AdapterRAM, DriverVersion, PNPDeviceID FROM Win32_VideoController");
+            using var collection = searcher.Get();
+            foreach (ManagementBaseObject obj in collection)
+            {
+                string? name = obj["Name"]?.ToString()?.Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (name.Contains("Microsoft Basic Display", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Remote Desktop", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string? driverVersion = obj["DriverVersion"]?.ToString()?.Trim();
+                string? pnpId = obj["PNPDeviceID"]?.ToString()?.Trim();
+                float? vramMb = null;
+
+                if (registryVramByDesc.TryGetValue(name, out float regVram))
+                {
+                    vramMb = regVram;
+                }
+                else if (obj["AdapterRAM"] != null && ulong.TryParse(obj["AdapterRAM"].ToString(), out ulong rawBytes) && rawBytes > 0)
+                {
+                    vramMb = (float)Math.Round(rawBytes / (1024.0 * 1024.0), 0);
+                }
+
+                results.Add(new GpuAdapterTelemetryPoint(
+                    Model: name,
+                    HardwareType: "WmiVideoController",
+                    CoreTempC: null,
+                    HotspotTempC: null,
+                    LoadPercent: null,
+                    CoreClockMhz: null,
+                    PowerWatts: null,
+                    FanRpm: null,
+                    VramUsedMb: null,
+                    VramTotalMb: vramMb,
+                    DriverVersion: driverVersion,
+                    PnpDeviceId: pnpId
+                ));
+            }
+        }
+        catch { }
+
+        return results;
+    }
+
+    private static (string? Name, int? PhysicalCores, int? LogicalProcessors) QueryWmiCpuDetails()
+    {
+        if (!OperatingSystem.IsWindows()) return (null, null, null);
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT Name, NumberOfCores, NumberOfLogicalProcessors FROM Win32_Processor");
+            using var collection = searcher.Get();
+            int totalPhysical = 0;
+            int totalLogical = 0;
+            string? cpuName = null;
+
+            foreach (ManagementBaseObject obj in collection)
+            {
+                cpuName ??= obj["Name"]?.ToString()?.Trim();
+                if (obj["NumberOfCores"] != null && int.TryParse(obj["NumberOfCores"].ToString(), out int cores) && cores > 0)
+                    totalPhysical += cores;
+                if (obj["NumberOfLogicalProcessors"] != null && int.TryParse(obj["NumberOfLogicalProcessors"].ToString(), out int logical) && logical > 0)
+                    totalLogical += logical;
+            }
+
+            return (
+                cpuName,
+                totalPhysical > 0 ? totalPhysical : null,
+                totalLogical > 0 ? totalLogical : null
+            );
+        }
+        catch
+        {
+            return (null, null, null);
+        }
+    }
+
+    private static (string? MemoryGeneration, int? ConfiguredSpeedMt) QueryWmiMemoryDetails()
+    {
+        if (!OperatingSystem.IsWindows()) return (null, null);
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT SMBIOSMemoryType, ConfiguredClockSpeed, Speed FROM Win32_PhysicalMemory");
+            using var collection = searcher.Get();
+            string? generation = null;
+            int? speedMt = null;
+
+            foreach (ManagementBaseObject obj in collection)
+            {
+                if (obj["SMBIOSMemoryType"] != null && int.TryParse(obj["SMBIOSMemoryType"].ToString(), out int smbiosType))
+                {
+                    generation ??= smbiosType switch
+                    {
+                        24 => "DDR3",
+                        26 => "DDR4",
+                        30 => "LPDDR4",
+                        34 => "DDR5",
+                        35 => "LPDDR5",
+                        _ => null
+                    };
+                }
+
+                if (obj["ConfiguredClockSpeed"] != null && int.TryParse(obj["ConfiguredClockSpeed"].ToString(), out int cfgSpeed) && cfgSpeed > 0)
+                {
+                    speedMt ??= cfgSpeed;
+                }
+                else if (obj["Speed"] != null && int.TryParse(obj["Speed"].ToString(), out int spd) && spd > 0)
+                {
+                    speedMt ??= spd;
+                }
+            }
+
+            return (generation, speedMt);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    private static DetectedBatteryPowerInfo ReadRealBatteryPowerInfo(
+        bool? hasBatteryOverride,
+        int? batteryChargePercentOverride)
+    {
+        if (hasBatteryOverride.HasValue)
+        {
+            bool hasBat = hasBatteryOverride.Value;
+            return new DetectedBatteryPowerInfo(
+                HasBattery: hasBat,
+                IsOnBatteryPower: false,
+                ChargePercent: hasBat ? batteryChargePercentOverride : null,
+                PowerLineStatus: hasBat ? "Bateria Detectada" : "AC Direto (Desktop)",
+                ActivePowerSchemeName: "Plano de Energia Ativo do Windows"
+            );
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return new DetectedBatteryPowerInfo(
+                HasBattery: false,
+                IsOnBatteryPower: false,
+                ChargePercent: null,
+                PowerLineStatus: "Indisponível (Requer Host Windows)",
+                ActivePowerSchemeName: "Indisponível"
+            );
+        }
+
+        try
+        {
+            if (GetSystemPowerStatus(out var status))
+            {
+                bool hasBattery = (status.BatteryFlag & 128) == 0 && status.BatteryFlag != 255;
+                bool isOnBattery = status.ACLineStatus == 0;
+                int? realPercent = (hasBattery && status.BatteryLifePercent <= 100)
+                    ? status.BatteryLifePercent
+                    : null;
+
+                string lineStatus = status.ACLineStatus switch
+                {
+                    0 => "Operando na Bateria (DC)",
+                    1 => hasBattery ? "Conectado à Fonte (AC)" : "AC Direto (Desktop)",
+                    _ => "Status de Energia Desconhecido"
+                };
+
+                return new DetectedBatteryPowerInfo(
+                    HasBattery: hasBattery,
+                    IsOnBatteryPower: isOnBattery,
+                    ChargePercent: batteryChargePercentOverride ?? realPercent,
+                    PowerLineStatus: lineStatus,
+                    ActivePowerSchemeName: "Plano de Energia Ativo do Windows"
+                );
+            }
+        }
+        catch { }
+
+        return new DetectedBatteryPowerInfo(
+            HasBattery: false,
+            IsOnBatteryPower: false,
+            ChargePercent: null,
+            PowerLineStatus: "Indisponível",
+            ActivePowerSchemeName: "Indisponível"
+        );
     }
 
     private static string ResolveOptionalVendorAdapterFamily(string gpuName, HardwareVendor vendor, bool isDiscrete)
@@ -391,10 +693,10 @@ public class UniversalHardwareEngine
         return vendor switch
         {
             HardwareVendor.Amd => isDiscrete
-                ? "AMD Radeon Discrete Adapter (RDNA / GCN)"
+                ? "AMD Radeon Discrete Adapter"
                 : "AMD Radeon Integrated Graphics Adapter",
             HardwareVendor.Nvidia => isDiscrete
-                ? "NVIDIA GeForce / RTX Discrete Adapter (NVAPI / LHM)"
+                ? "NVIDIA GeForce / RTX Discrete Adapter"
                 : "NVIDIA Integrated Graphics Adapter",
             HardwareVendor.Intel => isDiscrete
                 ? "Intel Arc Discrete Graphics Adapter"
@@ -447,10 +749,7 @@ public class UniversalHardwareEngine
             int index = 0;
             foreach (var d in snapshot.StorageDrives)
             {
-                bool isNvme = d.Model.Contains("NVMe", StringComparison.OrdinalIgnoreCase) ||
-                              d.Model.Contains("SN", StringComparison.OrdinalIgnoreCase) ||
-                              d.Model.Contains("980", StringComparison.OrdinalIgnoreCase) ||
-                              d.Model.Contains("990", StringComparison.OrdinalIgnoreCase);
+                bool isNvme = d.Model.Contains("NVMe", StringComparison.OrdinalIgnoreCase);
 
                 var caps = new HardwareComponentCapabilityMatrix(
                     ComponentCategory: "Storage",
@@ -613,21 +912,6 @@ public class UniversalHardwareEngine
         {
             return false;
         }
-    }
-
-    private static bool DetectSystemHasBattery()
-    {
-        if (!OperatingSystem.IsWindows()) return false;
-        try
-        {
-            if (GetSystemPowerStatus(out var status))
-            {
-                // BatteryFlag 128 == No system battery
-                return (status.BatteryFlag & 128) == 0 && status.BatteryFlag != 255;
-            }
-        }
-        catch { }
-        return false;
     }
 
     private static bool DetectCorporateDomainOrPolicyEnvironment()
