@@ -93,10 +93,24 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         return 10;
     }
 
-    private static bool IsPreferredCpuTemperatureSensor(string name) =>
-        name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("Tdie", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("CPU Package", StringComparison.OrdinalIgnoreCase);
+    private static int GetCpuTemperaturePriority(HardwareType hardwareType, string sensorName)
+    {
+        // Prefer AMD's die/control readings, then package/CCD readings. Some boards
+        // expose the CPU socket temperature under Motherboard/SuperIO instead of Cpu.
+        if (sensorName.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Tdie", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (sensorName.Contains("CPU Die", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Die (average)", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (sensorName.Contains("CCD", StringComparison.OrdinalIgnoreCase)) return 80;
+        if (sensorName.Contains("CPU Package", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Package", StringComparison.OrdinalIgnoreCase)) return 70;
+        if (hardwareType == HardwareType.Cpu &&
+            (sensorName.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
+             sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase))) return 60;
+        if (hardwareType == HardwareType.Motherboard &&
+            sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase)) return 40;
+        return 0;
+    }
 
     public Task<HardwareSnapshot> CaptureSnapshotAsync()
     {
@@ -124,6 +138,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
         string? cpuModel = null;
         float? cpuTemp = null;
+        var cpuTempPriority = 0;
         float? cpuLoad = null;
         float? cpuClock = null;
         float? cpuPower = null;
@@ -211,19 +226,22 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                     if (!hasValidReading) continue;
 
+                    // CPU temperature may be published by the CPU node or by the
+                    // motherboard/SuperIO node. Rank candidates instead of accepting
+                    // the first matching sensor (which can be a socket/board reading).
+                    if (sensor.SensorType == SensorType.Temperature &&
+                        hardware.HardwareType is HardwareType.Cpu or HardwareType.Motherboard)
+                    {
+                        var candidatePriority = GetCpuTemperaturePriority(hardware.HardwareType, sensor.Name);
+                        if (candidatePriority > cpuTempPriority)
+                        {
+                            cpuTemp = sensor.Value;
+                            cpuTempPriority = candidatePriority;
+                        }
+                    }
+
                     if (hardware.HardwareType == HardwareType.Cpu)
                     {
-                        if (sensor.SensorType == SensorType.Temperature &&
-                            (sensor.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("CPU Package", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("CCD", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase)))
-                        {
-                            if (!cpuTemp.HasValue || IsPreferredCpuTemperatureSensor(sensor.Name))
-                                cpuTemp = sensor.Value;
-                        }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Clock && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
