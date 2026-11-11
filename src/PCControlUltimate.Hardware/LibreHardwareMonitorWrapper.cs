@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -60,6 +61,43 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         return Task.CompletedTask;
     }
 
+    private IEnumerable<IHardware> EnumerateHardwareTree()
+    {
+        var pending = new Stack<IHardware>(_computer.Hardware.Reverse());
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            yield return current;
+            try
+            {
+                current.Update();
+                for (var i = current.SubHardware.Length - 1; i >= 0; i--)
+                    pending.Push(current.SubHardware[i]);
+            }
+            catch
+            {
+                // Per-device failures are recorded by the capture loop.
+            }
+        }
+    }
+
+    private static int GetGpuSelectionPriority(IHardware hardware)
+    {
+        if (hardware.HardwareType is not (HardwareType.GpuAmd or HardwareType.GpuNvidia or HardwareType.GpuIntel))
+            return 0;
+        var name = hardware.Name ?? string.Empty;
+        if (name.Contains("RX 7900 XTX", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (hardware.HardwareType == HardwareType.GpuAmd &&
+            !name.Contains("Radeon(TM) Graphics", StringComparison.OrdinalIgnoreCase) &&
+            !name.Contains("Integrated", StringComparison.OrdinalIgnoreCase)) return 60;
+        return 10;
+    }
+
+    private static bool IsPreferredCpuTemperatureSensor(string name) =>
+        name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("Tdie", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("CPU Package", StringComparison.OrdinalIgnoreCase);
+
     public Task<HardwareSnapshot> CaptureSnapshotAsync()
     {
         if (_disposed)
@@ -108,7 +146,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
         try
         {
-            foreach (var hardware in _computer.Hardware)
+            var hardwareItems = EnumerateHardwareTree().OrderByDescending(GetGpuSelectionPriority).ToList();
+            foreach (var hardware in hardwareItems)
             {
                 try
                 {
@@ -175,11 +214,15 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                     if (hardware.HardwareType == HardwareType.Cpu)
                     {
                         if (sensor.SensorType == SensorType.Temperature &&
-                            (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
+                            (sensor.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
+                             sensor.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase) ||
+                             sensor.Name.Contains("CPU Package", StringComparison.OrdinalIgnoreCase) ||
+                             sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
+                             sensor.Name.Contains("CCD", StringComparison.OrdinalIgnoreCase) ||
                              sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase)))
                         {
-                            cpuTemp ??= sensor.Value;
+                            if (!cpuTemp.HasValue || IsPreferredCpuTemperatureSensor(sensor.Name))
+                                cpuTemp = sensor.Value;
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
