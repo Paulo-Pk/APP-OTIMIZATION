@@ -1527,25 +1527,25 @@
                     </Grid.RowDefinitions>
 
                     <!-- Section Header -->
-                    <TextBlock Grid.Row="0" Text="MÓDULOS DO SISTEMA" FontSize="10" FontWeight="Bold" Foreground="#64748B" Margin="20,16,16,8"/>
+                    <TextBlock Grid.Row="0" Text="{Binding Loc[NavSection]}" FontSize="10" FontWeight="Bold" Foreground="#64748B" Margin="20,16,16,8"/>
 
-                    <!-- 17 Navigation Items in exact React Preview order with Badges -->
+                    <!-- Navigation grouped by the task the user wants to perform -->
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12,0,12,8">
                         <StackPanel>
-                            <TextBlock Text="VISÃO GERAL" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionOverview]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDashboard]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="dashboard"
                             Tag="{Binding IsDashboardVisible}"
                             Uid="M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z"/>
 
-                            <TextBlock Text="DESEMPENHO" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionPerformance]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavBoostCenter]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="boost-center"
                             Tag="{Binding IsBoostCenterVisible}"
                             AutomationProperties.HelpText="{Binding AppliedTweaksBadgeText}"
                             Uid="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
 
-                            <TextBlock Text="JOGOS" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionGames]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavGameCenter]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="game-center"
                             Tag="{Binding IsGameCenterVisible}"
@@ -1563,7 +1563,7 @@
                             AutomationProperties.HelpText="WireGuard"
                             Uid="M12 2L19 21l-7-4-7 4 7-19z"/>
 
-                            <TextBlock Text="MONITORAMENTO" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionMonitoring]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavHardware]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="hardware"
                             Tag="{Binding IsHardwareVisible}"
@@ -1575,7 +1575,7 @@
                             AutomationProperties.HelpText="Hotspot ΔT"
                             Uid="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
 
-                            <TextBlock Text="TESTES" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionTests]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavBenchmarks]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="benchmarks"
                             Tag="{Binding IsBenchmarksVisible}"
@@ -1586,7 +1586,7 @@
                             Tag="{Binding IsPeripheralsVisible}"
                             Uid="M2 3h20v14H2z M8 21h8 M12 17v4"/>
 
-                            <TextBlock Text="WINDOWS" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionWindows]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavTweaks]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="tweaks"
                             Tag="{Binding IsTweaksVisible}"
@@ -1602,7 +1602,7 @@
                             Tag="{Binding IsRestoreVisible}"
                             Uid="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5"/>
 
-                            <TextBlock Text="DIAGNÓSTICO" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionDiagnostics]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavDiagnostics]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="diagnostics"
                             Tag="{Binding IsDiagnosticsVisible}"
@@ -1618,13 +1618,13 @@
                             Tag="{Binding IsDriversVisible}"
                             Uid="M2 12h20 M2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6 M2 12V6a2 2 0 012-2h16a2 2 0 012 2v6"/>
 
-                            <TextBlock Text="INSTALAÇÃO" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionInstall]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavSoftwareHub]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="software-hub"
                             Tag="{Binding IsSoftwareHubVisible}"
                             Uid="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
 
-                            <TextBlock Text="ASSISTENTE" Style="{StaticResource SidebarSectionLabel}"/>
+                            <TextBlock Text="{Binding Loc[NavSectionAssistant]}" Style="{StaticResource SidebarSectionLabel}"/>
                             <Button Style="{StaticResource NavButtonStyle}" Content="{Binding Loc[NavAiAssistant]}"
                             Command="{Binding SelectTabCommand}" CommandParameter="ai-assistant"
                             Tag="{Binding IsAiAssistantVisible}"
