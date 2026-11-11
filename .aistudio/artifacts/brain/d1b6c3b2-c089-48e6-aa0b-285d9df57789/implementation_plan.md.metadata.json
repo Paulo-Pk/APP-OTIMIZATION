@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for the complete visual and architectural UI reconstruction of PC Control Ultimate across all 17 modules (matching the dark graphite/violet Preview reference in native C#/WPF and syncing the Preview navigation), dedicated GPU priority (RX 7900 XTX over iGPU), and WireGuard tunnel security hardening.",
-  "updatedAt":  "2026-11-11T09:47:00.151031879Z",
+  "summary":  "Relatório Técnico Inicial e Plano de Implementação em 10 Fases do PC Control Ultimate — Master Upgrade (Universal Hardware Engine, Windows Compatibility Engine, Correção do Bug de 50% de Perda TCP, Software Center via WinGet, System Doctor, e Testes Multi-Hardware A–N).",
+  "updatedAt":  "2026-11-11T13:28:25.542368234Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

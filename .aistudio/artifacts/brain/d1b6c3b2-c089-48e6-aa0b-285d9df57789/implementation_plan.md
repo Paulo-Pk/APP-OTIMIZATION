@@ -1,135 +1,95 @@
-# PC Control Ultimate — Reconstrução Completa da Interface (17 Módulos) e Sincronização Segura
-
-Este plano detalha a reconstrução visual e estrutural completa da interface do **PC Control Ultimate** em C# / .NET 10 WPF (tendo o Preview escuro grafite/violeta como referência visual obrigatória), alinhada com a sincronização segura de hardware (prioridade de GPU dedicada RX 7900 XTX sobre iGPU) e endurecimento de segurança do módulo **Game Network Accelerator**.
-
----
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> As decisões abaixo foram confirmadas na etapa de esclarecimento e guiam toda a reconstrução visual e técnica sem perda de funcionalidades reais:
-
-- **Decisão Confirmada 1 — Paridade Total dos 17 Módulos na Sidebar (WPF e Preview)**:
-  Tanto a aplicação nativa Windows (WPF) quanto o Preview exibirão todos os **17 módulos** organizados na barra de navegação lateral com ícones vetoriais, nomes claros, indicadores de módulo ativo em violeta (`#A855F7`) e suporte bilíngue (`PT-BR` / `EN-US`).
-- **Decisão Confirmada 2 — Detalhes Técnicos sob Demanda (`Expander` Recolhido por Padrão)**:
-  Os cartões principais de cada módulo apresentarão indicadores visuais limpos (KPIs em fonte monoespaçada tabular, barras de progresso em gradiente e badges semânticos), mantendo tabelas brutas de sensores, caminhos completos de chaves de Registro e logs de auditoria recolhidos por padrão em seções expansíveis (`Ver detalhes técnicos`).
+# PC Control Ultimate — Master Upgrade (Ultimate Edition)
+## Relatório Técnico Inicial (Auditoria do Repositório) & Plano de Execução em 10 Fases
 
 ---
 
-## 1. Overview & Core Concept
+## 1. Relatório Técnico Inicial (Auditoria Completa do Projeto)
 
-- **O que o sistema entrega**: Uma suíte profissional de gerenciamento, telemetria física, diagnóstico de GPU (incluindo Delta Hotspot da AMD Radeon RX 7900 XTX), otimização reversível do Windows com backup DPAPI+HMAC e aceleração de rota de rede para jogos (WireGuard + ICMP/TCP), com visual comercial de alto padrão inspirado no Preview.
-- **Público-Alvo**: Entusiastas de hardware, jogadores competitivos e engenheiros de sistemas Windows 10/11 x64 que exigem leitura física fidedigna (sem métricas inventadas) combinada com uma experiência visual moderna, responsiva e intuitiva.
-- **Valor Principal**: Eliminar a aparência de tabelas brutas e formulários improvisados no WPF, substituindo-os por cartões modernos em tema escuro grafite (`#07090E` / `#0F121B`), destaques em roxo/violeta (`#A855F7` / `#7C3AED`), gráficos vetoriais limpos e controles de ação com feedback imediato.
+### 1.1 Arquitetura e Módulos Existentes
+- **`PCControlUltimate.Core`**: Contratos, modelos de telemetria (`HardwareTelemetrySnapshot`, `TweakDefinition`, `GameSessionSummary`), interfaces de serviços e ledger.
+- **`PCControlUltimate.Hardware`**: `LibreHardwareMonitorWrapper` (sensores de CPU/GPU/RAM/Armazenamento com fallback WMI) e `SmartStorageMonitor` (saúde SMART/NVMe).
+- **`PCControlUltimate.Windows`**: `RegistryOptimizer` (tweaks com backup DPAPI+HMAC e verificação pós-escrita), `StartupManager`, `PowerPlanController`, `ProcessGovernor`, `StorageMaintenanceService`, `NetworkDiagnosticsService`, `WindowsUpdatePauseManager`, `BcdEditWrapper`.
+- **`PCControlUltimate.Diagnostics`**: `SystemStabilityAuditor` (WHEA / Kernel-Power 41 / Display 4101), `GpuThermalAuditor`, `CpuWheaDetector`, `RamStabilityAnalyzer`, `BenchmarkEngine`, ` BottleneckCalculator`, `DriverInventoryService`, `ThermalAlertMonitor`.
+- **`PCControlUltimate.Gaming`**: `GameProfileManager`, `PresentMonWrapper` (1% / 0.1% Low FPS reais via ETW/PresentMon), `FpsOverlayWindow`, `GameNetworkAcceleratorService` e `WireGuardTunnelManager`.
+- **`PCControlUltimate.Storage`**: Persistência SQLite (`TelemetryDbContext`, `RegistryStateLedger`, `ProfileRepository`, `RollbackHistoryManager`).
+- **`PCControlUltimate.PrivilegedAgent`**: Serviço Windows via Named Pipe com validação de ACL (`CreatorsOwnerSid`, `BuiltinAdministratorsSid`, `LocalSystemSid`) e verificação de assinatura Authenticode.
+- **`PCControlUltimate.App` + Web Preview (`src/*`, `server.ts`)**: Interface unificada de 17 módulos em tema grafite/violeta escuro.
 
----
+### 1.2 Acoplamentos de Hardware Identificados (Dependência Global de `RX 7900 XTX`)
+1. **`src/PCControlUltimate.Diagnostics/GpuThermalAuditor.cs` (linhas 23–30)**:
+   - Contém lógica hardcoded `bool isRdna3Flagship = gpuName.Contains("7900 XTX") || gpuName.Contains("7900 XT")` como fluxo principal de avaliação de delta térmico.
+2. **`src/PCControlUltimate.Hardware/LibreHardwareMonitorWrapper.cs` (linhas 111, 365–369)**:
+   - O método `GetHardwarePriorityScore` atribui pontuação máxima (`return 100`) especificamente para `name.Contains("7900 XTX")`, privilegiando um único modelo de GPU em vez de classificar genericamente GPUs dedicadas (AMD Radeon, NVIDIA GeForce/RTX, Intel Arc) vs. GPUs integradas (iGPU).
+3. **`src/PCControlUltimate.App/Services/LocalizationService.cs` (linhas 73, 195) e `MainViewModel.cs` (linha 1251)**:
+   - Textos de subtítulo e alertas térmicos citam explicitamente `AMD Radeon RX 7900 XTX` como se fosse a GPU fixa do sistema.
+4. **`src/services/hardwareService.ts`**:
+   - Fallback do Web Preview usa strings fixas da `RX 7900 XTX` quando executado fora do host Windows.
 
-## 2. User Experience & Visual Design
-
-### Fluxos Principais do Usuário
-1. **Navegação Unificada nos 17 Módulos**:
-   - Na barra lateral esquerda (`Sidebar`), o usuário alterna instantaneamente entre os 17 módulos:
-     1. *Dashboard*
-     2. *Hardware Monitor*
-     3. *GPU Health Lab*
-     4. *Boost Center*
-     5. *Game Center*
-     6. *Performance Lab*
-     7. *Benchmark Center*
-     8. *Diagnostics*
-     9. *Windows Tweaks*
-     10. *Debloat & Cleaner*
-     11. *Network Lab*
-     12. *Game Network Accelerator*
-     13. *Peripheral Test*
-     14. *Driver Center*
-     15. *Software Hub*
-     16. *Restore Center*
-     17. *AI Assistant*
-2. **Leitura de Sensores e Prioridade de GPU Dedicada**:
-   - Em sistemas com gráficos integrados (iGPU no processador) e placa de vídeo dedicada (ex.: *ASRock Radeon RX 7900 XTX Taichi White 24G OC*), o coletor prioriza automaticamente a GPU discreta para alimentar os cartões principais do *Dashboard*, *Hardware Monitor* e *GPU Health Lab* (temperatura Core, Hotspot, Delta $\Delta T$, clock, potência e VRAM), mantendo a iGPU visível nos sensores detalhados.
-   - Sensores indisponíveis exibem claramente `"Não disponível"` / `"N/D"` sem inventar números falsos.
-3. **Inspeção Técnica Sob Demanda**:
-   - Cada módulo apresenta primeiro os cartões executivos de status, métricas e botões de ação; ao clicar em **Ver detalhes técnicos**, um painel expansível revela os sensores brutos, caminhos de Registro (`HKCU`/`HKLM`), snapshots ou saltos de traceroute.
-
-### Identidade Visual e Tema
-- **Direção Estética**: Utilitário gamer de engenharia de precisão — superfície grafite profunda, bordas sutis de 1px, hierarquia tipográfica clara e acentos luminosos contidos.
-- **Paleta de Cores (Distribuição 60-30-10)**:
-  - **60% Canvas Dominante**: Grafite profundo `#07090E` (fundo principal) e `#0A0C13` (barra lateral e cabeçalho).
-  - **30% Superfícies Estruturais**: Cartões em `#0F121B` e `#131722` com bordas `#1E2436` e `#2E1065` em cartões destacados.
-  - **10% Orçamento de Acento e Semântica**:
-    - Roxo/Violeta Primário: `#A855F7` / `#9333EA` (módulo ativo, botões primários, barras de progresso de CPU/sistema).
-    - Verde Esmeralda: `#10B981` / `#22C55E` (saúde excelente, rota direta ou túnel verificado com handshake).
-    - Âmbar: `#F59E0B` (atenção térmica, modo não elevado ou aviso de rota).
-    - Rosa/Vermelho: `#F43F5E` / `#EF4444` (alerta crítico de Hotspot $\Delta T \ge 25^\circ\text{C}$, erro ou bloqueio fail-closed).
-- **Tipografia e Hierarquia**:
-  - Títulos de seção e cabeçalhos com peso SemiBold/Black e alto contraste (`#FFFFFF`).
-  - Rótulos secundários e descrições em cinza ardósia (`#94A3B8`).
-  - Valores numéricos, temperaturas, latências (ms), clocks (MHz) e contadores em fonte monoespaçada tabular (`JetBrains Mono` / `Consolas`) para alinhamento vertical perfeito sem oscilação visual.
-- **Responsividade Multi-Resolução**:
-  - Layout fluido adaptável a `1920x1080` (Full HD), `2560x1440` (Quad HD) e `3840x2160` (4K) usando `Grid` proporcional, `UniformGrid` para fileiras de KPIs e `ScrollViewer` vertical suave sem cortes de texto ou sobreposição.
+### 1.3 Causa Exata da Perda Artificial de 50% de Pacotes no Diagnóstico de Rede
+- **Arquivo**: `src/PCControlUltimate.Windows/Services/NetworkDiagnosticsService.cs` (linhas 61–67 e 103–134).
+- **Causa Raiz**:
+  1. O array `targets` testa conexões **TCP** (`MeasureTcpHandshakeMsAsync`) contra 4 alvos:
+     - `155.133.248.34:27015` (porta **UDP** de servidor de jogo Valve — conexões TCP na porta 27015 sofrem timeout/recusa).
+     - `104.160.152.3:443` (IP de borda anycast da Riot Direct que não aceita handshake TCP 443).
+     - `1.1.1.1:443` (Cloudflare — responde TCP 443).
+     - `8.8.8.8:443` (Google DNS — responde TCP 443).
+  2. Como 2 dos 4 alvos sempre falham no handshake TCP (6 falhas em 12 tentativas), a linha 134 (`double packetLoss = (double)failedProbes / totalProbes * 100.0`) calcula **exatamente 50,0% de perda de pacotes artificial**, além de confundir falha/recusa de porta TCP (`ConnectionRefused` / `FilteredPort` / `Timeout`) com perda real de pacotes ICMP (`PacketLossPercent`).
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 2. Plano de Implementação em 10 Fases
 
-- **Decisão 1 — Reconstrução Nativa em XAML + MVVM (Sem WebView)**
-  - *Abordagem Escolhida*: Reconstruir os templates, estilos, ícones vetoriais (`Path` Geometry), barras de progresso e cartões diretamente em WPF XAML nativo acoplado aos `ViewModels` dos 17 módulos, mantendo também o Preview Web sincronizado com os mesmos 17 módulos.
-  - *Por quê*: Garante latência de interface próxima de zero, integração direta com as APIs do Windows/UAC/LibreHardwareMonitor e fidelidade visual ao Preview sem o consumo de memória de um navegador embutido.
-- **Decisão 2 — Priorização Determinística de GPU Dedicada sobre iGPU**
-  - *Abordagem Escolhida*: Ordenar e selecionar dispositivos gráficos em `LibreHardwareMonitorWrapper` priorizando GPUs discretas (identificando modelos dedicados Radeon RX / GeForce RTX / Arc discreta ou maior VRAM/sensores de Hotspot) sobre GPUs integradas (`Radeon(TM) Graphics`, `Intel(R) UHD/Iris`).
-  - *Por quê*: Em processadores modernos (ex.: Ryzen 7000/9000 com iGPU RDNA2), a enumeração PCIe pode listar a iGPU antes da RX 7900 XTX, o que ocultaria o Hotspot e o consumo real da placa de vídeo principal no Dashboard e no GPU Health Lab.
-- **Decisão 3 — Endurecimento Fail-Closed do Túnel WireGuard e Verificação Real de Rotas**
-  - *Abordagem Escolhida*: Proteger o diretório e o arquivo `.conf` temporário com ACLs restritas ao usuário atual (`TryRestrictDirectoryAclToCurrentUser` / `TryRestrictFileAclToCurrentUser`), remover o arquivo de configuração em texto puro do disco logo após a instalação do serviço e verificar efetivamente o estado do serviço e da tabela de rotas antes de reportar `RouteTableRestored = true`.
-  - *Por quê*: Evita exposição da `PrivateKey` em `%LOCALAPPDATA%` e garante que o aplicativo nunca declare restauração de rotas sem comprovação real no sistema operacional.
+### Fase 1: Universal Hardware Engine & Remoção de Dependência Global da RX 7900 XTX
+- Criar `src/PCControlUltimate.Core/Models/UniversalHardwareModels.cs`:
+  - `DetectedMetric<T>` com metadados completos: `Value`, `Source` (`LibreHardwareMonitor`, `WMI`, `DXGI`, `SMART`, `NetworkInterface`), `UpdatedAtUtc`, `Reliability`, `Availability`, `SensorStatus` (`Available`, `Unavailable`, `BlockedByDriver`, `RequiresAdmin`, `NotSupported`) e `Limitations`.
+  - `HardwareComponentCapabilityMatrix` com flags explícitas: `Identified`, `Monitorable`, `SensorAvailable`, `Adjustable`, `BenchmarkCompatible`, `DiagnosticCompatible`, `RequiresDriver`, `RequiresAdmin`, `NotSupported`.
+  - `SystemHardwareProfile` (`Gamer`, `Notebook`, `Corporate`, `Basic`, `Workstation`, `HighPerformance`) determinado dinamicamente pelas características reais do hardware.
+- Criar `src/PCControlUltimate.Hardware/UniversalHardwareEngine.cs`:
+  - Pipeline multi-fonte (LibreHardwareMonitor -> WMI -> Win32/DXGI -> DriveInfo/SMART -> NetworkInterface -> SystemPowerStatus) cobrindo CPU (Intel, AMD, Qualcomm), GPU (AMD Radeon, NVIDIA GeForce/RTX Workstation, Intel Arc/iGPU, Qualcomm Adreno, Múltiplas GPUs híbridas), Placa-Mãe/BIOS, RAM, Armazenamento (NVMe/SATA/HDD/USB), Monitores, Rede, Áudio, USB e Bateria/Energia.
+  - Adaptadores opcionais por fabricante (`AmdHardwareAdapter`, `NvidiaHardwareAdapter`, `IntelHardwareAdapter`, `QualcommHardwareAdapter`), onde `RX 7900 XTX` é apenas um perfil opcional dentro do `AmdHardwareAdapter`.
+- Refatorar `LibreHardwareMonitorWrapper.cs`, `GpuThermalAuditor.cs`, `LocalizationService.cs`, `MainViewModel.cs` e `src/services/hardwareService.ts` para remover toda referência global fixa à `RX 7900 XTX`.
 
----
+### Fase 2: Windows Compatibility Engine
+- Criar `src/PCControlUltimate.Windows/Services/WindowsCompatibilityEngine.cs`:
+  - Detectar versão e edição do Windows (Home, Pro, Enterprise, Education, LTSC), build (22H2, 23H2, 24H2+), arquitetura (`x64`, `ARM64`), elevação UAC, políticas de grupo (GPO/MDM), status do Windows Defender/ Seguranças e restrições de Registro/serviços.
+  - Classificar qualquer operação nos 6 estados obrigatórios: `Compatible`, `CompatibleWithLimitations`, `RequiresAdmin`, `BlockedByPolicy`, `NotSupported`, `UnexpectedFailure`, sem jamais tentar burlar políticas corporativas.
 
-## 4. Technical Architecture & Data Strategy
+### Fase 3: Hardware Intelligence & Dashboard Adaptativo
+- Integrar a classificação automática de perfil (`Gamer`, `Notebook`, `Corporate`, `Basic`, `Workstation`, `HighPerformance`) e a matriz de capacidades por componente no Dashboard principal (WPF e Web Preview), exibindo badges claros de proveniência do sensor e modo degradado gracioso quando sensores estiverem indisponíveis.
 
-### Arquitetura de Componentes e Fluxo de Dados
+### Fase 4: Windows Tweaks — Catálogo Inteligente em 11 Categorias
+- Expandir e auditar `src/PCControlUltimate.Windows/Services/RegistryOptimizer.cs` para cobrir as 11 categorias (`Desempenho`, `Inicialização`, `Serviços`, `Privacidade`, `Interface`, `Jogos`, `Memória`, `Armazenamento`, `Rede`, `Energia`, `Manutenção`):
+  - Cada tweak inclui: Nome, Categoria, Descrição Técnica, Impacto Esperado, Nível de Risco (`Seguro`, `Moderado`, `Avançado`), Requisitos de Sistema, Estado Atual (`Ativo`, `Inativo`, `Parcial`, `Não Suportado`), Backup DPAPI+HMAC no `RegistryStateLedger`, Verificação pós-aplicação e Reversão individual.
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────────┐
-│                         PC CONTROL ULTIMATE (WPF & PREVIEW)                          │
-├──────────────────────────┬───────────────────────────────────────────────────────────┤
-│   SIDEBAR (17 Módulos)   │              WORKSPACE CONTENT AREA                       │
-│  ┌────────────────────┐  │  ┌─────────────────────────────────────────────────────┐  │
-│  │ • Dashboard        │  │  │ Contextual Header Bar (Status, Score, Boost, Lang)  │  │
-│  │ • Hardware Monitor │  │  └──────────────────────────┬──────────────────────────┘  │
-│  │ • GPU Health Lab   │  │                             ▼                             │
-│  │ • Boost Center     │  │  ┌─────────────────────────────────────────────────────┐  │
-│  │ • Game Center      │  │  │ Primary KPI Cards Grid (4-Col UniformGrid / Bento)  │  │
-│  │ • Performance Lab  │  │  │  • Tabular Metrics • Gradient Progress • Badges     │  │
-│  │ • Benchmark Center │  │  └──────────────────────────┬──────────────────────────┘  │
-│  │ • Diagnostics      │  │                             ▼                             │
-│  │ • Windows Tweaks   │  │  ┌─────────────────────────────────────────────────────┐  │
-│  │ • Debloat & Cleaner│  │  │ Interactive Module Controls & Visual Telemetry      │  │
-│  │ • Network Lab      │  │  │  • Real-Time Polyline Chart • Safe Action Buttons   │  │
-│  │ • Game Net Accel   │  │  └──────────────────────────┬──────────────────────────┘  │
-│  │ • Peripheral Test  │  │                             ▼                             │
-│  │ • Driver Center    │  │  ┌─────────────────────────────────────────────────────┐  │
-│  │ • Software Hub     │  │  │ Expandable Technical Details (Collapsed by Default) │  │
-│  │ • Restore Center   │  │  │  • Raw Sensors • Registry Paths • Audit & Route Hops│  │
-│  │ • AI Assistant     │  │  └─────────────────────────────────────────────────────┘  │
-│  └─────────┬──────────┘  └─────────────────────────────▲─────────────────────────────┘
-└────────────┼───────────────────────────────────────────┼─────────────────────────────┘
-             │                                           │
-             ▼                                           │
-┌────────────────────────────────────────────────────────┴─────────────────────────────┐
-│                    MVVM VIEWMODELS & CORE SERVICES LAYER (.NET 10)                   │
-│  ┌─────────────────────────┐  ┌─────────────────────────┐  ┌──────────────────────┐  │
-│  │ LibreHardwareMonitor    │  │ RegistryOptimizer &     │  │ GameNetworkAccel &   │  │
-│  │ (Dedicated GPU Priority │  │ DPAPI+HMAC State Ledger │  │ WireGuardTunnelMgr   │  │
-│  │  RX 7900 XTX > iGPU)    │  │ (ErrorCode + Snapshots) │  │ (ACL + Route Verify) │  │
-│  └─────────────────────────┘  └─────────────────────────┘  └──────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────────────┘
-```
+### Fase 5: Inteligência de Rede & Correção Definitiva do Bug de 50% de Perda TCP
+- Refatorar `src/PCControlUltimate.Windows/Services/NetworkDiagnosticsService.cs` e `/api/network/measure-targets` em `server.ts`:
+  - Separar rigorosamente **Perda de Pacotes ICMP** (`Ping` multi-amostra), **Handshake TCP** (`Connected`, `Timeout`, `ConnectionRefused`, `FilteredPort`, `ConnectionFailure`) e **Resolução DNS** (`Resolved`, `DnsResolutionFailure`, `CacheHit`).
+  - Substituir alvos UDP/filtrados (`155.133.248.34:27015` e `104.160.152.3:443`) por múltiplos endpoints TCP/HTTPS reais e verificáveis (`1.1.1.1:443`, `8.8.8.8:443`, `9.9.9.9:443`, `208.67.222.222:443`) + testes ICMP separados.
+  - Estruturar cada diagnóstico com os 6 campos obrigatórios: **O que foi testado**, **O que falhou**, **Evidência encontrada**, **Causa provável**, **Solução recomendada** e **Como verificar se foi resolvido**.
 
-### Mapeamento Interativo dos 17 Módulos e Estado
-- **Dashboard**: Banner executivo com anel de pontuação de saúde do sistema, 4 cartões de hardware principais (CPU, GPU dedicada com Core/Hotspot $\Delta T$, RAM e NVMe) com barras de progresso em gradiente, gráfico histórico em tempo real (CPU/GPU/Temp), painel de otimização rápida com backup obrigatório e resumo de sensores da placa-mãe.
-- **Hardware Monitor & GPU Health Lab**: Cartões separados por categoria (CPU, GPU, Memória, Placa-Mãe/Fans, Armazenamento) e diagnóstico térmico dedicado da RX 7900 XTX (Core vs. Hotspot, alerta de $\Delta T \ge 25^\circ\text{C}$, clock, potência e VRAM), com lista completa de sensores recolhida em `Expander`.
-- **Boost Center, Windows Tweaks & Debloat & Cleaner**: Cartões de otimização com nível de risco semântico (`Seguro`, `Moderado`, `Avançado`), impacto esperado, criação automática de snapshot antes da aplicação e botão de reversão individual ou global, mantendo os caminhos técnicos de Registro (`HKCU`/`HKLM`) em seção expansível.
-- **Game Center, Performance Lab & Benchmark Center**: Seleção de processo/jogo, telemetria de FPS / Frame Time / 1% Low via PresentMon ETW, perfis de energia e comparativo de estabilidade.
-- **Network Lab & Game Network Accelerator**: Medição real de latência ICMP/TCP, jitter, perda de pacotes, detecção de conexões de jogos por PID, avaliação fail-closed de rota (bloqueando ativação se a rota direta for melhor ou igual), auditoria de configuração WireGuard (bloqueando `0.0.0.0/0` e `::/0` por padrão) e proteção de chave privada com ACL restrita.
-- **Diagnostics, Peripheral Test, Driver Center, Software Hub, Restore Center & AI Assistant**: Cada módulo recebe seu `ViewModel`, `UserControl` e `DataTemplate` dedicado no WPF com cartões no padrão grafite/violeta, além da sincronização do item `Game Network Accelerator` na Sidebar do Preview para paridade 1:1 dos 17 módulos.
+### Fase 6: Game Network Accelerator Evoluído
+- Expandir `src/PCControlUltimate.Gaming/Network/GameNetworkAcceleratorService.cs`:
+  - Medição real de Latência, Jitter, Perda de Pacotes ICMP, Tempo de DNS, Estabilidade, Tipo de Interface (Ethernet vs. Wi-Fi), Velocidade Negociada do Link (Mbps) e Tráfego RX/TX.
+  - Suporte aos 5 modos de operação (`Automático`, `Gaming`, `Baixa latência`, `Estabilidade`, `Personalizado`) com comparativo real antes/depois e reversão segura.
+
+### Fase 7: Software Center (Central de Aplicativos via WinGet)
+- Criar `src/PCControlUltimate.Windows/Services/WingetSoftwareCenterService.cs`:
+  - Catálogo curado nas 14 categorias solicitadas (Navegadores, Comunicação, Produtividade, Compactadores, Segurança, Drivers, Monitoramento, Hardware, Gaming, Benchmark, Áudio/Vídeo, Desenvolvimento, Ferramentas de Sistema, Personalização).
+  - Busca, verificação de pacote instalado, instalação, atualização e desinstalação via `winget` (`--accept-package-agreements --accept-source-agreements --disable-interactivity`), fila de execução com cancelamento, indicação de requisito UAC e validação de código de saída.
+
+### Fase 8: System Doctor, Gaming Center, Driver Center, Recovery Center & Recommendation Engine
+- Criar `src/PCControlUltimate.Diagnostics/SystemDoctorService.cs`:
+  - Diagnóstico imediato em modo leitura (Integridade do sistema, Armazenamento/SMART, Drivers, Inicialização, Memória, Rede, Temperaturas e Eventos Críticos do Event Viewer) classificados em `Crítico`, `Alto`, `Moderado`, `Baixo` e `Informativo`.
+  - Ações de reparo assistidas com explicação e confirmação UAC (`SFC /scannow`, `DISM /Online /Cleanup-Image /CheckHealth`, `DISM /Online /Cleanup-Image /ScanHealth`, `CHKDSK` somente leitura, limpeza segura de cache).
+- Criar `src/PCControlUltimate.Diagnostics/RecommendationEngine.cs`:
+  - Motor de recomendações baseadas exclusivamente em evidências reais coletadas (ex.: espaço livre < 15%, delta térmico elevado, inicialização lenta, rede Wi-Fi com jitter alto, erros WHEA/EventLog), sem qualquer viés para hardware específico.
+- Expandir `GameProfileManager` (detecção automática de jogos Steam, Epic Games, Xbox App e adição manual com inicialização segura) e `RecoveryCenter` (histórico unificado de otimizações, snapshots de estado, pontos de restauração e reversão individual).
+
+### Fase 9: Integração Completa na Interface WPF e no Web Preview
+- Conectar os novos serviços em `App.xaml.cs`, `MainViewModel.cs`, `MainWindow.xaml` e nas views correspondentes do Web Preview (`src/components/views/*`, `server.ts`, `src/services/solutionExporter.ts`), preservando os 17 módulos na Sidebar e o padrão de detalhes técnicos recolhidos em Expanders.
+
+### Fase 10: Testes Automatizados Multi-Hardware (Cenários A a N)
+- Criar `tests/PCControlUltimate.Tests/UniversalHardwareAndCompatibilityTests.cs` e expandir `NetworkDiagnosticsTests`:
+  - Validar os **Cenários A a N** (Desktop AMD+Radeon, Intel+NVIDIA, Intel+Arc, Intel+iGPU, AMD+NVIDIA, Notebook Híbrido, Notebook Corporativo Restrito, PC sem GPU dedicada, Workstation, PC Antigo, Usuário sem Admin, PC Offline, Sensores Indisponíveis, Drivers Incompletos).
+  - Validar que falhas de porta TCP (`ConnectionRefused`/`Timeout`) nunca geram perda artificial de 50% de pacotes ICMP.
+- Executar verificação completa de build e lint (`compile_applet` e `lint_applet`).

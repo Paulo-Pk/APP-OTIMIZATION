@@ -95,7 +95,11 @@ public static class RegistryOptimizer
         @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
         @"SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
         @"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization",
-        @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        @"SYSTEM\CurrentControlSet\Control\FileSystem",
+        @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
+        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize",
+        @"Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo"
     };
 
     public static IReadOnlyCollection<string> AllowedSubkeys => _allowedSubkeys;
@@ -288,7 +292,43 @@ public static class RegistryOptimizer
             "0", "1", new[] { "0", "1" },
             "Desativa efeito acrílico do DWM para liberar ciclos de GPU.",
             "Disables DWM acrylic transparency blur to free GPU cycles.",
-            "System", "Baixo"
+            "Interface", "Baixo"
+        ),
+        ["storage-ntfs-lastaccess"] = new(
+            "storage-ntfs-lastaccess", "HKLM",
+            @"SYSTEM\CurrentControlSet\Control\FileSystem",
+            "NtfsDisableLastAccessUpdate", RegistryValueKind.DWord,
+            "1", "0", new[] { "0", "1", "-2147483647" },
+            "Reduz escritas desnecessárias de metadados NTFS em SSDs NVMe e SATA.",
+            "Reduces unnecessary NTFS last-access metadata writes on NVMe and SATA SSDs.",
+            "Storage", "Baixo"
+        ),
+        ["net-tcp-autotuning"] = new(
+            "net-tcp-autotuning", "HKLM",
+            @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
+            "TcpMaxDataRetransmissions", RegistryValueKind.DWord,
+            "5", "5", new[] { "3", "5", "7" },
+            "Mantém limite seguro de retransmissão TCP conforme RFC sem quebrar conexões.",
+            "Maintains RFC-compliant safe TCP retransmission limit without breaking connections.",
+            "Network", "Baixo"
+        ),
+        ["priv-advertising-id"] = new(
+            "priv-advertising-id", "HKCU",
+            @"Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo",
+            "Enabled", RegistryValueKind.DWord,
+            "0", "1", new[] { "0", "1" },
+            "Desativa o identificador de anúncios direcionados do perfil de usuário no Windows.",
+            "Disables the targeted advertising ID for the user profile in Windows.",
+            "Privacy", "Baixo"
+        ),
+        ["maint-startup-delay"] = new(
+            "maint-startup-delay", "HKCU",
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize",
+            "StartupDelayInMSec", RegistryValueKind.DWord,
+            "0", "1000", new[] { "0", "1000" },
+            "Remove atraso artificial do Explorer na inicialização de aplicativos de bandeja.",
+            "Removes artificial Explorer startup delay for tray applications.",
+            "Maintenance", "Baixo"
         )
     };
 
@@ -1124,6 +1164,36 @@ public static class RegistryOptimizer
 
     public static IReadOnlyList<RegistryAuditLogEntry> GetRecentAuditLogs(int maxCount = 50) =>
         _auditHistory.Reverse().Take(maxCount).ToList();
+
+    public static string InspectCatalogTweakCurrentState(string tweakId)
+    {
+        if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
+            return "Não Suportado";
+
+        if (!OperatingSystem.IsWindows())
+            return "Inativo";
+
+        try
+        {
+            RegistryKey root = GetRootKey(def.Hive);
+            using var key = root.OpenSubKey(def.SubKeyPath, false);
+            if (key == null) return "Inativo";
+
+            object? raw = key.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+            if (raw == null) return "Inativo";
+
+            string? serialized = SerializeRegistryValue(raw, key.GetValueKind(def.ValueName));
+            if (string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
+                return "Ativo";
+            if (string.Equals(serialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
+                return "Inativo";
+            return "Parcial";
+        }
+        catch
+        {
+            return "Não Suportado";
+        }
+    }
 
 
     private static string GetCurrentWindowsUser()

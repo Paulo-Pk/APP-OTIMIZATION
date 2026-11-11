@@ -82,6 +82,11 @@ public partial class App : Application
             services.AddSingleton<DatabaseService>(_databaseService);
             services.AddTransient<AppDbContext>(sp => sp.GetRequiredService<DatabaseService>().CreateDbContext());
             services.AddSingleton<IHardwareMonitorService>(_hardwareMonitor);
+            services.AddSingleton<UniversalHardwareEngine>();
+            services.AddSingleton<WindowsCompatibilityEngine>();
+            services.AddSingleton<WingetSoftwareCenterService>();
+            services.AddSingleton<PCControlUltimate.Diagnostics.SystemDoctorService>();
+            services.AddSingleton<PCControlUltimate.Diagnostics.RecommendationEngine>();
             services.AddSingleton<AgentClientService>(_agentClient);
             services.AddSingleton<GameNetworkAcceleratorEngine>();
             services.AddSingleton<IAccelerationProvider>(sp => sp.GetRequiredService<GameNetworkAcceleratorEngine>());

@@ -84,6 +84,28 @@ public record SelectiveRoutingCapabilityReport(
     string WfpLimitationExplanationEn
 );
 
+public enum AcceleratorOperatingMode
+{
+    Automatico,
+    Gaming,
+    BaixaLatencia,
+    Estabilidade,
+    Personalizado
+}
+
+public record AcceleratorNetworkEnvironmentAnalysis(
+    string ActiveInterfaceName,
+    string InterfaceType,
+    bool IsWiFi,
+    long NegotiatedLinkSpeedMbps,
+    long BytesReceived,
+    long BytesSent,
+    double? DnsResolutionTimeMs,
+    bool LocalCongestionDetected,
+    AcceleratorOperatingMode RecommendedMode,
+    string ModeJustification
+);
+
 public static class GameNetworkAcceleratorService
 {
     private static readonly Regex SafeHostOrIpRegex = new(
@@ -715,6 +737,87 @@ public static class GameNetworkAcceleratorService
             directSummary,
             bestNode,
             bestProbe
+        );
+    }
+
+    public static async Task<AcceleratorNetworkEnvironmentAnalysis> AnalyzeLocalNetworkEnvironmentAsync(
+        double? currentJitterMs = null,
+        double? currentPacketLossPercent = null,
+        CancellationToken cancellationToken = default)
+    {
+        string nicName = "Adaptador Padrão";
+        string nicType = "Ethernet";
+        bool isWifi = false;
+        long speedMbps = 1000;
+        long rxBytes = 0;
+        long txBytes = 0;
+
+        try
+        {
+            var activeNic = NetworkInterface.GetAllNetworkInterfaces()
+                .FirstOrDefault(n =>
+                    n.OperationalStatus == OperationalStatus.Up &&
+                    n.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                    n.NetworkInterfaceType != NetworkInterfaceType.Tunnel);
+
+            if (activeNic != null)
+            {
+                nicName = activeNic.Description;
+                nicType = activeNic.NetworkInterfaceType.ToString();
+                isWifi = activeNic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 ||
+                         activeNic.Name.Contains("Wi-Fi", StringComparison.OrdinalIgnoreCase) ||
+                         activeNic.Description.Contains("Wireless", StringComparison.OrdinalIgnoreCase);
+                speedMbps = activeNic.Speed > 0 ? activeNic.Speed / 1_000_000 : 0;
+                var stats = activeNic.GetIPStatistics();
+                rxBytes = stats.BytesReceived;
+                txBytes = stats.BytesSent;
+            }
+        }
+        catch { }
+
+        double? dnsMs = null;
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            await Dns.GetHostAddressesAsync("steampowered.com", cancellationToken);
+            sw.Stop();
+            dnsMs = Math.Round(sw.Elapsed.TotalMilliseconds, 1);
+        }
+        catch { }
+
+        bool congestion = (currentJitterMs ?? 0) >= 12.0 || (currentPacketLossPercent ?? 0) >= 1.5;
+
+        AcceleratorOperatingMode mode;
+        string justification;
+        if (isWifi || congestion)
+        {
+            mode = AcceleratorOperatingMode.Estabilidade;
+            justification = isWifi
+                ? $"Conexão sem fio (Wi-Fi) detectada em '{nicName}'. Modo Estabilidade recomendado para mitigar jitter de radiofrequência."
+                : $"Oscilação de rede detectada (Jitter: {currentJitterMs ?? 0:F1} ms). Modo Estabilidade prioriza consistência de entrega.";
+        }
+        else if (speedMbps >= 500 && (currentJitterMs ?? 0) < 4.0)
+        {
+            mode = AcceleratorOperatingMode.BaixaLatencia;
+            justification = $"Link Ethernet de alta velocidade ({speedMbps} Mbps) com baixo jitter. Modo Baixa Latência otimiza o caminho direto.";
+        }
+        else
+        {
+            mode = AcceleratorOperatingMode.Gaming;
+            justification = $"Conexão cabeada estável ({speedMbps} Mbps). Modo Gaming mantém priorização MMCSS e rota direta verificada.";
+        }
+
+        return new AcceleratorNetworkEnvironmentAnalysis(
+            ActiveInterfaceName: nicName,
+            InterfaceType: nicType,
+            IsWiFi: isWifi,
+            NegotiatedLinkSpeedMbps: speedMbps,
+            BytesReceived: rxBytes,
+            BytesSent: txBytes,
+            DnsResolutionTimeMs: dnsMs,
+            LocalCongestionDetected: congestion,
+            RecommendedMode: mode,
+            ModeJustification: justification
         );
     }
 

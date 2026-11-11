@@ -108,8 +108,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
         try
         {
-            // Order hardware so dedicated/discrete GPUs (e.g., Radeon RX 7900 XTX, GeForce RTX, Arc Discrete) are processed
-            // before integrated GPUs (e.g., "AMD Radeon(TM) Graphics", "Intel(R) UHD Graphics")
+            // Order hardware so dedicated/discrete GPUs (AMD Radeon RX, NVIDIA GeForce/RTX, Intel Arc Discrete) are processed
+            // before integrated GPUs (e.g., "AMD Radeon(TM) Graphics", "Intel(R) UHD Graphics", "Intel(R) Iris")
             var orderedHardware = new List<IHardware>(_computer.Hardware);
             orderedHardware.Sort((a, b) => GetHardwarePriorityScore(b).CompareTo(GetHardwarePriorityScore(a)));
 
@@ -362,16 +362,18 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                 return 10; // iGPU processed after discrete GPUs
             }
 
-            // Prioritize discrete GPUs (especially Radeon RX 7900 XTX / RTX / RX series)
-            if (hardware.Name.Contains("7900 XTX", StringComparison.OrdinalIgnoreCase) ||
-                hardware.Name.Contains("Radeon RX", StringComparison.OrdinalIgnoreCase) ||
+            // Prioritize any discrete GPU across all vendors equally without favoring a specific model
+            if (hardware.Name.Contains("Radeon RX", StringComparison.OrdinalIgnoreCase) ||
+                hardware.Name.Contains("Radeon PRO", StringComparison.OrdinalIgnoreCase) ||
                 hardware.Name.Contains("GeForce RTX", StringComparison.OrdinalIgnoreCase) ||
-                hardware.Name.Contains("GeForce GTX", StringComparison.OrdinalIgnoreCase))
+                hardware.Name.Contains("GeForce GTX", StringComparison.OrdinalIgnoreCase) ||
+                hardware.Name.Contains("NVIDIA RTX", StringComparison.OrdinalIgnoreCase) ||
+                hardware.Name.Contains("Intel(R) Arc", StringComparison.OrdinalIgnoreCase))
             {
                 return 100;
             }
 
-            return 80;
+            return 85;
         }
 
         return hardware.HardwareType switch

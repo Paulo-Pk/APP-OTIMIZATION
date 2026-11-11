@@ -1217,25 +1217,23 @@ public class MainViewModel : INotifyPropertyChanged
     private void InitializeVerifiedSoftwareCatalog()
     {
         VerifiedWingetCatalog.Clear();
-        var apps = new[]
+        foreach (var pkg in WingetSoftwareCenterService.OfficialCatalog)
         {
-            new VerifiedSoftwareItem("Microsoft Visual C++ 2015-2022 Redistributable (x64)", "Runtimes", "Microsoft.VCRedist.2015+.x64", "Microsoft", "winget install --id Microsoft.VCRedist.2015+.x64 -e", "Bibliotecas C++ essenciais para jogos DirectX 12 e motores Unreal/Source 2."),
-            new VerifiedSoftwareItem(".NET Desktop Runtime 10.0 LTS (x64)", "Runtimes", "Microsoft.DotNet.DesktopRuntime.10", "Microsoft", "winget install --id Microsoft.DotNet.DesktopRuntime.10 -e", "Runtime nativo para aplicações WPF modernas de alta performance."),
-            new VerifiedSoftwareItem("WireGuard for Windows (Official)", "Rede & Segurança", "WireGuard.WireGuard", "WireGuard Development Team", "winget install --id WireGuard.WireGuard -e", "Cliente de túnel criptográfico leve para roteamento seletivo AllowedIPs."),
-            new VerifiedSoftwareItem("Intel PresentMon", "Telemetria & Frame Time", "Intel.PresentMon", "Intel Corporation", "winget install --id Intel.PresentMon -e", "Ferramenta oficial ETW para captura de FPS, 1% Low e latência de renderização."),
-            new VerifiedSoftwareItem("CPU-Z", "Diagnóstico de Hardware", "CPUID.CPU-Z", "CPUID", "winget install --id CPUID.CPU-Z -e", "Inspeção detalhada de processador, placa-mãe e timings SPD/EXPO de memória DDR5."),
-            new VerifiedSoftwareItem("OBS Studio", "Gravação & Streaming", "OBSProject.OBSStudio", "OBS Project", "winget install --id OBSProject.OBSStudio -e", "Captura e transmissão acelerada por hardware (NVENC / AMF AV1).")
-        };
-        foreach (var app in apps)
-        {
-            VerifiedWingetCatalog.Add(app);
+            VerifiedWingetCatalog.Add(new VerifiedSoftwareItem(
+                pkg.Name,
+                pkg.CategoryDisplayName,
+                pkg.PackageId,
+                pkg.Publisher,
+                $"winget install --id \"{pkg.PackageId}\" --exact --source winget --accept-package-agreements --accept-source-agreements",
+                pkg.Description
+            ));
         }
     }
 
     private void RefreshAssistantInsights()
     {
         AssistantDiagnosticInsights.Clear();
-        AssistantDiagnosticInsights.Add($"[GPU & Térmica] Modelo prioritário: {GpuModel} | Core: {GpuTemp} | Hotspot: {GpuHotspot} ({GpuThermalDiagnosisText})");
+        AssistantDiagnosticInsights.Add($"[GPU & Térmica Universal] Modelo prioritário: {GpuModel} | Core: {GpuTemp} | Hotspot: {GpuHotspot} ({GpuThermalDiagnosisText})");
         AssistantDiagnosticInsights.Add($"[Roteamento & Rede] {RouteVerdictText}");
         AssistantDiagnosticInsights.Add($"[Segurança & Backups] {SecurityPostureText} | Último Snapshot: {LastBackupStatus}");
         AssistantDiagnosticInsights.Add("[Política Operacional] Todas as otimizações exigem catálogo fechado, snapshot SHA-256 e registro prévio no Ledger DPAPI+HMAC. Nenhum driver, voltagem ou proteção do Windows é alterado automaticamente.");
@@ -1246,23 +1244,23 @@ public class MainViewModel : INotifyPropertyChanged
         ModuleCapabilityMatrix.Clear();
         var items = new[]
         {
-            new ModuleCapabilityMatrixItem(1, "Dashboard", "Funcional", "MainViewModel + Sensores", "Sessão + SQLite", "Visão executiva com cartões de CPU, GPU dedicada, RAM, NVMe e saúde geral."),
-            new ModuleCapabilityMatrixItem(2, "Hardware Monitor", "Funcional", "LibreHardwareMonitorWrapper + Win32", "Logs / Sessão", "Exibe somente sensores físicos reais; N/D quando não suportado."),
-            new ModuleCapabilityMatrixItem(3, "GPU Health Lab", "Funcional", "GpuThermalAuditor (Prioridade Dedicada)", "Logs / Sessão", "Prioriza GPU discreta (ex.: RX 7900 XTX) sobre iGPU; avalia Core vs Hotspot ΔT."),
-            new ModuleCapabilityMatrixItem(4, "Boost Center", "Funcional (Perfis)", "RegistryOptimizer (Catálogo Fechado)", "SQLite + Ledger DPAPI", "Aplica perfis reversíveis com backup prévio SHA-256 obrigatório."),
-            new ModuleCapabilityMatrixItem(5, "Game Center", "Funcional", "GameNetworkAcceleratorService", "SQLite", "Detecta processos reais de jogos e conexões TCP/UDP ativas."),
-            new ModuleCapabilityMatrixItem(6, "Performance Lab", "Funcional", "PresentMonSessionParser", "Arquivos CSV", "Captura frametimes reais via Intel PresentMon CLI."),
-            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Funcional / Determinístico", "Diagnóstico Sintético Local", "SQLite", "Medição determinística de CPU e RAM; sem scores inventados."),
-            new ModuleCapabilityMatrixItem(8, "Diagnostics", "Funcional", "IntegrityVerifier + Auditoria", "Registro + SQLite", "Valida DPAPI, ACL NTFS, HMAC-SHA256, UAC e trilha completa."),
-            new ModuleCapabilityMatrixItem(9, "Windows Tweaks", "Funcional", "RegistryOptimizer", "Ledger DPAPI+HMAC + SQLite", "Zero bypass; grava estado original no Ledger antes da escrita."),
+            new ModuleCapabilityMatrixItem(1, "Dashboard", "Funcional", "UniversalHardwareEngine + Sensores", "Sessão + SQLite", "Visão executiva universal com perfil automático do PC, CPU, GPU dedicada/integrada, RAM e NVMe."),
+            new ModuleCapabilityMatrixItem(2, "Hardware Monitor", "Funcional", "UniversalHardwareEngine + LHM + WMI", "Logs / Sessão", "Pipeline multi-fonte com proveniência por métrica; N/D quando não suportado."),
+            new ModuleCapabilityMatrixItem(3, "GPU Health Lab", "Funcional", "GpuThermalAuditor (Multi-Vendor)", "Logs / Sessão", "Suporte universal AMD Radeon, NVIDIA GeForce/RTX, Intel Arc e Qualcomm Adreno; avalia Core vs Hotspot ΔT."),
+            new ModuleCapabilityMatrixItem(4, "Boost Center", "Funcional (Perfis)", "RegistryOptimizer + CompatibilityEngine", "SQLite + Ledger DPAPI", "Aplica perfis reversíveis com verificação de compatibilidade e backup SHA-256."),
+            new ModuleCapabilityMatrixItem(5, "Game Center", "Funcional", "GameProfileManager + GameNetworkAccelerator", "SQLite", "Detecta jogos instalados e em execução com sockets TCP/UDP ativos."),
+            new ModuleCapabilityMatrixItem(6, "Performance Lab", "Funcional", "PresentMonSessionParser", "Arquivos CSV", "Captura frametimes reais (Média, 1% Low, 0.1% Low) via Intel PresentMon CLI."),
+            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Funcional / Determinístico", "Diagnóstico Sintético Local", "SQLite", "Medição determinística de CPU, RAM e Armazenamento sem scores inventados."),
+            new ModuleCapabilityMatrixItem(8, "Diagnostics / System Doctor", "Funcional", "SystemDoctorService + IntegrityVerifier", "Registro + SQLite + EventLog", "Diagnóstico imediato em leitura e reparos assistidos DISM/SFC/CHKDSK com confirmação UAC."),
+            new ModuleCapabilityMatrixItem(9, "Windows Tweaks", "Funcional (11 Categorias)", "RegistryOptimizer + CompatibilityEngine", "Ledger DPAPI+HMAC + SQLite", "11 categorias com validação de estado Ativo/Inativo/Parcial, backup prévio e reversão individual."),
             new ModuleCapabilityMatrixItem(10, "Debloat & Cleaner", "Funcional", "DiskCleanerEngine", "Relatório de Sessão", "Dry-Run separado de Purge; bloqueia ReparsePoints/Symlinks."),
-            new ModuleCapabilityMatrixItem(11, "Network Lab", "Funcional", "NetworkDiagnosticsService", "Histórico em Memória", "ICMP Echo, TCP Handshake, DNS e Throughput HTTP separados."),
-            new ModuleCapabilityMatrixItem(12, "Game Network Accelerator", "Funcional c/ Limite WFP", "GameNetworkAcceleratorService + WireGuard", "SQLite + ACL Restrita", "Roteamento seletivo por AllowedIPs; protege PrivateKey e verifica rotas."),
+            new ModuleCapabilityMatrixItem(11, "Network Lab", "Funcional", "NetworkDiagnosticsService", "Histórico em Memória", "ICMP Echo, TCP:443 multi-alvo, DNS e Throughput separados; zero perda TCP artificial."),
+            new ModuleCapabilityMatrixItem(12, "Game Network Accelerator", "Funcional c/ 5 Modos", "GameNetworkAcceleratorService + WireGuard", "SQLite + ACL Restrita", "Modos Automático/Gaming/Baixa Latência/Estabilidade/Personalizado; analisa Wi-Fi vs Ethernet e protege PrivateKey."),
             new ModuleCapabilityMatrixItem(13, "Peripheral Test", "Funcional", "Monitor & Input Cadence Inspector", "Sessão", "Avalia cadência de eventos de input e refresh rate Win32."),
-            new ModuleCapabilityMatrixItem(14, "Driver Center", "Funcional (Leitura)", "DriverScannerService (WMI)", "Somente Leitura", "Inventário de drivers assinados; não baixa nem instala drivers."),
-            new ModuleCapabilityMatrixItem(15, "Software Hub", "Consultivo", "Catálogo Winget Verificado", "Somente Leitura", "Exibe comandos winget oficiais; sem instalação oculta."),
-            new ModuleCapabilityMatrixItem(16, "Restore Center", "Funcional", "RegistrySnapshotEngine + Ledger", "JSON SHA-256 + DPAPI", "Verificação SHA-256 obrigatória e rollback transacional."),
-            new ModuleCapabilityMatrixItem(17, "AI Assistant", "Consultivo Local", "Motor de Diagnóstico Determinístico", "Somente Leitura", "Explica telemetria térmica e rotas localmente sem chamadas externas ocultas.")
+            new ModuleCapabilityMatrixItem(14, "Driver Center", "Funcional (Leitura)", "DriverScannerService (WMI)", "Somente Leitura", "Inventário de drivers assinados; não baixa nem instala drivers sem consentimento."),
+            new ModuleCapabilityMatrixItem(15, "Software Hub", "Funcional (14 Categorias)", "WingetSoftwareCenterService", "Fila Verificada", "Busca, verifica, instala, atualiza e desinstala pacotes oficiais via winget com confirmação."),
+            new ModuleCapabilityMatrixItem(16, "Restore Center", "Funcional", "RegistrySnapshotEngine + Ledger", "JSON SHA-256 + DPAPI", "Verificação SHA-256 obrigatória, histórico de alterações e rollback transacional."),
+            new ModuleCapabilityMatrixItem(17, "AI Assistant", "Consultivo Baseado em Evidências", "RecommendationEngine + Diagnóstico Local", "Somente Leitura", "Gera recomendações baseadas exclusivamente em evidências reais sem viés de fabricante.")
         };
         foreach (var item in items)
         {
