@@ -15,6 +15,22 @@ namespace PCControlUltimate.Tests;
 
 public class UniversalHardwareAndCompatibilityTests
 {
+    [Theory]
+    [InlineData("Core (Tctl/Tdie)", 100)]
+    [InlineData("CCD1 (Tdie)", 95)]
+    [InlineData("Core (Tctl)", 90)]
+    [InlineData("CPU Die (average)", 88)]
+    [InlineData("CPU Package", 85)]
+    [InlineData("CCDs Max (Tdie)", 98)]
+    [InlineData("Core #1", 68)]
+    [InlineData("Temperature", 1)]
+    [InlineData("", 0)]
+    [InlineData(null, 0)]
+    public void CpuTemperatureSensorPriority_PrefersRealPackageAndDieSensors(string? sensorName, int expectedPriority)
+    {
+        Assert.Equal(expectedPriority, LibreHardwareMonitorWrapper.GetCpuTemperatureSensorPriority(sensorName));
+    }
+
     private sealed class ConfigurableHardwareMonitorStub : IHardwareMonitorService
     {
         private readonly HardwareSnapshot _snapshot;

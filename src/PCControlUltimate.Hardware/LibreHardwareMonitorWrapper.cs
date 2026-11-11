@@ -85,6 +85,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
         string? cpuModel = null;
         float? cpuTemp = null;
+        int cpuTempPriority = 0;
         float? cpuLoad = null;
         float? cpuClock = null;
         float? cpuPower = null;
@@ -189,12 +190,14 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                     if (hardware.HardwareType == HardwareType.Cpu)
                     {
-                        if (sensor.SensorType == SensorType.Temperature &&
-                            (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase)))
+                        if (sensor.SensorType == SensorType.Temperature)
                         {
-                            cpuTemp ??= sensor.Value;
+                            int candidatePriority = GetCpuTemperatureSensorPriority(sensor.Name);
+                            if (candidatePriority > cpuTempPriority)
+                            {
+                                cpuTemp = sensor.Value;
+                                cpuTempPriority = candidatePriority;
+                            }
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
@@ -417,6 +420,31 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                name.Contains("Intel(R) Graphics", StringComparison.OrdinalIgnoreCase) ||
                name.Equals("Intel Graphics", StringComparison.OrdinalIgnoreCase) ||
                name.Contains("Adreno", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Selects the most representative real CPU temperature sensor without assuming one vendor's naming convention.
+    /// AMD Ryzen sensors such as Core (Tctl/Tdie), CCDx (Tdie), and CCDs Max (Tdie) are explicitly recognized.
+    /// Any other valid temperature sensor exposed by the CPU is retained as a last-resort real reading.
+    /// </summary>
+    public static int GetCpuTemperatureSensorPriority(string? sensorName)
+    {
+        if (string.IsNullOrWhiteSpace(sensorName)) return 0;
+
+        if (sensorName.Contains("Tctl/Tdie", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (sensorName.Contains("CCDs Max", StringComparison.OrdinalIgnoreCase)) return 98;
+        if (sensorName.Contains("Tdie", StringComparison.OrdinalIgnoreCase)) return 95;
+        if (sensorName.Contains("Tctl", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (sensorName.Contains("Die", StringComparison.OrdinalIgnoreCase)) return 88;
+        if (sensorName.Contains("Package", StringComparison.OrdinalIgnoreCase)) return 85;
+        if (sensorName.Contains("CCD", StringComparison.OrdinalIgnoreCase) &&
+            sensorName.Contains("Max", StringComparison.OrdinalIgnoreCase)) return 82;
+        if (sensorName.Contains("CCD", StringComparison.OrdinalIgnoreCase)) return 78;
+        if (sensorName.Contains("Core Max", StringComparison.OrdinalIgnoreCase)) return 74;
+        if (sensorName.Contains("Core", StringComparison.OrdinalIgnoreCase)) return 68;
+        if (sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase)) return 60;
+
+        return 1;
     }
 
     private static int GetHardwarePriorityScore(IHardware hardware)
