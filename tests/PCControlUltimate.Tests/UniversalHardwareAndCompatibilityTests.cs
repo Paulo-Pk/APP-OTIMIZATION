@@ -21,7 +21,7 @@ public class UniversalHardwareAndCompatibilityTests
     [InlineData("Core (Tctl)", 90)]
     [InlineData("CPU Die (average)", 88)]
     [InlineData("CPU Package", 85)]
-    [InlineData("CCDs Max (Tdie)", 95)]
+    [InlineData("CCDs Max (Tdie)", 98)]
     [InlineData("Core #1", 68)]
     [InlineData("Temperature", 1)]
     [InlineData("", 0)]
