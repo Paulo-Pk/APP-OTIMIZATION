@@ -795,27 +795,35 @@ public class UniversalHardwareEngine
         if (string.IsNullOrWhiteSpace(gpuName)) return false;
         if (LibreHardwareMonitorWrapper.IsIntegratedGpuName(gpuName)) return true;
 
-        if (gpuName.Contains("Arc", StringComparison.OrdinalIgnoreCase) ||
-            gpuName.Contains("Iris Xe MAX", StringComparison.OrdinalIgnoreCase))
+        // Normalize common Windows/WMI branding tokens: AMD often reports
+        // "Radeon(TM) 780M", while other sources report "Radeon 780M".
+        string normalizedName = gpuName
+            .Replace("(TM)", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("(R)", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("(C)", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Trim();
+
+        if (normalizedName.Contains("Arc", StringComparison.OrdinalIgnoreCase) ||
+            normalizedName.Contains("Iris Xe MAX", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        return gpuName.Contains("Radeon 780M", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Radeon 760M", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Radeon 740M", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Radeon 680M", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Radeon 660M", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Radeon 890M", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Radeon 880M", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Radeon 610M", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Radeon Vega", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("UHD Graphics", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("HD Graphics", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Iris", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Adreno", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Contains("Intel(R) Graphics", StringComparison.OrdinalIgnoreCase) ||
-               gpuName.Equals("Intel Graphics", StringComparison.OrdinalIgnoreCase);
+        return normalizedName.Contains("Radeon 780M", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Radeon 760M", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Radeon 740M", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Radeon 680M", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Radeon 660M", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Radeon 890M", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Radeon 880M", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Radeon 610M", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Radeon Vega", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("UHD Graphics", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("HD Graphics", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Iris", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Adreno", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Contains("Intel Graphics", StringComparison.OrdinalIgnoreCase) ||
+               normalizedName.Equals("Intel Graphics", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsProfessionalWorkstationGpu(string? gpuName)
