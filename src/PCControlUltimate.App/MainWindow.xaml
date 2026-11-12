@@ -1058,7 +1058,8 @@
                     </Grid>
                 </Border>
 
-                <TextBlock Text="{Binding TweakStatesSummaryText}" Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,12"/>
+                <TextBlock Text="{Binding TweakStatesSummaryText}" Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,8"/>
+                <TextBlock Text="Aplicar grava somente o valor recomendado e registra o estado original no histórico seguro. Restaurar recupera esse estado original para o ajuste selecionado; não usa automaticamente um snapshot antigo. Para restaurar um snapshot completo, abra o Restore Center." Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,12"/>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="520">
