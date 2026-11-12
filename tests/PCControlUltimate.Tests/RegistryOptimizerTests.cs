@@ -47,7 +47,7 @@ public class RegistryOptimizerTests : IDisposable
         _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated access denied");
         var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
         Assert.False(result.Success);
-        Assert.Contains("Acesso", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("simulated access denied", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, _fakeRegistry.WriteCalls);
     }
 
