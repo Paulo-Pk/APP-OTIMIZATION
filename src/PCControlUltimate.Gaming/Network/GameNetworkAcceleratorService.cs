@@ -259,6 +259,7 @@ public static class GameNetworkAcceleratorService
             AddSteamRegistryRoot(steamRoots, RegistryHive.LocalMachine, RegistryView.Registry64,
                 @"Software\WOW6432Node\Valve\Steam", "InstallPath");
 
+            // Expand the complete set of Steam libraries before reading app manifests.
             foreach (string root in steamRoots.ToArray())
             {
                 string libraryFile = Path.Combine(root, "steamapps", "libraryfolders.vdf");
@@ -267,10 +268,11 @@ public static class GameNetworkAcceleratorService
                 foreach (Match match in Regex.Matches(vdf, @"""path""\s*""([^""]+)""", RegexOptions.IgnoreCase))
                 {
                     string library = match.Groups[1].Value.Replace(@"\\", @"\");
-                    if (Directory.Exists(library)) steamRoots.Add(library);
+                    if (Directory.Exists(library)) steamRoots.Add(Path.GetFullPath(library));
                 }
             }
 
+            // Scan manifests in the primary Steam folder and every discovered library.
             foreach (string root in steamRoots)
             {
                 string apps = Path.Combine(root, "steamapps");
