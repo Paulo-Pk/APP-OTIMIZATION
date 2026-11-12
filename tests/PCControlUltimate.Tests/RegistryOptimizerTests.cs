@@ -155,6 +155,27 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void RestoreCatalogTweak_ExternalRegistryChange_IsNotOverwritten()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        // Simulate the user or another application changing the value after our tweak.
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        int writesBeforeRestore = _fakeRegistry.WriteCalls;
+
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+
+        Assert.False(restored.Success);
+        Assert.Equal("REGISTRY_STATE_CHANGED", restored.ErrorCode);
+        Assert.Equal(writesBeforeRestore, _fakeRegistry.WriteCalls);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.Equal(1, snapshot.Value);
+        Assert.Equal(RegistryValueKind.DWord, snapshot.Kind);
+    }
+
+    [Fact]
     public void RestoreCatalogTweak_AccessDeniedOnRead_ReturnsSpecificErrorCode()
     {
         _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
