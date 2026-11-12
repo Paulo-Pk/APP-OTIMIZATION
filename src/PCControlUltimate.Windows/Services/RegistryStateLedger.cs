@@ -145,6 +145,21 @@ public static class RegistryStateLedger
         );
     }
 
+    private static string BuildLegacyLedgerCanonicalString(IEnumerable<RegistryLedgerEntry> entries)
+    {
+        var sb = new StringBuilder();
+        foreach (var entry in entries
+            .OrderBy(x => x.CreatedAtUtc, StringComparer.Ordinal)
+            .ThenBy(x => x.OperationId, StringComparer.Ordinal))
+        {
+            sb.Append(BuildLegacyEntryCanonicalString(entry))
+              .Append('|')
+              .Append(entry.EntryHmacSha256)
+              .Append('\\n');
+        }
+        return sb.ToString();
+    }
+
     private static bool VerifyLegacyEntryHmac(RegistryLedgerEntry entry)
     {
         if (string.IsNullOrWhiteSpace(_ledgerSecretKey) || string.IsNullOrWhiteSpace(entry.EntryHmacSha256))
@@ -459,13 +474,24 @@ public static class RegistryStateLedger
                 return null;
             }
 
-            if (!IntegrityVerifier.VerifyHmacSha256(_ledgerSecretKey, BuildLedgerCanonicalString(ledger.Entries), ledger.LedgerHmacSha256))
+            bool currentLedgerHmacValid = IntegrityVerifier.VerifyHmacSha256(
+                _ledgerSecretKey,
+                BuildLedgerCanonicalString(ledger.Entries),
+                ledger.LedgerHmacSha256);
+            bool legacyLedgerHmacValid = !currentLedgerHmacValid && IntegrityVerifier.VerifyHmacSha256(
+                _ledgerSecretKey,
+                BuildLegacyLedgerCanonicalString(ledger.Entries),
+                ledger.LedgerHmacSha256);
+
+            if (!currentLedgerHmacValid && !legacyLedgerHmacValid)
             {
                 errorMessage = "Assinatura HMAC-SHA256 global do Ledger inválida (adulteração detectada).";
                 return null;
             }
 
-            bool migratedLegacyEntries = false;
+            // A valid v2.5 global signature authenticates the old canonical form. Rewrite it
+            // only after every legacy entry has independently passed its own HMAC check.
+            bool migratedLegacyEntries = legacyLedgerHmacValid;
             foreach (var entry in ledger.Entries)
             {
                 if (VerifyEntryHmac(entry))
