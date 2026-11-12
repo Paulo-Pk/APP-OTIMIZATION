@@ -969,10 +969,16 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     CleanerAffectedFilesLog.Add(logLine);
                 }
+                foreach (var error in report.Errors)
+                {
+                    CleanerAffectedFilesLog.Add($"[ERRO] {error}");
+                }
 
                 DebloatSummaryText = report.PartialSuccess
-                    ? $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados ({report.SkippedLockedCount} arquivos bloqueados por processos em execução)."
-                    : $"Limpeza concluída em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados.";
+                    ? $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados; {report.DeletedFilesCount} arquivos removidos, {report.SkippedLockedCount} itens não processados."
+                    : report.Success
+                        ? $"Limpeza concluída em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados em {report.DeletedFilesCount} arquivos."
+                        : $"Falha na limpeza de '{cat.CategoryKey}': nenhum resultado foi confirmado. {report.Errors.FirstOrDefault() ?? "Verifique permissões e se os arquivos estão em uso."}";
             }
         });
 
