@@ -999,11 +999,19 @@ public class MainViewModel : INotifyPropertyChanged
                     CleanerAffectedFilesLog.Add($"[ERRO] {error}");
                 }
 
-                DebloatSummaryText = report.PartialSuccess
-                    ? $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados; {report.DeletedFilesCount} arquivos removidos, {report.SkippedLockedCount} itens não processados."
-                    : report.Success
-                        ? $"Limpeza concluída em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados em {report.DeletedFilesCount} arquivos."
-                        : $"Falha na limpeza de '{cat.CategoryKey}': nenhum resultado foi confirmado. {report.Errors.FirstOrDefault() ?? "Verifique permissões e se os arquivos estão em uso."}";
+                foreach (var warning in report.Warnings ?? Array.Empty<string>())
+                {
+                    CleanerAffectedFilesLog.Add($"[AVISO] {warning}");
+                }
+
+                DebloatSummaryText = report.Status switch
+                {
+                    "Completed" => $"Limpeza concluída em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados em {report.DeletedFilesCount} arquivos.",
+                    "NothingToClean" => $"Nada para limpar em '{cat.CategoryKey}': a pasta existe, mas não há arquivos elegíveis.",
+                    "Partial" => $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados; {report.DeletedFilesCount} arquivos removidos e itens preservados por bloqueio, erro ou segurança.",
+                    "DirectoryMissing" => $"Limpeza não executada em '{cat.CategoryKey}': o diretório autorizado não existe.",
+                    _ => $"Falha na limpeza de '{cat.CategoryKey}': nenhum resultado completo foi confirmado. {report.Errors.FirstOrDefault() ?? "Verifique permissões e se os arquivos estão em uso."}"
+                };
             }
         });
 
