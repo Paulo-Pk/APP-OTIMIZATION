@@ -653,9 +653,10 @@
         <DataTemplate DataType="{x:Type vm:GameCenterViewModel}">
             <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
-                    <Grid>
-                        <StackPanel>
-                            <TextBlock Text="DETECÇÃO DE PROCESSOS E SOCKETS REAIS" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
+                    <StackPanel>
+                        <Grid>
+                            <StackPanel>
+                                <TextBlock Text="DETECÇÃO DE PROCESSOS E SOCKETS REAIS" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
                             <TextBlock Text="Game Center — Jogos &amp; Conexões Ativas" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="Inspeciona processos de jogos em execução no Windows e mapeia conexões remotas TCP/UDP para diagnóstico de rota e telemetria." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
@@ -669,10 +670,11 @@
                                 <TextBlock Text="{Binding RefreshGameConnectionsButtonText}"/>
                             </Button>
                         </StackPanel>
-                    </Grid>
-                    <TextBlock Text="{Binding GameConnectionsStatusText}"
-                               FontSize="10.5" Foreground="#A78BFA"
-                               Margin="0,8,0,0" TextWrapping="Wrap"/>
+                        </Grid>
+                        <TextBlock Text="{Binding GameConnectionsStatusText}"
+                                   FontSize="10.5" Foreground="#A78BFA"
+                                   Margin="0,8,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
