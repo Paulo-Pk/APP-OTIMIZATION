@@ -1086,20 +1086,26 @@
                         <StackPanel>
                             <TextBlock Text="PROTEÇÃO ANTI-SYMLINK / REPARSE POINT &amp; DRY-RUN OBRIGATÓRIO" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
                             <TextBlock Text="Debloat &amp; Cleaner — Limpeza Segura de Caches" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="{Binding CleanerSummaryText}" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                            <TextBlock Text="{Binding DebloatSummaryText}" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,18">
-                    <DataGrid ItemsSource="{Binding CleanerCategories}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="320">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Categoria" Binding="{Binding DisplayName}" Width="220"/>
-                            <DataGridTextColumn Header="Diretório Autorizado" Binding="{Binding TargetPath}" Width="*"/>
-                            <DataGridTextColumn Header="Arquivos" Binding="{Binding ScannedFilesCount}" Width="90"/>
-                            <DataGridTextColumn Header="Espaço Estimado" Binding="{Binding EstimatedBytesFormatted}" Width="130"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding LastOperationStatus}" Width="180"/>
-                            <DataGridTemplateColumn Header="Operação" Width="230">
+                    <StackPanel>
+                        <CheckBox IsChecked="{Binding ConfirmCleanerDeletion, Mode=TwoWay}"
+                                  Content="Confirmo que desejo excluir somente os arquivos temporários/cache das categorias selecionadas."
+                                  Foreground="#FBBF24" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,12"
+                                  ToolTip="A confirmação é obrigatória. Arquivos em uso, links simbólicos e caminhos fora das categorias autorizadas são preservados."/>
+                        <DataGrid ItemsSource="{Binding CleanerCategories}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="360">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Categoria" Binding="{Binding DisplayName}" Width="190"/>
+                                <DataGridTextColumn Header="Diretório Autorizado" Binding="{Binding TargetPath}" Width="*"/>
+                                <DataGridTextColumn Header="Arquivos" Binding="{Binding ScannedFilesCount}" Width="75"/>
+                                <DataGridTextColumn Header="Estimativa" Binding="{Binding EstimatedBytesFormatted}" Width="100"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding LastOperationStatus}" Width="145"/>
+                                <DataGridTextColumn Header="Resultado real" Binding="{Binding RealFreedText}" Width="270"/>
+                                <DataGridTemplateColumn Header="Operação" Width="230">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" Margin="4,2">
@@ -1113,8 +1119,9 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}">
