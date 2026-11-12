@@ -244,6 +244,7 @@ export default function App() {
             message: `${t.common.tweakExecutionFailed} (${res.error || 'Unknown'})`,
           });
         }
+        await handleRefreshTweakStates();
         return;
       }
 
@@ -304,6 +305,7 @@ export default function App() {
             message: `${t.common.tweakExecutionFailed} (${res.error || 'Unknown'})`,
           });
         }
+        await handleRefreshTweakStates();
         return;
       }
 
@@ -398,6 +400,7 @@ export default function App() {
         });
       }
     } else if (failedApplyMessages.length > 0 || blockedIds.length > 0) {
+      await handleRefreshTweakStates();
       setNotification({
         type: 'warning',
         title: 'Nenhum ajuste aplicado',

@@ -119,7 +119,11 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
                   )}
                 </div>
                 <p className="text-slate-400 leading-relaxed">{item.description}</p>
+                <p className="text-[11px] text-emerald-300/90 leading-relaxed">
+                  Impacto esperado: {item.expectedBenefit}
+                </p>
                 <div className="text-[11px] text-slate-300 pt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  <span>Risco: <strong>{item.risk}</strong></span>
                   <span>Estado: <strong>{item.registryState || 'Não consultado'}</strong></span>
                   <span>Valor lido: <strong>{item.currentValue}</strong></span>
                   <span>Tipo: <strong>{item.actualRegistryKind || 'N/D'}</strong> / esperado: {item.expectedRegistryKind || item.valueKind || 'N/D'}</span>
