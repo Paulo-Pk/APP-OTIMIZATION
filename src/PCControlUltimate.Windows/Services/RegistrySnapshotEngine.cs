@@ -625,7 +625,7 @@ public static class RegistrySnapshotEngine
                 }
             }
 
-            var appliedBeforeFailure = new List<RegistryValueEntry>();
+            var appliedBeforeFailure = new List<(RegistryValueEntry PreviousState, RegistryValueEntry AppliedSnapshotState)>();
             var itemReports = new List<SnapshotItemRestoreReport>();
 
             int restored = 0;
@@ -661,7 +661,7 @@ public static class RegistrySnapshotEngine
                     restored++;
                     if (preRestoreState.TryGetValue(def.TweakId, out var prevEntry))
                     {
-                        appliedBeforeFailure.Add(prevEntry);
+                        appliedBeforeFailure.Add((prevEntry, entry));
                     }
                     itemReports.Add(new SnapshotItemRestoreReport(
                         def.TweakId,
@@ -692,8 +692,10 @@ public static class RegistrySnapshotEngine
             if (failed > 0 && restored > 0 && rollbackOnPartialFailure)
             {
                 var rollbackFailures = new List<SnapshotItemRestoreReport>();
-                foreach (var rollbackEntry in appliedBeforeFailure)
+                foreach (var rollbackPair in appliedBeforeFailure)
                 {
+                    var rollbackEntry = rollbackPair.PreviousState;
+                    var appliedSnapshotEntry = rollbackPair.AppliedSnapshotState;
                     if (!RegistryOptimizer.Catalog.TryGetValue(rollbackEntry.TweakId, out var rDef))
                     {
                         rollbackFailures.Add(new SnapshotItemRestoreReport(
@@ -702,7 +704,14 @@ public static class RegistrySnapshotEngine
                         continue;
                     }
 
-                    var rollbackResult = RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(rDef, rollbackEntry);
+                    // Do not overwrite a Registry value changed by another process after the
+                    // snapshot restore; only roll back if the snapshot value is still present.
+                    var rollbackResult = RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(
+                        rDef,
+                        rollbackEntry,
+                        enforceExpectedCurrentState: true,
+                        expectedCurrentValue: appliedSnapshotEntry.RawValue,
+                        expectedCurrentAbsent: appliedSnapshotEntry.WasInitiallyAbsent);
                     if (!rollbackResult.Success)
                     {
                         rollbackFailures.Add(new SnapshotItemRestoreReport(
