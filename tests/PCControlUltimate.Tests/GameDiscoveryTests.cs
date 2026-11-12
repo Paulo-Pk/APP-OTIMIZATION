@@ -106,7 +106,7 @@ public sealed class GameDiscoveryTests : IDisposable
     {
         string steamRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-steam-root-{Guid.NewGuid():N}");
         string libraryRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-steam-library-{Guid.NewGuid():N}");
-        string appId = $"987{Guid.NewGuid():N}".Substring(0, 10);
+        string appId = "987" + (Convert.ToUInt64(Guid.NewGuid().ToString("N")[..12], 16) % 10_000_000).ToString("D7");
         string installDir = $"PCControlTest_{Guid.NewGuid():N}";
         string installLocation = Path.Combine(libraryRoot, "steamapps", "common", installDir);
         const string steamKeyPath = @"Software\Valve\Steam";
