@@ -1108,9 +1108,11 @@
                 <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,18">
                     <StackPanel>
                         <CheckBox IsChecked="{Binding ConfirmCleanerDeletion, Mode=TwoWay}"
-                                  Content="Confirmo que desejo excluir somente os arquivos temporários/cache das categorias selecionadas."
-                                  Foreground="#FBBF24" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,12"
+                                  Content="Autorizo a exclusão dos arquivos elegíveis da categoria em que clicar em Limpar."
+                                  Foreground="#FBBF24" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,6"
                                   ToolTip="A confirmação é obrigatória. Arquivos em uso, links simbólicos e caminhos fora das categorias autorizadas são preservados."/>
+                        <TextBlock Text="A limpeza é executada pelo agente privilegiado. No cache do Windows Update, o aplicativo não interrompe serviços: arquivos em uso ou bloqueados serão preservados e relatados."
+                                   Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
                         <DataGrid ItemsSource="{Binding CleanerCategories}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="360">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Categoria" Binding="{Binding DisplayName}" Width="190"/>
