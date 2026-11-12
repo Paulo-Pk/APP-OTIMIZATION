@@ -678,7 +678,7 @@
                                 <TextBlock Text="Jogos Instalados (Steam e Epic Games)" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,3,0,0"/>
                                 <TextBlock Text="Leitura dos manifestos dos launchers; não varre o disco inteiro nem inicia jogos." FontSize="11" Foreground="#94A3B8" Margin="0,3,0,0"/>
                             </StackPanel>
-                            <TextBlock Text="{Binding InstalledGames.Count, StringFormat=Jogos encontrados: {0}}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#A78BFA" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding InstalledGames.Count, StringFormat='Jogos encontrados: {0}'}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#A78BFA" FontSize="11" FontWeight="SemiBold"/>
                         </Grid>
                         <DataGrid ItemsSource="{Binding InstalledGames}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="220">
                             <DataGrid.Columns>
