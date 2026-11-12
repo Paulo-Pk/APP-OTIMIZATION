@@ -660,7 +660,7 @@ public static class RegistryOptimizer
             else
             {
                 knownInactiveState =
-                    def.DefaultBehavior is TweakDefaultBehaviorKind.KnownDocumentedValue or TweakDefaultBehaviorKind.AbsentWithKnownDefault &&
+                    (def.DefaultBehavior is TweakDefaultBehaviorKind.KnownDocumentedValue or TweakDefaultBehaviorKind.AbsentWithKnownDefault) &&
                     !string.Equals(def.DefaultOriginValue, serializedTargetValue, StringComparison.OrdinalIgnoreCase);
             }
 
