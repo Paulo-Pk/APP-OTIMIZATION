@@ -216,9 +216,9 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\Power\PowerThrottling",
             "PowerThrottlingOff", RegistryValueKind.DWord,
             "1", "0", new[] { "0", "1" },
-            "Impede a política Power Throttling para processos elegíveis. Não força a CPU a operar no clock máximo nem garante aumento de FPS; pode elevar consumo e temperatura.",
-            "Disables Power Throttling policy for eligible processes. It does not force maximum CPU clocks or guarantee higher FPS; power use and temperature may increase.",
-            "Power", "Baixo", TweakDefaultBehaviorKind.AbsentWithKnownDefault
+            "Desativa a política Power Throttling para processos elegíveis. Não força a CPU a operar no clock máximo nem garante aumento de FPS; pode elevar consumo e temperatura, especialmente em notebooks. Requer avaliação individual.",
+            "Disables Power Throttling policy for eligible processes. It does not force maximum CPU clocks or guarantee higher FPS; power use and temperature may increase, especially on laptops. Requires individual evaluation.",
+            "Power", "Médio", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["power-pcie-link"] = new(
             "power-pcie-link", "HKLM",
@@ -234,18 +234,18 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Services\SysMain",
             "Start", RegistryValueKind.DWord,
             "3", "2", new[] { "2", "3" },
-            "Altera o tipo de inicialização do SysMain para Manual. Não é uma otimização específica para NVMe e não interrompe imediatamente o serviço que já estiver em execução; o efeito depende do padrão de uso.",
-            "Changes SysMain startup type to Manual. This is not an NVMe-specific optimization and does not immediately stop a service that is already running; impact depends on usage.",
-            "Services", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
+            "Altera o tipo de inicialização do SysMain para Manual; isso não interrompe o serviço que já estiver em execução nem garante que ele fique parado, pois o Windows pode iniciá-lo sob demanda. Pode afetar pré-carregamento e tempo de abertura de aplicativos; não há ganho geral de FPS comprovado.",
+            "Changes SysMain startup type to Manual; this does not stop a running service or guarantee it stays stopped, as Windows may start it on demand. App preloading and launch times may be affected; no general FPS gain is established.",
+            "Services", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["serv-spooler"] = new(
             "serv-spooler", "HKLM",
             @"SYSTEM\CurrentControlSet\Services\Spooler",
             "Start", RegistryValueKind.DWord,
             "3", "2", new[] { "2", "3" },
-            "Altera o tipo de inicialização do Spooler para Manual. Pode afetar a disponibilidade de impressão; não interrompe imediatamente o serviço que já estiver em execução.",
-            "Changes Print Spooler startup type to Manual. Printing availability may be affected; this does not immediately stop a service that is already running.",
-            "Services", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
+            "Altera o tipo de inicialização do Spooler para Manual; não interrompe o serviço já em execução. Pode impedir ou atrasar a impressão se o Windows ou algum aplicativo não iniciar o serviço sob demanda. Não oferece ganho geral de desempenho comprovado.",
+            "Changes Print Spooler startup type to Manual; it does not stop a running service. Printing may fail or be delayed if Windows or an application does not start the service on demand. No general performance gain is established.",
+            "Services", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["mem-standby-clean"] = new(
             "mem-standby-clean", "HKLM",
