@@ -1393,7 +1393,7 @@ public static class RegistryOptimizer
                 return new RegistryTweakInspectionResult(
                     "Tipo Incorreto",
                     true,
-                    snapshot.Value?.ToString(),
+                    SerializeRegistryValue(snapshot.Value, snapshot.Kind),
                     snapshot.Kind,
                     DiagnosticDetail: $"Tipo esperado: {def.ValueKind}; tipo encontrado: {snapshot.Kind}. O valor não foi alterado.");
 

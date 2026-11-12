@@ -349,6 +349,7 @@ public class RegistryOptimizerTests : IDisposable
         Assert.Equal("Tipo Incorreto", result.State);
         Assert.True(result.IsUndeterminable);
         Assert.Equal(RegistryValueKind.String, result.ActualValueKind);
+        Assert.Equal("custom-string", result.CurrentValue);
         Assert.Contains("Tipo esperado: DWord; tipo encontrado: String", result.DiagnosticDetail ?? string.Empty);
         Assert.Equal(0, _fakeRegistry.WriteCalls);
     }
