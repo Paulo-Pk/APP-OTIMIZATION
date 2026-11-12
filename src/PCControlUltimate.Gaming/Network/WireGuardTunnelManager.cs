@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Numerics;
 using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -106,6 +107,69 @@ public static class WireGuardTunnelManager
     public static bool IsValidWireGuardKey(string? key) =>
         !string.IsNullOrWhiteSpace(key) && WireGuardBase64KeyRegex.IsMatch(key.Trim());
 
+    private static bool CidrSetCoversDefaultRoute(
+        IEnumerable<string> cidrs,
+        System.Net.Sockets.AddressFamily addressFamily)
+    {
+        var ranges = new List<(BigInteger Start, BigInteger End)>();
+        int bitCount = addressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128;
+
+        foreach (string cidr in cidrs)
+        {
+            string[] parts = cidr.Trim().Split('/');
+            if (parts.Length != 2 ||
+                !IPAddress.TryParse(parts[0], out var address) ||
+                address.AddressFamily != addressFamily ||
+                !int.TryParse(parts[1], out int prefix) ||
+                prefix < 0 || prefix > bitCount)
+                continue;
+
+            byte[] addressBytes = address.GetAddressBytes();
+            var numericAddress = new BigInteger(addressBytes, isUnsigned: true, isBigEndian: true);
+            int hostBits = bitCount - prefix;
+            BigInteger hostMask = (BigInteger.One << hostBits) - BigInteger.One;
+            BigInteger start = (numericAddress >> hostBits) << hostBits;
+            BigInteger end = start + hostMask;
+            ranges.Add((start, end));
+        }
+
+        if (ranges.Count == 0)
+            return false;
+
+        ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
+        BigInteger maximumAddress = (BigInteger.One << bitCount) - BigInteger.One;
+        if (ranges[0].Start != BigInteger.Zero)
+            return false;
+
+        BigInteger coveredThrough = ranges[0].End;
+        foreach (var range in ranges.Skip(1))
+        {
+            if (range.Start > coveredThrough + BigInteger.One)
+                return false;
+            if (range.End > coveredThrough)
+                coveredThrough = range.End;
+            if (coveredThrough >= maximumAddress)
+                return true;
+        }
+
+        return coveredThrough >= maximumAddress;
+    }
+
+    private static bool IsValidWireGuardEndpoint(string? endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint) ||
+            !Uri.TryCreate($"udp://{endpoint.Trim()}", UriKind.Absolute, out var uri) ||
+            uri.Port is < 1 or > 65535 ||
+            !string.IsNullOrEmpty(uri.UserInfo) ||
+            uri.AbsolutePath != "/" ||
+            !string.IsNullOrEmpty(uri.Query) ||
+            !string.IsNullOrEmpty(uri.Fragment))
+            return false;
+
+        return IPAddress.TryParse(uri.Host, out _) ||
+               Uri.CheckHostName(uri.Host) == UriHostNameType.Dns;
+    }
+
     public static bool IsIpv4DefaultRouteCidr(string? cidr)
     {
         if (string.IsNullOrWhiteSpace(cidr)) return false;
@@ -145,8 +209,11 @@ public static class WireGuardTunnelManager
 
         bool inInterface = false;
         bool inPeer = false;
+        int interfaceSectionCount = 0;
+        int peerSectionCount = 0;
         string privateKey = string.Empty;
         string interfaceAddress = string.Empty;
+        string tableSetting = "auto";
         string peerPublicKey = string.Empty;
         string peerEndpoint = string.Empty;
         var allowedIps = new List<string>();
@@ -174,6 +241,9 @@ public static class WireGuardTunnelManager
 
             if (line.Equals("[Interface]", StringComparison.OrdinalIgnoreCase))
             {
+                interfaceSectionCount++;
+                if (interfaceSectionCount > 1)
+                    return InvalidConfigAudit("MULTIPLE_INTERFACE_SECTIONS: Esta operação aceita apenas uma seção [Interface].");
                 inInterface = true;
                 inPeer = false;
                 continue;
@@ -181,6 +251,9 @@ public static class WireGuardTunnelManager
 
             if (line.Equals("[Peer]", StringComparison.OrdinalIgnoreCase))
             {
+                peerSectionCount++;
+                if (peerSectionCount > 1)
+                    return InvalidConfigAudit("MULTIPLE_PEER_SECTIONS: O túnel de jogo aceita apenas um peer WireGuard por vez.");
                 inPeer = true;
                 inInterface = false;
                 continue;
@@ -198,6 +271,8 @@ public static class WireGuardTunnelManager
                     privateKey = val;
                 else if (key.Equals("Address", StringComparison.OrdinalIgnoreCase))
                     interfaceAddress = val;
+                else if (key.Equals("Table", StringComparison.OrdinalIgnoreCase))
+                    tableSetting = val;
             }
             else if (inPeer)
             {
@@ -212,6 +287,12 @@ public static class WireGuardTunnelManager
                 }
             }
         }
+
+        if (interfaceSectionCount != 1 || peerSectionCount != 1)
+            return InvalidConfigAudit("INVALID_SECTION_COUNT: A configuração deve conter exatamente uma seção [Interface] e uma seção [Peer].");
+
+        if (!tableSetting.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            return InvalidConfigAudit("UNSUPPORTED_ROUTE_TABLE_MODE: A configuração deve usar Table=auto para que as rotas AllowedIPs sejam aplicadas e verificadas pelo Windows.");
 
         if (!IsValidWireGuardKey(privateKey))
         {
@@ -241,7 +322,7 @@ public static class WireGuardTunnelManager
             );
         }
 
-        if (string.IsNullOrWhiteSpace(peerEndpoint) || !peerEndpoint.Contains(':'))
+        if (!IsValidWireGuardEndpoint(peerEndpoint))
         {
             return new WireGuardConfigAuditResult(
                 false, "INVALID_PEER_ENDPOINT: O Endpoint do [Peer] deve conter Host:Porta válido.",
@@ -259,8 +340,12 @@ public static class WireGuardTunnelManager
             );
         }
 
-        bool altersIpv4Default = allowedIps.Any(IsIpv4DefaultRouteCidr);
-        bool altersIpv6Default = allowedIps.Any(IsIpv6DefaultRouteCidr);
+        // Detect full-address-space coverage even when a default route is split into
+        // multiple CIDRs (for example four /2 networks instead of 0.0.0.0/0).
+        bool altersIpv4Default = CidrSetCoversDefaultRoute(
+            allowedIps, System.Net.Sockets.AddressFamily.InterNetwork);
+        bool altersIpv6Default = CidrSetCoversDefaultRoute(
+            allowedIps, System.Net.Sockets.AddressFamily.InterNetworkV6);
         bool altersDefaultRoute = altersIpv4Default || altersIpv6Default;
 
         string affectedProtocols = (altersIpv4Default, altersIpv6Default) switch
@@ -319,6 +404,19 @@ public static class WireGuardTunnelManager
             AltersIpv6DefaultRoute = altersIpv6Default
         };
     }
+
+    private static WireGuardConfigAuditResult InvalidConfigAudit(string errorReason) =>
+        new(
+            false,
+            errorReason,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            Array.Empty<string>(),
+            false,
+            false,
+            string.Empty,
+            string.Empty);
 
     /// <summary>
     /// Generates a strictly validated, selective-routing WireGuard configuration targeting only the specified game server CIDRs.
