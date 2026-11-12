@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
@@ -13,18 +15,21 @@ namespace PCControlUltimate.Tests;
 public class RegistryOptimizerTests : IDisposable
 {
     private readonly string _testLedgerDirectory;
+    private readonly FakeRegistryBackend _fakeRegistry = new();
 
     public RegistryOptimizerTests()
     {
         _testLedgerDirectory = Path.Combine(Path.GetTempPath(), $"pccontrol-registry-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_testLedgerDirectory);
         RegistryStateLedger.LedgerFilePath = Path.Combine(_testLedgerDirectory, "test-ledger.dpapi");
+        RegistryOptimizer.RegistryBackend = _fakeRegistry;
         RegistryStateLedger.ClearLedgerForTesting();
     }
 
     public void Dispose()
     {
         RegistryStateLedger.ClearLedgerForTesting();
+        RegistryOptimizer.RegistryBackend = new WindowsRegistryBackend();
         try
         {
             if (Directory.Exists(_testLedgerDirectory))
@@ -33,6 +38,119 @@ public class RegistryOptimizerTests : IDisposable
         catch
         {
             // Test cleanup must not mask the actual assertion result.
+        }
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_AccessDeniedOnRead_ReturnsFailureWithoutWriting()
+    {
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated access denied");
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.False(result.Success);
+        Assert.Contains("Acesso", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_WriteFailure_ReturnsFailure()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        _fakeRegistry.WriteException = new UnauthorizedAccessException("simulated write denied");
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.False(result.Success);
+        Assert.Contains("simulated write denied", result.ErrorMessage ?? string.Empty);
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_ReadbackMismatch_IsNotReportedAsSuccess()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        _fakeRegistry.CorruptReadback = true;
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.False(result.Success);
+        Assert.Contains("Verificação falhou", result.ErrorMessage ?? string.Empty);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_RestoresCustomOriginalValueAndKind_UsingFakeBackend()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", "custom-original", RegistryValueKind.String);
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+        Assert.True(restored.Success, restored.ErrorMessage);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.True(snapshot.ValueExists);
+        Assert.Equal(RegistryValueKind.String, snapshot.Kind);
+        Assert.Equal("custom-original", snapshot.Value);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_InitiallyAbsentValue_RemovesValueAndCreatedKey()
+    {
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+        Assert.True(restored.Success, restored.ErrorMessage);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.False(snapshot.ValueExists);
+        Assert.False(snapshot.KeyExists);
+    }
+
+    private sealed class FakeRegistryBackend : IRegistryBackend
+    {
+        private readonly Dictionary<string, (object Value, RegistryValueKind Kind)> _values = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _keys = new(StringComparer.OrdinalIgnoreCase);
+        public Exception? ReadException { get; set; }
+        public Exception? WriteException { get; set; }
+        public bool CorruptReadback { get; set; }
+        public int ReadCalls { get; private set; }
+        public int WriteCalls { get; private set; }
+
+        private static string Key(string hive, string path) => $"{hive}|{path}";
+        private static string ValueKey(string hive, string path, string name) => $"{Key(hive, path)}|{name}";
+
+        public void Seed(string hive, string path, string name, object value, RegistryValueKind kind)
+        {
+            _keys.Add(Key(hive, path));
+            _values[ValueKey(hive, path, name)] = (value, kind);
+        }
+
+        public RegistryValueSnapshot Read(string hive, string subKeyPath, string valueName)
+        {
+            ReadCalls++;
+            if (ReadException != null) throw ReadException;
+            string key = Key(hive, subKeyPath);
+            if (!_keys.Contains(key))
+                return new RegistryValueSnapshot(false, false, null, RegistryValueKind.Unknown, 0, 0);
+            if (_values.TryGetValue(ValueKey(hive, subKeyPath, valueName), out var item))
+            {
+                if (CorruptReadback && ReadCalls >= 2)
+                    return new RegistryValueSnapshot(true, true, "unexpected-value", RegistryValueKind.String, 1, 0);
+                return new RegistryValueSnapshot(true, true, item.Value, item.Kind, 1, 0);
+            }
+            int count = _values.Keys.Count(k => k.StartsWith(key + "|", StringComparison.OrdinalIgnoreCase));
+            return new RegistryValueSnapshot(true, false, null, RegistryValueKind.Unknown, count, 0);
+        }
+
+        public void Write(string hive, string subKeyPath, string valueName, object value, RegistryValueKind kind)
+        {
+            WriteCalls++;
+            if (WriteException != null) throw WriteException;
+            _keys.Add(Key(hive, subKeyPath));
+            _values[ValueKey(hive, subKeyPath, valueName)] = (value, kind);
+        }
+
+        public void DeleteValue(string hive, string subKeyPath, string valueName)
+        {
+            _values.Remove(ValueKey(hive, subKeyPath, valueName));
+        }
+
+        public void DeleteKeyIfEmpty(string hive, string subKeyPath)
+        {
+            string key = Key(hive, subKeyPath);
+            if (!_values.Keys.Any(k => k.StartsWith(key + "|", StringComparison.OrdinalIgnoreCase)))
+                _keys.Remove(key);
         }
     }
 
