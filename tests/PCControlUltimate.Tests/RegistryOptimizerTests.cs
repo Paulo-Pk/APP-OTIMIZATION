@@ -570,6 +570,22 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void RegistryStateLedger_FailedRestoredMarkerSave_DoesNotMarkOperationRestored()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var entry = RegistryStateLedger.RecordAppliedTweakState(def, "1", RegistryValueKind.DWord, false, false, "0");
+        RegistryStateLedger.ProtectedTokenWriter = (path, json) =>
+            new PCControlUltimate.Security.TokenProtectionResult(false, false, false, "simulated marker save failure");
+
+        Assert.Throws<IOException>(() => RegistryStateLedger.MarkOperationRestored(entry.OperationId));
+
+        RegistryStateLedger.ProtectedTokenWriter = PCControlUltimate.Security.IntegrityVerifier.SaveProtectedSessionTokenWithReport;
+        var persisted = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.False(persisted.IsRestored);
+        Assert.Null(persisted.RestoredAtUtc);
+    }
+
+    [Fact]
     public void RegistryStateLedger_RestoredAtUtc_IsCoveredByEntryHmac()
     {
         RegistryStateLedger.ClearLedgerForTesting();
