@@ -46,7 +46,7 @@ public sealed class GameDiscoveryTests : IDisposable
         try
         {
             var discovered = GameNetworkAcceleratorService.DiscoverInstalledGames()
-                .Where(game => game.Launcher == "GOG" && game.AppId.StartsWith(Path.GetFileName(_registryRoot), StringComparison.Ordinal))
+                .Where(game => game.Launcher == "GOG" && game.AppId.StartsWith(_testPrefix, StringComparison.Ordinal))
                 .ToList();
 
             var validGame = Assert.Single(discovered.Where(game => game.Title == "PC Control Test Game"));
@@ -67,7 +67,8 @@ public sealed class GameDiscoveryTests : IDisposable
         try
         {
             using RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry32);
-            baseKey.DeleteSubKeyTree(_registryRoot, throwOnMissingSubKey: false);
+            baseKey.DeleteSubKeyTree(ValidEntryPath, throwOnMissingSubKey: false);
+            baseKey.DeleteSubKeyTree(InvalidEntryPath, throwOnMissingSubKey: false);
         }
         catch { }
 
