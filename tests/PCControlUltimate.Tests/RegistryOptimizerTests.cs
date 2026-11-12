@@ -82,6 +82,17 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void ApplyCatalogTweak_AbsentUndeterminedState_IsNotModified()
+    {
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+
+        Assert.False(result.Success);
+        Assert.Equal("REGISTRY_DEFAULT_UNDETERMINED", result.ErrorCode);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+        Assert.Empty(RegistryStateLedger.GetAllEntries());
+    }
+
+    [Fact]
     public void ApplyCatalogTweak_CustomRegistryState_IsNotOverwritten()
     {
         _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 7, RegistryValueKind.DWord);
