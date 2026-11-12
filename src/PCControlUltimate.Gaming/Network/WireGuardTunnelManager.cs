@@ -78,6 +78,7 @@ public static class WireGuardTunnelManager
     );
 
     private static string? _capturedRouteTableBeforeTunnel;
+    private static string? _capturedIPv6RouteTableBeforeTunnel;
 
     public static (bool installed, string? wireGuardExePath, string? wgCliPath) CheckWireGuardInstallation()
     {
@@ -515,14 +516,20 @@ public static class WireGuardTunnelManager
         return _capturedRouteTableBeforeTunnel;
     }
 
-    private static async Task<string> ReadCurrentIPv4RouteTableAsync(CancellationToken cancellationToken)
+    private static Task<string> ReadCurrentIPv4RouteTableAsync(CancellationToken cancellationToken) =>
+        ReadRouteTableAsync("print -4", cancellationToken);
+
+    private static Task<string> ReadCurrentIPv6RouteTableAsync(CancellationToken cancellationToken) =>
+        ReadRouteTableAsync("print -6", cancellationToken);
+
+    private static async Task<string> ReadRouteTableAsync(string arguments, CancellationToken cancellationToken)
     {
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = "route",
-                Arguments = "print -4",
+                Arguments = arguments,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -546,6 +553,12 @@ public static class WireGuardTunnelManager
         return string.Empty;
     }
 
+    private static async Task<string> CaptureCurrentIPv6RouteTableSnapshotAsync(CancellationToken cancellationToken)
+    {
+        _capturedIPv6RouteTableBeforeTunnel = await ReadCurrentIPv6RouteTableAsync(cancellationToken);
+        return _capturedIPv6RouteTableBeforeTunnel;
+    }
+
     internal static bool AreIpv4RouteTablesEquivalent(string? before, string? after)
     {
         if (string.IsNullOrWhiteSpace(before) || string.IsNullOrWhiteSpace(after))
@@ -554,6 +567,41 @@ public static class WireGuardTunnelManager
         var beforeRoutes = ExtractIpv4RouteEntries(before);
         var afterRoutes = ExtractIpv4RouteEntries(after);
         return beforeRoutes.Count > 0 && afterRoutes.Count > 0 && beforeRoutes.SetEquals(afterRoutes);
+    }
+
+    internal static bool AreIpv6RouteTablesEquivalent(string? before, string? after)
+    {
+        if (string.IsNullOrWhiteSpace(before) || string.IsNullOrWhiteSpace(after))
+            return false;
+
+        var beforeRoutes = ExtractIpv6RouteEntries(before);
+        var afterRoutes = ExtractIpv6RouteEntries(after);
+        return beforeRoutes.Count > 0 && afterRoutes.Count > 0 && beforeRoutes.SetEquals(afterRoutes);
+    }
+
+    private static HashSet<string> ExtractIpv6RouteEntries(string routeOutput)
+    {
+        var routes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string line in routeOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3)
+                continue;
+
+            bool hasIpv6Prefix = parts.Any(part =>
+            {
+                int slash = part.LastIndexOf('/');
+                return slash > 0 &&
+                    IPAddress.TryParse(part[..slash], out var address) &&
+                    address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 &&
+                    int.TryParse(part[(slash + 1)..], out int prefix) &&
+                    prefix is >= 0 and <= 128;
+            });
+
+            if (hasIpv6Prefix)
+                routes.Add(string.Join("|", parts));
+        }
+        return routes;
     }
 
     private static HashSet<string> ExtractIpv4RouteEntries(string routeOutput)
@@ -648,12 +696,13 @@ public static class WireGuardTunnelManager
         }
 
         string routeSnapshot = await CaptureCurrentIPv4RouteTableSnapshotAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(routeSnapshot))
+        string ipv6RouteSnapshot = await CaptureCurrentIPv6RouteTableSnapshotAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(routeSnapshot) || string.IsNullOrWhiteSpace(ipv6RouteSnapshot))
         {
             return new WireGuardServiceOperationResult(
                 false,
                 "ROUTE_TABLE_SNAPSHOT_FAILED",
-                "Não foi possível capturar a tabela de rotas IPv4 antes da instalação. O túnel não será instalado porque a recuperação não poderá ser verificada.");
+                "Não foi possível capturar as tabelas de rotas IPv4 e IPv6 antes da instalação. O túnel não será instalado porque a recuperação de rotas não poderá ser verificada.");
         }
         string configDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -847,9 +896,11 @@ public static class WireGuardTunnelManager
             var (svcStillInstalled, svcStillRunning, serviceQuerySucceeded) =
                 await CheckWindowsServiceStateAsync(serviceName, cancellationToken);
             string postUninstallRoutes = await ReadCurrentIPv4RouteTableAsync(cancellationToken);
+            string postUninstallIPv6Routes = await ReadCurrentIPv6RouteTableAsync(cancellationToken);
             bool serviceRemoved = serviceQuerySucceeded && !svcStillInstalled && !svcStillRunning;
             bool routeTableVerified = serviceRemoved &&
-                AreIpv4RouteTablesEquivalent(_capturedRouteTableBeforeTunnel, postUninstallRoutes);
+                AreIpv4RouteTablesEquivalent(_capturedRouteTableBeforeTunnel, postUninstallRoutes) &&
+                AreIpv6RouteTablesEquivalent(_capturedIPv6RouteTableBeforeTunnel, postUninstallIPv6Routes);
             bool operationVerified = serviceRemoved && routeTableVerified;
 
             string errorCode = !serviceQuerySucceeded
@@ -863,9 +914,9 @@ public static class WireGuardTunnelManager
                             : string.Empty;
 
             string message = operationVerified
-                ? $"Serviço do túnel '{safeName}' removido e tabela de rotas IPv4 comparada com o estado anterior à instalação."
+                ? $"Serviço do túnel '{safeName}' removido e tabelas de rotas IPv4 e IPv6 comparadas com o estado anterior à instalação."
                 : serviceRemoved
-                    ? "O serviço WireGuard foi removido, mas não foi possível confirmar que a tabela de rotas IPv4 voltou ao estado anterior. Verifique a conectividade antes de iniciar uma partida."
+                    ? "O serviço WireGuard foi removido, mas não foi possível confirmar que a tabelas de rotas IPv4 e IPv6 voltaram ao estado anterior. Verifique a conectividade antes de iniciar uma partida."
                     : !serviceQuerySucceeded
                         ? "O comando de remoção terminou, mas o estado do serviço não pôde ser verificado. Não considere a remoção concluída."
                         : svcStillRunning
