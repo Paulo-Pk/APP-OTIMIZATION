@@ -56,6 +56,47 @@ public class GameNetworkAcceleratorTests
     }
 
     [Fact]
+    public void EvaluateHonestRouteComparison_ShouldNotRecommendRelay_WhenRelayToGameLegWasNotMeasured()
+    {
+        var direct = GameNetworkAcceleratorService.ComputeStatisticalProbeSummary(
+            "Direct", "155.133.248.34", 27015, "ICMP", 5, new[] { 60.0, 61.0, 60.5, 60.0, 61.0 });
+        var relay = new RelayNodeCandidate(
+            "sa-gru-unmeasured", "Unmeasured Relay", "SA-EAST-1", "203.0.113.40", 51820,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
+            new[] { "155.133.248.0/24" }, true);
+        var relayIngress = GameNetworkAcceleratorService.ComputeStatisticalProbeSummary(
+            "Relay ingress", "203.0.113.40", 51820, "ICMP", 5, new[] { 15.0, 15.5, 15.0, 14.5, 15.0 });
+
+        var evaluation = GameNetworkAcceleratorService.EvaluateHonestRouteComparison(
+            "CS2", "155.133.248.34", 27015, direct, relay, relayIngress);
+
+        Assert.False(evaluation.ShouldUseRelay);
+        Assert.Equal("Direct", evaluation.RecommendedMode);
+        Assert.Null(evaluation.EstimatedTotalRelayRttMs);
+        Assert.Contains("segundo trecho", evaluation.HonestVerdictPt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EvaluateHonestRouteComparison_ShouldNotRecommendRelay_WhenDirectBaselineIsUnreliable()
+    {
+        var direct = GameNetworkAcceleratorService.ComputeStatisticalProbeSummary(
+            "Direct", "155.133.248.34", 27015, "ICMP", 5, Array.Empty<double>());
+        var relay = new RelayNodeCandidate(
+            "sa-gru-no-direct", "Relay", "SA-EAST-1", "203.0.113.41", 51820,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
+            new[] { "155.133.248.0/24" }, true);
+        var relayIngress = GameNetworkAcceleratorService.ComputeStatisticalProbeSummary(
+            "Relay ingress", "203.0.113.41", 51820, "ICMP", 5, new[] { 15.0, 15.5, 15.0, 14.5, 15.0 });
+
+        var evaluation = GameNetworkAcceleratorService.EvaluateHonestRouteComparison(
+            "CS2", "155.133.248.34", 27015, direct, relay, relayIngress, estimatedRelayToGameLegMs: 4.0);
+
+        Assert.False(evaluation.ShouldUseRelay);
+        Assert.Equal("Direct", evaluation.RecommendedMode);
+        Assert.Contains("amostras confiáveis", evaluation.HonestVerdictPt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void EvaluateHonestRouteComparison_ShouldRecommendRelay_OnlyWhenLatencyImprovementIsStatisticallySignificant()
     {
         // Bad direct route due to suboptimal ISP peering (65 ms)
