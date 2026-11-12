@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
+using System.Reflection;
+using System.Text.Json;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using PCControlUltimate.Windows.Services;
@@ -681,6 +683,71 @@ public class RegistryOptimizerTests : IDisposable
         Assert.False(restoreResult.Success);
         Assert.Equal("NO_TRUSTED_BACKEND_HISTORY", restoreResult.ErrorCode);
         Assert.Contains("NO_TRUSTED_BACKEND_HISTORY", restoreResult.ErrorMessage ?? string.Empty);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_ValidLegacyV25Ledger_IsMigratedToCurrentCanonicalHmac()
+    {
+        var keyField = typeof(RegistryStateLedger).GetField(
+            "_ledgerSecretKey",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        string? secret = keyField?.GetValue(null) as string;
+        Assert.False(string.IsNullOrWhiteSpace(secret));
+
+        var entry = new RegistryLedgerEntry
+        {
+            OperationId = "op-legacy-v25-migration",
+            TweakId = "perf-game-dvr",
+            Hive = "HKCU",
+            SubKeyPath = @"System\GameConfigStore",
+            ValueName = "GameDVR_Enabled",
+            OriginalValueKind = RegistryValueKind.DWord.ToString(),
+            OriginalRawValue = "1",
+            WasInitiallyAbsent = false,
+            KeyCreatedByApp = false,
+            AppliedValue = "0",
+            CreatedAtUtc = "2026-11-10T12:00:00.0000000Z",
+            IsRestored = false,
+            RestoredAtUtc = null
+        };
+
+        string legacyEntryCanonical = string.Join("|",
+            entry.OperationId,
+            entry.TweakId.ToLowerInvariant(),
+            entry.Hive.ToUpperInvariant(),
+            RegistryOptimizer.NormalizeSubKeyPath(entry.SubKeyPath).ToLowerInvariant(),
+            entry.ValueName.ToLowerInvariant(),
+            entry.OriginalValueKind,
+            "0",
+            "0",
+            entry.OriginalRawValue,
+            entry.AppliedValue,
+            entry.CreatedAtUtc,
+            "0");
+        entry.EntryHmacSha256 = PCControlUltimate.Security.IntegrityVerifier.ComputeHmacSha256(secret!, legacyEntryCanonical);
+
+        string legacyLedgerCanonical = legacyEntryCanonical + "|" + entry.EntryHmacSha256 + "\n";
+        var ledger = new RegistryLedgerFile { FormatVersion = "2.5", Entries = new List<RegistryLedgerEntry> { entry } };
+        ledger.LedgerHmacSha256 = PCControlUltimate.Security.IntegrityVerifier.ComputeHmacSha256(secret!, legacyLedgerCanonical);
+
+        string json = JsonSerializer.Serialize(ledger, new JsonSerializerOptions { WriteIndented = true });
+        var save = RegistryStateLedger.ProtectedTokenWriter(RegistryStateLedger.LedgerFilePath, json);
+        Assert.True(save.Success, save.ErrorMessage);
+
+        var resolved = RegistryStateLedger.ResolveTrustedRestoreEntry("perf-game-dvr", entry.OperationId);
+        Assert.True(resolved.IsValid, resolved.ErrorReason);
+
+        string? migratedJson = RegistryStateLedger.ProtectedTokenReader(RegistryStateLedger.LedgerFilePath);
+        Assert.False(string.IsNullOrWhiteSpace(migratedJson));
+        var migrated = JsonSerializer.Deserialize<RegistryLedgerFile>(migratedJson!);
+        Assert.NotNull(migrated);
+        var migratedEntry = Assert.Single(migrated!.Entries);
+        Assert.Null(migratedEntry.RestoredAtUtc);
+        Assert.True(RegistryStateLedger.VerifyEntryHmac(migratedEntry));
+        Assert.True(PCControlUltimate.Security.IntegrityVerifier.VerifyHmacSha256(
+            secret!,
+            RegistryStateLedger.BuildLedgerCanonicalString(migrated.Entries),
+            migrated.LedgerHmacSha256));
     }
 
     [Fact]
