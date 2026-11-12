@@ -253,7 +253,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _gpuHotspotDeltaText = "N/D";
     private string _overallHealthScore = "N/D";
     private string _benchmarkResultSummary = "Clique em Executar Benchmark Determinístico para medir throughput real de CPU e Memória.";
-    private string _peripheralCadenceSummary = "Inspecione a taxa nativa Win32 do monitor e meça a estabilidade de eventos de input.";
+    private string _peripheralCadenceSummary = "Mostra informações do monitor e do contador do Windows; não mede polling do mouse/teclado nem perda de eventos.";
 
     // Preview Visual Parity & Extended Real Hardware Properties
     private string _detectedProfileDisplay = "Desktop";
