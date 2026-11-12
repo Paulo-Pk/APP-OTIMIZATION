@@ -795,13 +795,23 @@ public class RegistryOptimizerTests
 
         var standby = RegistryOptimizer.Catalog["mem-standby-clean"];
         Assert.Equal("LargeSystemCache", standby.ValueName);
+        Assert.Equal("0", standby.DefaultOriginValue);
+        Assert.Equal("0", standby.RecommendedValue);
         Assert.False(standby.IsRecommendedForApply);
 
         var ultimate = RegistryOptimizer.Catalog["power-ultimate-plan"];
         Assert.Equal("PowerThrottlingOff", ultimate.ValueName);
         Assert.Contains("PowerThrottlingOff", ultimate.FriendlyNamePt);
+        Assert.Contains("NÃO cria nem ativa o plano de energia Ultimate Performance", ultimate.WhatItDoesPt);
 
-        // Verify every catalog entry has complete PT-BR and EN-US technical explanations
+        // Verify DisablePagingExecutive does not impose an arbitrary 16 GB universal requirement
+        var lockExec = RegistryOptimizer.Catalog["mem-lock-executive"];
+        Assert.Equal("DisablePagingExecutive", lockExec.ValueName);
+        Assert.DoesNotContain("16 GB", lockExec.HardwareOrOsDependencyPt ?? string.Empty);
+        Assert.DoesNotContain("16 GB", lockExec.ExpectedBenefitPt ?? string.Empty);
+        Assert.Contains("RAM física", lockExec.PotentialSideEffectsPt);
+
+        // Verify every catalog entry has complete PT-BR and EN-US technical explanations and benefit conditionality
         foreach (var entry in RegistryOptimizer.Catalog.Values)
         {
             Assert.False(string.IsNullOrWhiteSpace(entry.FriendlyNamePt), $"Missing FriendlyNamePt for {entry.TweakId}");
@@ -810,9 +820,101 @@ public class RegistryOptimizerTests
             Assert.False(string.IsNullOrWhiteSpace(entry.WhatItDoesEn), $"Missing WhatItDoesEn for {entry.TweakId}");
             Assert.False(string.IsNullOrWhiteSpace(entry.ProblemSolvedPt), $"Missing ProblemSolvedPt for {entry.TweakId}");
             Assert.False(string.IsNullOrWhiteSpace(entry.ExpectedBenefitPt), $"Missing ExpectedBenefitPt for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.BenefitConditionalityPt), $"Missing BenefitConditionalityPt for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.BenefitConditionalityEn), $"Missing BenefitConditionalityEn for {entry.TweakId}");
             Assert.False(string.IsNullOrWhiteSpace(entry.PotentialSideEffectsPt), $"Missing PotentialSideEffectsPt for {entry.TweakId}");
             Assert.False(string.IsNullOrWhiteSpace(entry.DefaultWindowsBehaviorPt), $"Missing DefaultWindowsBehaviorPt for {entry.TweakId}");
         }
     }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_ValidatesRegistryValueKind_AndNeverModifiesRegistryDuringInspection()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+
+        var def = RegistryOptimizer.Catalog["perf-mmcss"]; // SystemResponsiveness: Expected DWord, Recommended=10, Default=20
+
+        // 1. Expected DWORD and found as DWORD with recommended value -> "Ativo"
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 10, RegistryValueKind.DWord);
+        Assert.Equal("Ativo", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+
+        // 2. Expected DWORD, but found as STRING ("10") -> "Tipo Incorreto" (never "Ativo" or "Inativo")
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, "10", RegistryValueKind.String);
+        Assert.Equal("Tipo Incorreto", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+
+        // 3. Expected DWORD, but found as STRING with default value ("20") -> still "Tipo Incorreto"
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, "20", RegistryValueKind.String);
+        Assert.Equal("Tipo Incorreto", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+
+        // 4. Value absent -> "Não Configurado", and subkey/value must remain untouched by inspection
+        probe.RemoveSubKey(def.Hive, def.SubKeyPath);
+        Assert.Equal("Não Configurado", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+        Assert.False(probe.SubKeyExists(def.Hive, def.SubKeyPath));
+
+        // 5. Access denied -> "Acesso Negado" with IsUndeterminable = true and "Estado Não Determinável" classification
+        probe.SetAccessDenied(def.Hive, def.SubKeyPath);
+        Assert.Equal("Acesso Negado", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+        var deniedReport = RegistryOptimizer.InspectCatalogTweak("perf-mmcss");
+        Assert.True(deniedReport.IsUndeterminable);
+        Assert.Equal("Estado Não Determinável", deniedReport.StateClassificationPt);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_DifferentiatesThreeAbsenceCategories_WithoutLabelingAllAbsentAsWindowsDefault()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+
+        // Category A: Absent with known internal Windows default (net-tcp-autotuning -> TcpMaxDataRetransmissions = 5)
+        var tcpReport = RegistryOptimizer.InspectCatalogTweak("net-tcp-autotuning");
+        Assert.Equal(TweakInspectionState.NotConfigured, tcpReport.State);
+        Assert.Equal(TweakDefaultBehaviorKind.AbsentWithKnownDefault, tcpReport.DefaultBehaviorKind);
+        Assert.Equal("Ausente com Padrão Conhecido do Windows", tcpReport.StateClassificationPt);
+
+        // Category B: Absent with behavior dependent on Windows edition/version or user config (bg-telemetry -> AllowTelemetry)
+        var telemetryReport = RegistryOptimizer.InspectCatalogTweak("bg-telemetry");
+        Assert.Equal(TweakInspectionState.NotConfigured, telemetryReport.State);
+        Assert.Equal(TweakDefaultBehaviorKind.EditionOrConfigDependent, telemetryReport.DefaultBehaviorKind);
+        Assert.Equal("Ausente (Dependente da Edição/Configuração)", telemetryReport.StateClassificationPt);
+
+        // Category C: Absent without a universal standalone default (perf-fso-flags -> GameDVR_FSEBehavior)
+        var fsoAuxReport = RegistryOptimizer.InspectCatalogTweak("perf-fso-flags");
+        Assert.Equal(TweakInspectionState.NotConfigured, fsoAuxReport.State);
+        Assert.Equal(TweakDefaultBehaviorKind.UndeterminedWhenAbsent, fsoAuxReport.DefaultBehaviorKind);
+        Assert.Equal("Ausente (Sem Comportamento Padrão Determinado)", fsoAuxReport.StateClassificationPt);
+    }
+
+    [Fact]
+    public void InspectAllCatalogTweaks_DetectsExternalManualRegistryChanges_InSinglePassRefresh()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 1, RegistryValueKind.DWord);
+
+        // Initial inspection pass sees Inactive (1)
+        var initialReports = RegistryOptimizer.InspectAllCatalogTweaks(probe);
+        Assert.Equal(23, initialReports.Count);
+        var initialDvr = initialReports.Single(r => r.TweakId == "perf-game-dvr");
+        Assert.Equal(TweakInspectionState.Inactive, initialDvr.State);
+
+        // Simulate external manual Registry change (e.g., via regedit.exe) to Recommended (0)
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 0, RegistryValueKind.DWord);
+
+        // Refresh inspection pass detects Active (0) without modifying the Registry
+        var refreshedReports = RegistryOptimizer.InspectAllCatalogTweaks(probe);
+        var refreshedDvr = refreshedReports.Single(r => r.TweakId == "perf-game-dvr");
+        Assert.Equal(TweakInspectionState.Active, refreshedDvr.State);
+        Assert.Equal("0", refreshedDvr.CurrentRawValue);
+
+        // Simulate external manual Registry change to wrong type (REG_SZ "0")
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, "0", RegistryValueKind.String);
+        var wrongTypeReports = RegistryOptimizer.InspectAllCatalogTweaks(probe);
+        var wrongTypeDvr = wrongTypeReports.Single(r => r.TweakId == "perf-game-dvr");
+        Assert.Equal(TweakInspectionState.WrongType, wrongTypeDvr.State);
+    }
 }
+
 

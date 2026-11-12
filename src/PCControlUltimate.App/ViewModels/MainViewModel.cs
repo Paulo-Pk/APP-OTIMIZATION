@@ -87,6 +87,8 @@ public class TweakItemViewModel : INotifyPropertyChanged
     public string ValueName { get; init; } = string.Empty;
     public string ValueKind { get; init; } = string.Empty;
     public string RecommendedValue { get; init; } = string.Empty;
+    public string DefaultOriginValue { get; init; } = string.Empty;
+    public TweakDefaultBehaviorKind DefaultBehaviorKind { get; init; } = TweakDefaultBehaviorKind.KnownDocumentedValue;
     public string RiskLevel { get; init; } = string.Empty;
     public string WhatItDoesPt { get; init; } = string.Empty;
     public string WhatItDoesEn { get; init; } = string.Empty;
@@ -94,6 +96,8 @@ public class TweakItemViewModel : INotifyPropertyChanged
     public string ProblemSolvedEn { get; init; } = string.Empty;
     public string ExpectedBenefitPt { get; init; } = string.Empty;
     public string ExpectedBenefitEn { get; init; } = string.Empty;
+    public string BenefitConditionalityPt { get; init; } = string.Empty;
+    public string BenefitConditionalityEn { get; init; } = string.Empty;
     public string PotentialSideEffectsPt { get; init; } = string.Empty;
     public string PotentialSideEffectsEn { get; init; } = string.Empty;
     public bool RequiresReboot { get; init; }
@@ -139,6 +143,13 @@ public class TweakItemViewModel : INotifyPropertyChanged
         set { _expectedBenefit = value; OnPropertyChanged(); }
     }
 
+    private string _benefitConditionality = string.Empty;
+    public string BenefitConditionality
+    {
+        get => _benefitConditionality;
+        set { _benefitConditionality = value; OnPropertyChanged(); }
+    }
+
     private string _potentialSideEffects = string.Empty;
     public string PotentialSideEffects
     {
@@ -172,6 +183,13 @@ public class TweakItemViewModel : INotifyPropertyChanged
     {
         get => _recommendationBadgeText;
         set { _recommendationBadgeText = value; OnPropertyChanged(); }
+    }
+
+    private string _recommendedValueDisplay = string.Empty;
+    public string RecommendedValueDisplay
+    {
+        get => _recommendedValueDisplay;
+        set { _recommendedValueDisplay = value; OnPropertyChanged(); }
     }
 
     public bool IsApplied
@@ -247,9 +265,11 @@ public class TweakItemViewModel : INotifyPropertyChanged
         WhatItDoes = isPt ? WhatItDoesPt : WhatItDoesEn;
         ProblemSolved = isPt ? ProblemSolvedPt : ProblemSolvedEn;
         ExpectedBenefit = isPt ? ExpectedBenefitPt : ExpectedBenefitEn;
+        BenefitConditionality = isPt ? BenefitConditionalityPt : BenefitConditionalityEn;
         PotentialSideEffects = isPt ? PotentialSideEffectsPt : PotentialSideEffectsEn;
         HardwareOrOsDependency = isPt ? HardwareOrOsDependencyPt : HardwareOrOsDependencyEn;
         DefaultWindowsBehavior = isPt ? DefaultWindowsBehaviorPt : DefaultWindowsBehaviorEn;
+        RecommendedValueDisplay = $"{RecommendedValue} ({ValueKind})";
         RequiresRebootText = RequiresReboot
             ? (isPt ? "Sim (Reinicialização necessária)" : "Yes (Reboot required)")
             : (isPt ? "Não (Efeito imediato)" : "No (Immediate effect)");
@@ -265,10 +285,12 @@ public class TweakItemViewModel : INotifyPropertyChanged
     public void UpdateFromInspectionReport(TweakStateReport report, bool isPt)
     {
         InspectionState = report.State;
-        // Do not assume every recommended value found in the Registry was applied by the current session:
-        // IsApplied reflects whether the recommended state is active AND was applied in the current session (not just restored to an original recommended value).
+        // Single-pass update of both IsApplied and VerificationState from the same TweakStateReport instance
         IsApplied = report.State == TweakInspectionState.Active && !_isRestoredInCurrentSession;
         DiagnosticMessage = isPt ? report.DiagnosticMessagePt : report.DiagnosticMessageEn;
+        VerificationState = isPt
+            ? (!string.IsNullOrWhiteSpace(report.VerificationSummaryPt) ? report.VerificationSummaryPt : report.StateDisplayPt)
+            : (!string.IsNullOrWhiteSpace(report.VerificationSummaryEn) ? report.VerificationSummaryEn : report.StateDisplayEn);
 
         switch (report.State)
         {
@@ -300,15 +322,36 @@ public class TweakItemViewModel : INotifyPropertyChanged
                 StateBackgroundHex = "#141926";
                 StateBadgeText = _isRestoredInCurrentSession
                     ? (isPt ? "RESTAURADO AO ESTADO ORIGINAL — LEITURA CONFIRMADA" : "RESTORED TO ORIGINAL STATE — READ CONFIRMED")
-                    : (isPt ? "PADRÃO DO WINDOWS" : "WINDOWS DEFAULT");
+                    : (isPt ? "INATIVO (REFERÊNCIA PADRÃO)" : "INACTIVE (REFERENCE DEFAULT)");
                 break;
 
             case TweakInspectionState.NotConfigured:
                 StateColorHex = "#94A3B8";
                 StateBackgroundHex = "#141926";
-                StateBadgeText = _isRestoredInCurrentSession
-                    ? (isPt ? "RESTAURADO AO ESTADO ORIGINAL (VALOR AUSENTE) — LEITURA CONFIRMADA" : "RESTORED TO ORIGINAL STATE (VALUE ABSENT) — READ CONFIRMED")
-                    : (isPt ? "VALOR AUSENTE" : "VALUE ABSENT");
+                if (_isRestoredInCurrentSession)
+                {
+                    StateBadgeText = isPt
+                        ? "RESTAURADO AO ESTADO ORIGINAL (VALOR AUSENTE) — LEITURA CONFIRMADA"
+                        : "RESTORED TO ORIGINAL STATE (VALUE ABSENT) — READ CONFIRMED";
+                }
+                else
+                {
+                    StateBadgeText = report.DefaultBehaviorKind switch
+                    {
+                        TweakDefaultBehaviorKind.AbsentWithKnownDefault => isPt
+                            ? "AUSENTE (PADRÃO CONHECIDO)"
+                            : "ABSENT (KNOWN DEFAULT)",
+                        TweakDefaultBehaviorKind.EditionOrConfigDependent => isPt
+                            ? "AUSENTE (DEPENDE DA EDIÇÃO/CONFIG)"
+                            : "ABSENT (EDITION/CONFIG DEPENDENT)",
+                        TweakDefaultBehaviorKind.UndeterminedWhenAbsent => isPt
+                            ? "AUSENTE (SEM PADRÃO FIXO)"
+                            : "ABSENT (NO FIXED DEFAULT)",
+                        _ => isPt
+                            ? "NÃO CONFIGURADO (VALOR AUSENTE)"
+                            : "NOT CONFIGURED (VALUE ABSENT)"
+                    };
+                }
                 break;
 
             case TweakInspectionState.Custom:
@@ -319,31 +362,44 @@ public class TweakItemViewModel : INotifyPropertyChanged
                     : (isPt ? "PERSONALIZADO" : "CUSTOM");
                 break;
 
+            case TweakInspectionState.WrongType:
+                StateColorHex = "#F43F5E"; // Rose red: wrong RegistryValueKind
+                StateBackgroundHex = "#2C1219";
+                StateBadgeText = isPt ? "TIPO INCORRETO" : "WRONG TYPE";
+                break;
+
             case TweakInspectionState.AccessDenied:
                 StateColorHex = "#F43F5E";
                 StateBackgroundHex = "#2C1219";
-                StateBadgeText = isPt ? "ACESSO NEGADO" : "ACCESS DENIED";
+                StateBadgeText = isPt ? "ESTADO NÃO DETERMINÁVEL (ACESSO NEGADO)" : "UNDETERMINABLE STATE (ACCESS DENIED)";
                 break;
 
             case TweakInspectionState.ReadError:
                 StateColorHex = "#F43F5E";
                 StateBackgroundHex = "#2C1219";
-                StateBadgeText = isPt ? "ERRO DE LEITURA" : "READ ERROR";
+                StateBadgeText = isPt ? "ESTADO NÃO DETERMINÁVEL (ERRO DE LEITURA)" : "UNDETERMINABLE STATE (READ ERROR)";
                 break;
 
-            case TweakInspectionState.WrongType:
             case TweakInspectionState.Incompatible:
             default:
-                StateColorHex = "#F43F5E"; // Rose red: unverifiable state (wrong type / incompatible)
+                StateColorHex = "#F43F5E";
                 StateBackgroundHex = "#2C1219";
-                StateBadgeText = isPt ? "ESTADO NÃO VERIFICÁVEL" : "UNVERIFIABLE STATE";
+                StateBadgeText = isPt ? "ESTADO NÃO DETERMINÁVEL (INCOMPATÍVEL)" : "UNDETERMINABLE STATE (INCOMPATIBLE)";
                 break;
         }
 
         if (report.KeyExists && report.ValueExists && report.CurrentRawValue != null)
         {
             string kindStr = report.ActualValueKind?.ToString() ?? ValueKind;
-            CurrentRawValueDisplay = $"{report.CurrentRawValue} ({kindStr})";
+            CurrentRawValueDisplay = report.State == TweakInspectionState.WrongType
+                ? (isPt
+                    ? $"{report.CurrentRawValue} ({kindStr} — esperado {report.ExpectedValueKind})"
+                    : $"{report.CurrentRawValue} ({kindStr} — expected {report.ExpectedValueKind})")
+                : $"{report.CurrentRawValue} ({kindStr})";
+        }
+        else if (report.IsUndeterminable)
+        {
+            CurrentRawValueDisplay = isPt ? "Estado Não Determinável" : "Undeterminable State";
         }
         else if (!report.KeyExists)
         {
@@ -355,7 +411,7 @@ public class TweakItemViewModel : INotifyPropertyChanged
         }
         else
         {
-            CurrentRawValueDisplay = isPt ? "Não verificável" : "Unverifiable";
+            CurrentRawValueDisplay = isPt ? "Estado Não Determinável" : "Undeterminable State";
         }
 
         VerificationState = $"{StateBadgeText} · {CurrentRawValueDisplay}";
@@ -888,8 +944,20 @@ public class MainViewModel : INotifyPropertyChanged
     public bool IsRefreshingTweakStates
     {
         get => _isRefreshingTweakStates;
-        set { _isRefreshingTweakStates = value; OnPropertyChanged(); }
+        set
+        {
+            _isRefreshingTweakStates = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanRefreshTweakStates));
+            OnPropertyChanged(nameof(RefreshTweakStatesButtonText));
+        }
     }
+
+    public bool CanRefreshTweakStates => !_isRefreshingTweakStates;
+
+    public string RefreshTweakStatesButtonText => _isRefreshingTweakStates
+        ? (IsPortugueseActive ? "CONSULTANDO REGISTRO..." : "QUERYING REGISTRY...")
+        : (IsPortugueseActive ? "ATUALIZAR ESTADOS" : "REFRESH STATES");
 
     public string TweakStatesSummaryText
     {
@@ -969,25 +1037,34 @@ public class MainViewModel : INotifyPropertyChanged
                 ValueName = def.ValueName,
                 ValueKind = def.ValueKind.ToString(),
                 RecommendedValue = def.RecommendedValue,
+                DefaultOriginValue = def.DefaultOriginValue,
+                DefaultBehaviorKind = def.DefaultBehaviorKind,
                 RiskLevel = def.RiskLevel,
-                WhatItDoesPt = def.WhatItDoesPt,
-                WhatItDoesEn = def.WhatItDoesEn,
-                ProblemSolvedPt = def.ProblemSolvedPt,
-                ProblemSolvedEn = def.ProblemSolvedEn,
-                ExpectedBenefitPt = def.ExpectedBenefitPt,
-                ExpectedBenefitEn = def.ExpectedBenefitEn,
-                PotentialSideEffectsPt = def.PotentialSideEffectsPt,
-                PotentialSideEffectsEn = def.PotentialSideEffectsEn,
+                WhatItDoesPt = def.WhatItDoesPt ?? string.Empty,
+                WhatItDoesEn = def.WhatItDoesEn ?? string.Empty,
+                ProblemSolvedPt = def.ProblemSolvedPt ?? string.Empty,
+                ProblemSolvedEn = def.ProblemSolvedEn ?? string.Empty,
+                ExpectedBenefitPt = def.ExpectedBenefitPt ?? string.Empty,
+                ExpectedBenefitEn = def.ExpectedBenefitEn ?? string.Empty,
+                BenefitConditionalityPt = def.BenefitConditionalityPt ?? string.Empty,
+                BenefitConditionalityEn = def.BenefitConditionalityEn ?? string.Empty,
+                PotentialSideEffectsPt = def.PotentialSideEffectsPt ?? string.Empty,
+                PotentialSideEffectsEn = def.PotentialSideEffectsEn ?? string.Empty,
                 RequiresReboot = def.RequiresReboot,
-                HardwareOrOsDependencyPt = def.HardwareOrOsDependencyPt,
-                HardwareOrOsDependencyEn = def.HardwareOrOsDependencyEn,
-                DefaultWindowsBehaviorPt = def.DefaultWindowsBehaviorPt,
-                DefaultWindowsBehaviorEn = def.DefaultWindowsBehaviorEn,
+                HardwareOrOsDependencyPt = def.HardwareOrOsDependencyPt ?? string.Empty,
+                HardwareOrOsDependencyEn = def.HardwareOrOsDependencyEn ?? string.Empty,
+                DefaultWindowsBehaviorPt = def.DefaultWindowsBehaviorPt ?? string.Empty,
+                DefaultWindowsBehaviorEn = def.DefaultWindowsBehaviorEn ?? string.Empty,
                 RecommendationStatus = def.RecommendationStatus,
                 IsRecommendedForApply = def.IsRecommendedForApply,
                 IsApplied = false
             };
             itemVm.UpdateLocalizedTexts(initialIsPt);
+
+            // Strictly ONE Registry query per tweak during initialization (stored in local variable initialReport)
+            var initialReport = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+            itemVm.UpdateFromInspectionReport(initialReport, initialIsPt);
+
             CatalogTweaks.Add(itemVm);
         }
 
@@ -996,7 +1073,7 @@ public class MainViewModel : INotifyPropertyChanged
             SelectedTweakForDetails = CatalogTweaks[0];
         }
 
-        RefreshAllTweakStates();
+        UpdateTweakSummaryCounters();
 
         foreach (var cat in DiskCleanerEngine.GetAuthorizedCategories())
         {
@@ -1028,6 +1105,7 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsPortugueseActive));
             OnPropertyChanged(nameof(IsEnglishActive));
             OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+            OnPropertyChanged(nameof(RefreshTweakStatesButtonText));
             OnPropertyChanged(nameof(HeaderTitle));
             OnPropertyChanged(nameof(ActiveModuleDisplayTitle));
             StatusMessage = Loc.CurrentCulture == "pt-BR"
@@ -1038,12 +1116,14 @@ public class MainViewModel : INotifyPropertyChanged
         SetLanguagePtCommand = new RelayCommand(_ =>
         {
             Language = "pt-BR";
+            OnPropertyChanged(nameof(RefreshTweakStatesButtonText));
             StatusMessage = "Idioma definido para Português Brasileiro (PT-BR).";
         });
 
         SetLanguageEnCommand = new RelayCommand(_ =>
         {
             Language = "en-US";
+            OnPropertyChanged(nameof(RefreshTweakStatesButtonText));
             StatusMessage = "Language set to American English (EN-US).";
         });
 
@@ -1073,10 +1153,9 @@ public class MainViewModel : INotifyPropertyChanged
             await RefreshTelemetryAndStatusAsync();
         });
 
-        RefreshTweakStatesCommand = new RelayCommand(_ =>
+        RefreshTweakStatesCommand = new RelayCommand(async _ =>
         {
-            if (IsRefreshingTweakStates) return;
-            RefreshAllTweakStates();
+            await RefreshAllTweakStatesAsync();
         });
 
         SelectTweakDetailsCommand = new RelayCommand(param =>
@@ -1896,6 +1975,40 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public async Task RefreshAllTweakStatesAsync()
+    {
+        if (_isRefreshingTweakStates) return;
+        IsRefreshingTweakStates = true;
+        bool isPt = IsPortugueseActive;
+
+        try
+        {
+            StatusMessage = isPt
+                ? $"Consultando estados reais no Registro do Windows ({CatalogTweaks.Count} ajustes)..."
+                : $"Querying real Windows Registry states ({CatalogTweaks.Count} tweaks)...";
+
+            var probe = RegistryOptimizer.ActiveProbe;
+            var tweakIds = CatalogTweaks.Select(t => t.TweakId).ToList();
+
+            // Perform non-destructive single-pass Registry inspection off the UI thread
+            var reportsByTweakId = await Task.Run(() =>
+            {
+                var dict = new Dictionary<string, TweakStateReport>(tweakIds.Count, StringComparer.OrdinalIgnoreCase);
+                foreach (var id in tweakIds)
+                {
+                    dict[id] = RegistryOptimizer.InspectCatalogTweak(id, probe);
+                }
+                return dict;
+            });
+
+            ApplyInspectedReportsToViewModels(reportsByTweakId, isPt);
+        }
+        finally
+        {
+            IsRefreshingTweakStates = false;
+        }
+    }
+
     public void RefreshAllTweakStates()
     {
         if (_isRefreshingTweakStates) return;
@@ -1903,20 +2016,59 @@ public class MainViewModel : INotifyPropertyChanged
         try
         {
             bool isPt = IsPortugueseActive;
+            var probe = RegistryOptimizer.ActiveProbe;
+            var reportsByTweakId = new Dictionary<string, TweakStateReport>(CatalogTweaks.Count, StringComparer.OrdinalIgnoreCase);
             foreach (var tweak in CatalogTweaks)
             {
                 // Single real Registry inspection per tweak (never duplicated)
-                var report = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
-                tweak.UpdateFromInspectionReport(report, isPt);
+                reportsByTweakId[tweak.TweakId] = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId, probe);
             }
-            UpdateTweakSummaryCounters();
-            StatusMessage = isPt
-                ? $"Estados reais do Registro atualizados ({CatalogTweaks.Count} ajustes consultados individualmente)."
-                : $"Real Registry states refreshed ({CatalogTweaks.Count} tweaks queried individually).";
+
+            ApplyInspectedReportsToViewModels(reportsByTweakId, isPt);
         }
         finally
         {
             IsRefreshingTweakStates = false;
+        }
+    }
+
+    private void ApplyInspectedReportsToViewModels(IReadOnlyDictionary<string, TweakStateReport> reportsByTweakId, bool isPt)
+    {
+        int verifiedCount = 0;
+        int accessDeniedCount = 0;
+        int readErrorCount = 0;
+        int wrongTypeCount = 0;
+
+        foreach (var tweak in CatalogTweaks)
+        {
+            if (reportsByTweakId.TryGetValue(tweak.TweakId, out var report))
+            {
+                tweak.UpdateFromInspectionReport(report, isPt);
+                verifiedCount++;
+
+                if (report.State == TweakInspectionState.AccessDenied)
+                    accessDeniedCount++;
+                else if (report.State == TweakInspectionState.ReadError || report.State == TweakInspectionState.Incompatible)
+                    readErrorCount++;
+                else if (report.State == TweakInspectionState.WrongType)
+                    wrongTypeCount++;
+            }
+        }
+
+        UpdateTweakSummaryCounters();
+
+        int totalIssues = accessDeniedCount + readErrorCount + wrongTypeCount;
+        if (totalIssues > 0)
+        {
+            StatusMessage = isPt
+                ? $"Estados atualizados: {verifiedCount} ajustes verificados no Registro ({accessDeniedCount} com acesso negado, {readErrorCount} com erro de leitura/incompatibilidade, {wrongTypeCount} com tipo incorreto)."
+                : $"States refreshed: {verifiedCount} tweaks verified in Registry ({accessDeniedCount} access denied, {readErrorCount} read error/incompatible, {wrongTypeCount} wrong type).";
+        }
+        else
+        {
+            StatusMessage = isPt
+                ? $"Estados atualizados com sucesso: {verifiedCount} ajustes verificados no Registro sem erros de leitura ou permissão."
+                : $"States refreshed successfully: {verifiedCount} tweaks verified in Registry with zero read or permission errors.";
         }
     }
 
@@ -1928,15 +2080,15 @@ public class MainViewModel : INotifyPropertyChanged
         int inactive = CatalogTweaks.Count(t => t.InspectionState == TweakInspectionState.Inactive);
         int custom = CatalogTweaks.Count(t => t.InspectionState == TweakInspectionState.Custom);
         int notConfigured = CatalogTweaks.Count(t => t.InspectionState == TweakInspectionState.NotConfigured);
-        int errorsOrDenied = CatalogTweaks.Count(t =>
+        int wrongType = CatalogTweaks.Count(t => t.InspectionState == TweakInspectionState.WrongType);
+        int undeterminable = CatalogTweaks.Count(t =>
             t.InspectionState == TweakInspectionState.AccessDenied ||
-            t.InspectionState == TweakInspectionState.WrongType ||
             t.InspectionState == TweakInspectionState.Incompatible ||
             t.InspectionState == TweakInspectionState.ReadError);
 
         TweakStatesSummaryText = isPt
-            ? $"Consultados: {total}  |  Ativos: {active}  |  Inativos: {inactive}  |  Personalizados: {custom}  |  Não Configurados: {notConfigured}  |  Acesso Negado / Erros: {errorsOrDenied}"
-            : $"Queried: {total}  |  Active: {active}  |  Inactive: {inactive}  |  Custom: {custom}  |  Not Configured: {notConfigured}  |  Access Denied / Errors: {errorsOrDenied}";
+            ? $"Consultados: {total}  |  Ativos: {active}  |  Inativos: {inactive}  |  Personalizados: {custom}  |  Ausentes: {notConfigured}  |  Tipo Incorreto: {wrongType}  |  Não Determináveis (Acesso/Erro): {undeterminable}"
+            : $"Queried: {total}  |  Active: {active}  |  Inactive: {inactive}  |  Custom: {custom}  |  Absent: {notConfigured}  |  Wrong Type: {wrongType}  |  Undeterminable (Access/Error): {undeterminable}";
 
         OnPropertyChanged(nameof(AppliedTweaksCount));
         OnPropertyChanged(nameof(AppliedTweaksBadgeText));
