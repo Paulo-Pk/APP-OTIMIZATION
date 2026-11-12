@@ -663,11 +663,16 @@
                             <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding RefreshProcessesCommand}" Margin="0,0,10,0">
                                 <TextBlock Text="Atualizar Processos"/>
                             </Button>
-                            <Button Style="{StaticResource ActionPrimaryButton}" Command="{Binding RefreshGameConnectionsCommand}">
-                                <TextBlock Text="Escanear Jogos e Sockets Ativos"/>
+                            <Button Style="{StaticResource ActionPrimaryButton}"
+                                    Command="{Binding RefreshGameConnectionsCommand}"
+                                    IsEnabled="{Binding CanRefreshGameConnections}">
+                                <TextBlock Text="{Binding RefreshGameConnectionsButtonText}"/>
                             </Button>
                         </StackPanel>
                     </Grid>
+                    <TextBlock Text="{Binding GameConnectionsStatusText}"
+                               FontSize="10.5" Foreground="#A78BFA"
+                               Margin="0,8,0,0" TextWrapping="Wrap"/>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
