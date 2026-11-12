@@ -216,8 +216,8 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\Power\PowerThrottling",
             "PowerThrottlingOff", RegistryValueKind.DWord,
             "1", "0", new[] { "0", "1" },
-            "Desativa redução automática de clock (Power Throttling) para processos em execução.",
-            "Disables automatic CPU clock throttling (Power Throttling) for active processes.",
+            "Impede a política Power Throttling para processos elegíveis. Não força a CPU a operar no clock máximo nem garante aumento de FPS; pode elevar consumo e temperatura.",
+            "Disables Power Throttling policy for eligible processes. It does not force maximum CPU clocks or guarantee higher FPS; power use and temperature may increase.",
             "Power", "Baixo", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["power-pcie-link"] = new(
@@ -234,8 +234,8 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Services\SysMain",
             "Start", RegistryValueKind.DWord,
             "3", "2", new[] { "2", "3" },
-            "Configura serviço SysMain para inicialização manual em SSDs NVMe.",
-            "Configures the SysMain service for manual startup on NVMe SSDs.",
+            "Altera o tipo de inicialização do SysMain para Manual. Não é uma otimização específica para NVMe e não interrompe imediatamente o serviço que já estiver em execução; o efeito depende do padrão de uso.",
+            "Changes SysMain startup type to Manual. This is not an NVMe-specific optimization and does not immediately stop a service that is already running; impact depends on usage.",
             "Services", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["serv-spooler"] = new(
@@ -243,8 +243,8 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Services\Spooler",
             "Start", RegistryValueKind.DWord,
             "3", "2", new[] { "2", "3" },
-            "Configura Spooler de Impressão para modo sob demanda (Manual).",
-            "Configures Print Spooler for on-demand (Manual) startup.",
+            "Altera o tipo de inicialização do Spooler para Manual. Pode afetar a disponibilidade de impressão; não interrompe imediatamente o serviço que já estiver em execução.",
+            "Changes Print Spooler startup type to Manual. Printing availability may be affected; this does not immediately stop a service that is already running.",
             "Services", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["mem-standby-clean"] = new(
@@ -252,8 +252,8 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
             "LargeSystemCache", RegistryValueKind.DWord,
             "0", "0", new[] { "0", "1" },
-            "Prioriza memória RAM física para aplicativos e jogos em primeiro plano (LargeSystemCache=0).",
-            "Prioritizes physical RAM for foreground applications and games (LargeSystemCache=0).",
+            "Define LargeSystemCache=0, configuração comum de estação de trabalho. Não limpa a lista de espera (standby list) nem libera RAM por si só.",
+            "Sets LargeSystemCache=0, a common workstation configuration. It does not clear the standby list or free RAM by itself.",
             "Memory", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["mem-lock-executive"] = new(
@@ -261,9 +261,9 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
             "DisablePagingExecutive", RegistryValueKind.DWord,
             "1", "0", new[] { "0", "1" },
-            "Mantém executivo do kernel e drivers na memória RAM física.",
-            "Keeps kernel executive and drivers resident in physical RAM.",
-            "Memory", "Baixo", TweakDefaultBehaviorKind.AbsentWithKnownDefault
+            "Impede a paginação de partes do executivo do kernel. Pode aumentar o uso de memória física; não garante menor latência ou melhor desempenho em jogos.",
+            "Prevents paging of parts of the kernel executive. It may increase physical memory use and does not guarantee lower latency or better gaming performance.",
+            "Memory", "Médio", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["game-hags"] = new(
             "game-hags", "HKLM",
@@ -297,8 +297,8 @@ public static class RegistryOptimizer
             @"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization",
             "DODownloadMode", RegistryValueKind.DWord,
             "0", "1", new[] { "0", "1" },
-            "Restringe otimização de entrega P2P em segundo plano durante jogos.",
-            "Restricts background P2P Windows Update Delivery Optimization during gaming.",
+            "Define o modo de Otimização de Entrega para HTTP sem compartilhamento P2P. A política vale para o sistema, não apenas durante jogos, e não promete aumento de FPS.",
+            "Sets Delivery Optimization to HTTP without P2P sharing. This policy applies system-wide, not only while gaming, and does not promise higher FPS.",
             "System", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["sys-transparency"] = new(
@@ -306,8 +306,8 @@ public static class RegistryOptimizer
             @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
             "EnableTransparency", RegistryValueKind.DWord,
             "0", "1", new[] { "0", "1" },
-            "Desativa efeito acrílico do DWM para liberar ciclos de GPU.",
-            "Disables DWM acrylic transparency blur to free GPU cycles.",
+            "Desativa transparências da interface do Windows. É uma alteração visual; em GPUs modernas, não há garantia de ganho perceptível de desempenho.",
+            "Disables Windows interface transparency. This is a visual change; on modern GPUs, no perceptible performance gain is guaranteed.",
             "Interface", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["storage-ntfs-lastaccess"] = new(
@@ -315,8 +315,8 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\FileSystem",
             "NtfsDisableLastAccessUpdate", RegistryValueKind.DWord,
             "1", "0", new[] { "0", "1", "-2147483647" },
-            "Reduz escritas desnecessárias de metadados NTFS em SSDs NVMe e SATA.",
-            "Reduces unnecessary NTFS last-access metadata writes on NVMe and SATA SSDs.",
+            "Controla a atualização dos horários de último acesso do NTFS. O efeito depende da configuração do Windows e não garante aumento de desempenho ou vida útil do SSD.",
+            "Controls NTFS last-access timestamp updates. The effect depends on Windows configuration and does not guarantee better performance or SSD lifespan.",
             "Storage", "Baixo", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
         ),
         ["net-tcp-autotuning"] = new(
