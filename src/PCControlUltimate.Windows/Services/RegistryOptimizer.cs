@@ -857,15 +857,8 @@ public static class RegistryOptimizer
                 $"Ajuste '{tweakId}' não pertence ao catálogo fechado.", tweakId);
         }
 
-        var preCheck = ValidateRestoreParametersAgainstCatalog(def, untrustedOriginalValue, untrustedValueKindStr, untrustedWasInitiallyAbsent);
-        if (!preCheck.isValid)
-        {
-            RecordAudit("RESTORE_REJECTED_RULES", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
-                untrustedValueKindStr ?? "Unknown", null, untrustedOriginalValue, null, false, preCheck.errorMessage);
-            return new RegistryOperationResult(false, null, null, untrustedValueKindStr ?? "Unknown",
-                untrustedWasInitiallyAbsent, untrustedKeyCreatedByApp, preCheck.errorMessage, def.TweakId);
-        }
-
+        // Caller-supplied original value/type/absence flags are untrusted and intentionally ignored.
+        // The backend resolves and authenticates the original state from RegistryStateLedger.
         return RestoreCatalogTweakFromTrustedSource(def.TweakId);
     }
 
