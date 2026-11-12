@@ -237,6 +237,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<DnsQueryResult> DnsResults { get; } = new();
     public ObservableCollection<string> NetworkHistory { get; } = new();
     public ObservableCollection<DetectedGameConnection> DetectedGameSockets { get; } = new();
+    public ObservableCollection<InstalledGameEntry> InstalledGames { get; } = new();
     public ObservableCollection<TracerouteHopResult> TracerouteHops { get; } = new();
     public ObservableCollection<RelayNodeCandidate> RelayNodes { get; } = new();
     public ObservableCollection<ModuleCapabilityMatrixItem> ModuleCapabilityMatrix { get; } = new();
@@ -1193,6 +1194,11 @@ public class MainViewModel : INotifyPropertyChanged
 
         RefreshGameConnectionsCommand = new RelayCommand(_ =>
         {
+            InstalledGames.Clear();
+            foreach (var game in GameNetworkAcceleratorService.DiscoverInstalledGames())
+            {
+                InstalledGames.Add(game);
+            }
             DetectedGameSockets.Clear();
             foreach (var conn in GameNetworkAcceleratorService.DetectRunningGamesAndConnections())
             {
