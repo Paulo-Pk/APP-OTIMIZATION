@@ -511,7 +511,7 @@ public static class RegistrySnapshotEngine
                         $"Subchave fora da whitelist detectada no arquivo de backup: {entry.KeyPath}");
                 }
 
-                string targetIdentity = $"{RegistryOptimizer.NormalizeSubKeyPath(entry.KeyPath)}|{entry.ValueName}";
+                string targetIdentity = $"{RegistryOptimizer.ExtractExplicitHive(entry.KeyPath)?.ToUpperInvariant()}|{RegistryOptimizer.NormalizeSubKeyPath(entry.KeyPath)}|{entry.ValueName}";
                 if (!seenTargets.Add(targetIdentity))
                 {
                     return (false, manifest.ChecksumSha256,
