@@ -143,15 +143,19 @@ public class DiskCleanerTests
         var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("cache-dx-shaders");
         Assert.Equal(DiskPurgeStatus.NothingToClean, dryRun.Status);
         Assert.False(dryRun.Success);
+        Assert.False(dryRun.DirectoryExisted);
         Assert.Equal(0, dryRun.CandidateFilesCount);
         Assert.Equal(0, dryRun.EstimatedBytes);
+        Assert.NotEmpty(dryRun.Warnings);
 
         var purge = DiskCleanerEngine.PurgeCategoryWithReport("cache-dx-shaders");
         Assert.Equal(DiskPurgeStatus.NothingToClean, purge.Status);
         Assert.False(purge.Success);
+        Assert.False(purge.DirectoryExisted);
         Assert.False(purge.PartialSuccess);
         Assert.Equal(0, purge.DeletedFilesCount);
         Assert.Equal(0, purge.FreedBytes);
+        Assert.NotEmpty(purge.Warnings);
         Assert.Empty(purge.Errors);
     }
 
@@ -170,12 +174,14 @@ public class DiskCleanerTests
             var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
             Assert.Equal(DiskPurgeStatus.NothingToClean, dryRun.Status);
             Assert.False(dryRun.Success);
+            Assert.True(dryRun.DirectoryExisted);
             Assert.Equal(0, dryRun.CandidateFilesCount);
             Assert.Equal(0, dryRun.EstimatedBytes);
 
             var purge = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
             Assert.Equal(DiskPurgeStatus.NothingToClean, purge.Status);
             Assert.False(purge.Success);
+            Assert.True(purge.DirectoryExisted);
             Assert.False(purge.PartialSuccess);
             Assert.Equal(0, purge.DeletedFilesCount);
             Assert.Equal(0, purge.FreedBytes);
@@ -211,6 +217,7 @@ public class DiskCleanerTests
 
             Assert.Equal(DiskPurgeStatus.Completed, report.Status);
             Assert.True(report.Success);
+            Assert.True(report.DirectoryExisted);
             Assert.False(report.PartialSuccess);
             Assert.Equal(3, report.DeletedFilesCount);
             Assert.Equal(1500 + 2500 + 4096, report.FreedBytes);
@@ -221,6 +228,89 @@ public class DiskCleanerTests
             Assert.False(File.Exists(file1));
             Assert.False(File.Exists(file2));
             Assert.False(File.Exists(file3));
+            // Empty subfolder is cleaned up and root folder remains empty
+            Assert.False(Directory.Exists(subDir));
+            Assert.True(Directory.Exists(tempDir));
+            Assert.Empty(Directory.GetFileSystemEntries(tempDir));
+
+            // Subsequent purge on the now-empty directory must return NothingToClean
+            var postPurgeReport = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+            Assert.Equal(DiskPurgeStatus.NothingToClean, postPurgeReport.Status);
+            Assert.False(postPurgeReport.Success);
+            Assert.True(postPurgeReport.DirectoryExisted);
+            Assert.Equal(0, postPurgeReport.DeletedFilesCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void IsSubPathOfOrEqual_SimilarPrefixSiblingDirectory_ReturnsFalseAndRejectsTraversal()
+    {
+        string baseRoot = Path.Combine(Path.GetTempPath(), "pccontrol_authorized_root");
+        string siblingWithSamePrefix = Path.Combine(Path.GetTempPath(), "pccontrol_authorized_root_sibling");
+        string siblingNestedFile = Path.Combine(siblingWithSamePrefix, "secret.txt");
+        string validChildFile = Path.Combine(baseRoot, "SubFolder", "cache.bin");
+        string traversalEscape = Path.Combine(baseRoot, "SubFolder", "..", "..", "pccontrol_authorized_root_sibling", "secret.txt");
+
+        Assert.True(DiskCleanerEngine.IsSubPathOfOrEqual(baseRoot, baseRoot));
+        Assert.True(DiskCleanerEngine.IsSubPathOfOrEqual(validChildFile, baseRoot));
+        Assert.False(DiskCleanerEngine.IsSubPathOfOrEqual(siblingWithSamePrefix, baseRoot));
+        Assert.False(DiskCleanerEngine.IsSubPathOfOrEqual(siblingNestedFile, baseRoot));
+        Assert.False(DiskCleanerEngine.IsSubPathOfOrEqual(traversalEscape, baseRoot));
+    }
+
+    [Fact]
+    public void SimulateCategoryDryRun_WhenReadFailureOccurs_RecordsErrorAndClassifiesPartialOrFailedWithoutDeleting()
+    {
+        string tempDir = CreateIsolatedTempFolder("dryrun_read_error");
+        try
+        {
+            string readableFile = Path.Combine(tempDir, "readable.tmp");
+            string unreadableFile = Path.Combine(tempDir, "unreadable.tmp");
+            File.WriteAllBytes(readableFile, new byte[1024]);
+            File.WriteAllBytes(unreadableFile, new byte[2048]);
+
+            // 1. Partial Dry-Run: one readable file + one file throwing UnauthorizedAccessException
+            using (DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir },
+                simulatedFileFailureHook: path =>
+                {
+                    if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(unreadableFile), StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new UnauthorizedAccessException("Access denied while reading metadata during dry-run.");
+                    }
+                    return null;
+                }))
+            {
+                var partialDryRun = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
+                Assert.Equal(DiskPurgeStatus.Partial, partialDryRun.Status);
+                Assert.True(partialDryRun.Success);
+                Assert.True(partialDryRun.DirectoryExisted);
+                Assert.Equal(1, partialDryRun.CandidateFilesCount);
+                Assert.Equal(1024, partialDryRun.EstimatedBytes);
+                Assert.Single(partialDryRun.Errors);
+                Assert.True(File.Exists(readableFile));
+                Assert.True(File.Exists(unreadableFile));
+            }
+
+            // 2. Failed Dry-Run: all files fail to read during dry-run
+            using (DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir },
+                simulatedFileFailureHook: _ => new IOException("I/O error while reading file metadata.")))
+            {
+                var failedDryRun = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
+                Assert.Equal(DiskPurgeStatus.Failed, failedDryRun.Status);
+                Assert.False(failedDryRun.Success);
+                Assert.True(failedDryRun.DirectoryExisted);
+                Assert.Equal(0, failedDryRun.CandidateFilesCount);
+                Assert.Equal(0, failedDryRun.EstimatedBytes);
+                Assert.NotEmpty(failedDryRun.Errors);
+                Assert.True(File.Exists(readableFile));
+                Assert.True(File.Exists(unreadableFile));
+            }
         }
         finally
         {
@@ -259,6 +349,7 @@ public class DiskCleanerTests
             Assert.Equal(1, report.DeletedFilesCount);
             Assert.Equal(1024, report.FreedBytes);
             Assert.Equal(1, report.SkippedLockedCount);
+            Assert.NotEmpty(report.Warnings);
             Assert.False(File.Exists(unlockedFile));
             Assert.True(File.Exists(lockedFile));
         }
@@ -435,4 +526,5 @@ public class DiskCleanerTests
         }
     }
 }
+
 

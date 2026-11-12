@@ -66,10 +66,12 @@ public class RelayCommand : ICommand
 public class TweakItemViewModel : INotifyPropertyChanged
 {
     private bool _isApplied;
+    private bool _isAppliedInCurrentSession;
+    private bool _isRestoredInCurrentSession;
     private string _verificationState = "Não verificado";
     private string? _lastOperationId;
     private TweakInspectionState _inspectionState = TweakInspectionState.NotConfigured;
-    private string _stateBadgeText = "NÃO CONFIGURADO";
+    private string _stateBadgeText = "VALOR AUSENTE";
     private string _stateColorHex = "#64748B";
     private string _stateBackgroundHex = "#141926";
     private string _currentRawValueDisplay = "Ausente";
@@ -178,6 +180,18 @@ public class TweakItemViewModel : INotifyPropertyChanged
         set { _isApplied = value; OnPropertyChanged(); }
     }
 
+    public bool IsAppliedInCurrentSession
+    {
+        get => _isAppliedInCurrentSession;
+        set { _isAppliedInCurrentSession = value; OnPropertyChanged(); }
+    }
+
+    public bool IsRestoredInCurrentSession
+    {
+        get => _isRestoredInCurrentSession;
+        set { _isRestoredInCurrentSession = value; OnPropertyChanged(); }
+    }
+
     public TweakInspectionState InspectionState
     {
         get => _inspectionState;
@@ -251,8 +265,9 @@ public class TweakItemViewModel : INotifyPropertyChanged
     public void UpdateFromInspectionReport(TweakStateReport report, bool isPt)
     {
         InspectionState = report.State;
-        IsApplied = report.State == TweakInspectionState.Active;
-        StateBadgeText = isPt ? report.StateBadgePt : report.StateBadgeEn;
+        // Do not assume every recommended value found in the Registry was applied by the current session:
+        // IsApplied reflects whether the recommended state is active AND was applied in the current session (not just restored to an original recommended value).
+        IsApplied = report.State == TweakInspectionState.Active && !_isRestoredInCurrentSession;
         DiagnosticMessage = isPt ? report.DiagnosticMessagePt : report.DiagnosticMessageEn;
 
         switch (report.State)
@@ -260,23 +275,63 @@ public class TweakItemViewModel : INotifyPropertyChanged
             case TweakInspectionState.Active:
                 StateColorHex = "#10B981"; // Emerald green: active and confirmed
                 StateBackgroundHex = "#0D2821";
+                if (_isRestoredInCurrentSession)
+                {
+                    StateBadgeText = isPt
+                        ? "RESTAURADO AO ESTADO ORIGINAL — LEITURA CONFIRMADA"
+                        : "RESTORED TO ORIGINAL STATE — READ CONFIRMED";
+                }
+                else if (_isAppliedInCurrentSession)
+                {
+                    StateBadgeText = isPt
+                        ? "ATIVO — LEITURA CONFIRMADA"
+                        : "ACTIVE — READ CONFIRMED";
+                }
+                else
+                {
+                    StateBadgeText = isPt
+                        ? "ATIVO (PRÉ-EXISTENTE) — LEITURA CONFIRMADA"
+                        : "ACTIVE (PRE-EXISTING) — READ CONFIRMED";
+                }
                 break;
+
             case TweakInspectionState.Inactive:
-            case TweakInspectionState.NotConfigured:
-                StateColorHex = "#94A3B8"; // Slate gray: not configured or standard inactive
+                StateColorHex = "#94A3B8"; // Slate gray: known reference default
                 StateBackgroundHex = "#141926";
+                StateBadgeText = _isRestoredInCurrentSession
+                    ? (isPt ? "RESTAURADO AO ESTADO ORIGINAL — LEITURA CONFIRMADA" : "RESTORED TO ORIGINAL STATE — READ CONFIRMED")
+                    : (isPt ? "PADRÃO DO WINDOWS" : "WINDOWS DEFAULT");
                 break;
+
+            case TweakInspectionState.NotConfigured:
+                StateColorHex = "#94A3B8";
+                StateBackgroundHex = "#141926";
+                StateBadgeText = _isRestoredInCurrentSession
+                    ? (isPt ? "RESTAURADO AO ESTADO ORIGINAL (VALOR AUSENTE) — LEITURA CONFIRMADA" : "RESTORED TO ORIGINAL STATE (VALUE ABSENT) — READ CONFIRMED")
+                    : (isPt ? "VALOR AUSENTE" : "VALUE ABSENT");
+                break;
+
             case TweakInspectionState.Custom:
-                StateColorHex = "#F59E0B"; // Amber: custom value or requires attention
+                StateColorHex = "#F59E0B"; // Amber: custom value
                 StateBackgroundHex = "#291F0C";
+                StateBadgeText = _isRestoredInCurrentSession
+                    ? (isPt ? "RESTAURADO AO ESTADO ORIGINAL (PERSONALIZADO) — LEITURA CONFIRMADA" : "RESTORED TO ORIGINAL STATE (CUSTOM) — READ CONFIRMED")
+                    : (isPt ? "PERSONALIZADO" : "CUSTOM");
                 break;
+
             case TweakInspectionState.AccessDenied:
+                StateColorHex = "#F43F5E";
+                StateBackgroundHex = "#2C1219";
+                StateBadgeText = isPt ? "ACESSO NEGADO" : "ACCESS DENIED";
+                break;
+
             case TweakInspectionState.WrongType:
             case TweakInspectionState.Incompatible:
             case TweakInspectionState.ReadError:
             default:
-                StateColorHex = "#F43F5E"; // Rose red: error, wrong type, access denied, or incompatible
+                StateColorHex = "#F43F5E"; // Rose red: unverifiable / wrong type / read error
                 StateBackgroundHex = "#2C1219";
+                StateBadgeText = isPt ? "NÃO VERIFICÁVEL" : "UNVERIFIABLE";
                 break;
         }
 
@@ -287,15 +342,15 @@ public class TweakItemViewModel : INotifyPropertyChanged
         }
         else if (!report.KeyExists)
         {
-            CurrentRawValueDisplay = isPt ? "Chave ausente (Padrão)" : "Key absent (Default)";
+            CurrentRawValueDisplay = isPt ? "Valor ausente (Chave inexistente)" : "Value absent (Key missing)";
         }
         else if (!report.ValueExists)
         {
-            CurrentRawValueDisplay = isPt ? "Valor ausente (Padrão)" : "Value absent (Default)";
+            CurrentRawValueDisplay = isPt ? "Valor ausente" : "Value absent";
         }
         else
         {
-            CurrentRawValueDisplay = isPt ? "Inacessível / Erro" : "Inaccessible / Error";
+            CurrentRawValueDisplay = isPt ? "Não verificável" : "Unverifiable";
         }
 
         VerificationState = $"{StateBadgeText} · {CurrentRawValueDisplay}";
@@ -1058,15 +1113,19 @@ public class MainViewModel : INotifyPropertyChanged
 
                 // Mandatory post-apply real Registry re-read (checks existence, value, and RegistryValueKind)
                 var postReport = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
+                bool isConfirmedActive = ok && postReport.State == TweakInspectionState.Active;
+                tweak.IsAppliedInCurrentSession = isConfirmedActive;
+                tweak.IsRestoredInCurrentSession = false;
                 tweak.UpdateFromInspectionReport(postReport, IsPortugueseActive);
                 UpdateTweakSummaryCounters();
                 RefreshAuditLogs();
 
-                bool isUnverifiable = postReport.State is TweakInspectionState.AccessDenied
-                    or TweakInspectionState.ReadError
-                    or TweakInspectionState.Incompatible;
+                bool isAccessDenied = postReport.State == TweakInspectionState.AccessDenied;
+                bool isUnverifiable = postReport.State is TweakInspectionState.ReadError
+                    or TweakInspectionState.Incompatible
+                    or TweakInspectionState.WrongType;
 
-                if (ok && postReport.State == TweakInspectionState.Active)
+                if (isConfirmedActive)
                 {
                     await _databaseService.UpsertOptimizationActionAsync(
                         tweak.TweakId,
@@ -1080,8 +1139,17 @@ public class MainViewModel : INotifyPropertyChanged
                         backupId: tweak.LastOperationId
                     );
                     StatusMessage = IsPortugueseActive
-                        ? $"Ajuste aplicado: '{tweak.Name}' ({tweak.TweakId}) confirmado no Registro ({tweak.CurrentRawValueDisplay})."
-                        : $"Tweak applied: '{tweak.Name}' ({tweak.TweakId}) confirmed in Registry ({tweak.CurrentRawValueDisplay}).";
+                        ? $"Ativo — leitura confirmada: '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}."
+                        : $"Active — read confirmed: '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}.";
+                }
+                else if (isAccessDenied)
+                {
+                    tweak.IsApplied = false;
+                    OnPropertyChanged(nameof(AppliedTweaksCount));
+                    OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+                    StatusMessage = IsPortugueseActive
+                        ? $"Acesso negado · Falha na operação para '{tweak.Name}' ({tweak.TweakId})."
+                        : $"Access denied · Operation failed for '{tweak.Name}' ({tweak.TweakId}).";
                 }
                 else if (isUnverifiable)
                 {
@@ -1089,17 +1157,18 @@ public class MainViewModel : INotifyPropertyChanged
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     StatusMessage = IsPortugueseActive
-                        ? $"Estado não verificável para '{tweak.Name}' ({tweak.TweakId}): {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
-                        : $"Unverifiable state for '{tweak.Name}' ({tweak.TweakId}): {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
+                        ? $"Não verificável · Falha na operação para '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay})."
+                        : $"Unverifiable · Operation failed for '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay}).";
                 }
                 else
                 {
                     tweak.IsApplied = false;
+                    tweak.StateBadgeText = IsPortugueseActive ? "FALHA NA OPERAÇÃO" : "OPERATION FAILED";
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     StatusMessage = IsPortugueseActive
-                        ? $"Aplicação não confirmada para '{tweak.Name}' ({tweak.TweakId}). Estado atual: {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
-                        : $"Application unconfirmed for '{tweak.Name}' ({tweak.TweakId}). Current state: {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
+                        ? $"Falha na operação: aplicação não confirmada para '{tweak.Name}' ({tweak.TweakId}). Estado atual: {tweak.CurrentRawValueDisplay}."
+                        : $"Operation failed: application unconfirmed for '{tweak.Name}' ({tweak.TweakId}). Current state: {tweak.CurrentRawValueDisplay}.";
                 }
             }
         });
@@ -1127,29 +1196,23 @@ public class MainViewModel : INotifyPropertyChanged
 
                 // Mandatory post-restore real Registry re-read
                 var postReport = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
+                bool isAccessDenied = postReport.State == TweakInspectionState.AccessDenied;
+                bool isUnverifiable = postReport.State is TweakInspectionState.ReadError
+                    or TweakInspectionState.Incompatible;
+
+                if (ok && !isAccessDenied && !isUnverifiable)
+                {
+                    tweak.IsAppliedInCurrentSession = false;
+                    tweak.IsRestoredInCurrentSession = true;
+                }
+
                 tweak.UpdateFromInspectionReport(postReport, IsPortugueseActive);
                 UpdateTweakSummaryCounters();
                 RefreshAuditLogs();
 
-                bool isUnverifiable = postReport.State is TweakInspectionState.AccessDenied
-                    or TweakInspectionState.ReadError
-                    or TweakInspectionState.Incompatible;
-
-                if (ok && !isUnverifiable)
+                if (ok && !isAccessDenied && !isUnverifiable)
                 {
-                    // Restoration succeeded and was verified by post-restore re-read against the original state.
-                    // Note: Even if the user's original state was Custom or already equal to RecommendedValue,
-                    // 'ok == true' guarantees the exact original state was verified in the Registry.
-                    tweak.IsApplied = postReport.State == TweakInspectionState.Active;
-                    if (postReport.State == TweakInspectionState.Inactive || postReport.State == TweakInspectionState.NotConfigured)
-                    {
-                        tweak.StateBadgeText = IsPortugueseActive ? "RESTAURADO AO ORIGINAL" : "RESTORED TO ORIGINAL";
-                    }
-                    else if (postReport.State == TweakInspectionState.Custom)
-                    {
-                        tweak.StateBadgeText = IsPortugueseActive ? "PERSONALIZADO (ORIGINAL)" : "CUSTOM (ORIGINAL)";
-                    }
-
+                    tweak.IsApplied = false;
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
 
@@ -1168,37 +1231,40 @@ public class MainViewModel : INotifyPropertyChanged
                     if (postReport.State == TweakInspectionState.Custom)
                     {
                         StatusMessage = IsPortugueseActive
-                            ? $"Restaurado ao estado original (Estado personalizado): '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}."
-                            : $"Restored to original state (Custom state): '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}.";
+                            ? $"Restaurado ao estado original — leitura confirmada (Personalizado): '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}."
+                            : $"Restored to original state — read confirmed (Custom): '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}.";
+                    }
+                    else if (postReport.State == TweakInspectionState.NotConfigured)
+                    {
+                        StatusMessage = IsPortugueseActive
+                            ? $"Restaurado ao estado original — leitura confirmada (Valor ausente): '{tweak.Name}' ({tweak.TweakId})."
+                            : $"Restored to original state — read confirmed (Value absent): '{tweak.Name}' ({tweak.TweakId}).";
                     }
                     else
                     {
                         StatusMessage = IsPortugueseActive
-                            ? $"Restaurado ao estado original: '{tweak.Name}' ({tweak.TweakId}) confirmado por releitura ({tweak.CurrentRawValueDisplay})."
-                            : $"Restored to original state: '{tweak.Name}' ({tweak.TweakId}) confirmed by re-read ({tweak.CurrentRawValueDisplay}).";
+                            ? $"Restaurado ao estado original — leitura confirmada: '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}."
+                            : $"Restored to original state — read confirmed: '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}.";
                     }
+                }
+                else if (isAccessDenied)
+                {
+                    StatusMessage = IsPortugueseActive
+                        ? $"Acesso negado · Falha na operação ao restaurar '{tweak.Name}' ({tweak.TweakId})."
+                        : $"Access denied · Operation failed while restoring '{tweak.Name}' ({tweak.TweakId}).";
                 }
                 else if (isUnverifiable)
                 {
                     StatusMessage = IsPortugueseActive
-                        ? $"Falha na restauração · Estado não verificável para '{tweak.Name}' ({tweak.TweakId}): {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
-                        : $"Restoration failed · Unverifiable state for '{tweak.Name}' ({tweak.TweakId}): {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
-                }
-                else if (postReport.State == TweakInspectionState.Active)
-                {
-                    // Recommended value remains active because restoration failed
-                    tweak.IsApplied = true;
-                    OnPropertyChanged(nameof(AppliedTweaksCount));
-                    OnPropertyChanged(nameof(AppliedTweaksBadgeText));
-                    StatusMessage = IsPortugueseActive
-                        ? $"Falha na restauração de '{tweak.Name}' ({tweak.TweakId}): o ajuste aplicado ({tweak.CurrentRawValueDisplay}) permanece ativo no Registro."
-                        : $"Restoration failed for '{tweak.Name}' ({tweak.TweakId}): the applied tweak ({tweak.CurrentRawValueDisplay}) remains active in the Registry.";
+                        ? $"Não verificável · Falha na operação ao restaurar '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay})."
+                        : $"Unverifiable · Operation failed while restoring '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay}).";
                 }
                 else
                 {
+                    tweak.StateBadgeText = IsPortugueseActive ? "FALHA NA OPERAÇÃO" : "OPERATION FAILED";
                     StatusMessage = IsPortugueseActive
-                        ? $"Falha na restauração de '{tweak.Name}' ({tweak.TweakId}). Estado atual no Registro: {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
-                        : $"Restoration failed for '{tweak.Name}' ({tweak.TweakId}). Current state in Registry: {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
+                        ? $"Falha na operação: restauração não confirmada para '{tweak.Name}' ({tweak.TweakId}). Estado atual: {tweak.CurrentRawValueDisplay}."
+                        : $"Operation failed: restoration unconfirmed for '{tweak.Name}' ({tweak.TweakId}). Current state: {tweak.CurrentRawValueDisplay}.";
                 }
             }
         });
@@ -1320,6 +1386,7 @@ public class MainViewModel : INotifyPropertyChanged
             int totalFiles = 0;
             int totalSymlinks = 0;
             int totalWarnings = 0;
+            int totalErrors = 0;
 
             CleanerAffectedFilesLog.Clear();
 
@@ -1329,41 +1396,50 @@ public class MainViewModel : INotifyPropertyChanged
                 totalEstimated += dryRun.EstimatedBytes;
                 totalFiles += dryRun.CandidateFilesCount;
                 totalSymlinks += dryRun.SkippedSymlinksCount;
-                totalWarnings += dryRun.WarningsOrErrors.Count;
+                totalWarnings += dryRun.Warnings.Count;
+                totalErrors += dryRun.Errors.Count;
 
                 double mb = dryRun.EstimatedBytes / (1024.0 * 1024.0);
                 cat.ScannedFilesCount = dryRun.CandidateFilesCount;
-                cat.EstimatedBytesFormatted = $"{mb:F2} MB (Dry-Run)";
+                cat.EstimatedBytesFormatted = $"{mb:F2} MB (Estimativa Dry-Run)";
 
                 cat.LastOperationStatus = dryRun.Status switch
                 {
                     DiskPurgeStatus.Completed => $"Estimativa (Dry-Run): {dryRun.CandidateFilesCount} elegíveis",
-                    DiskPurgeStatus.Partial => $"Estimativa parcial: {dryRun.SkippedSymlinksCount} symlinks / {dryRun.WarningsOrErrors.Count} avisos",
-                    DiskPurgeStatus.NothingToClean => "Nenhum item elegível (Dry-Run)",
-                    _ => "Falha ao inspecionar (Dry-Run)"
+                    DiskPurgeStatus.Partial => $"Estimativa parcial: {dryRun.SkippedSymlinksCount} links / {dryRun.Errors.Count} erros",
+                    DiskPurgeStatus.NothingToClean => "Nada para limpar (Dry-Run)",
+                    _ => "Falha na limpeza / varredura (Dry-Run)"
                 };
 
                 cat.DryRunEstimateText = dryRun.Status == DiskPurgeStatus.NothingToClean
-                    ? $"SOMENTE ESTIMATIVA (Dry-Run): Nenhum arquivo elegível para limpar ({dryRun.SkippedSymlinksCount} symlinks preservados)"
-                    : $"SOMENTE ESTIMATIVA (Dry-Run): {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos, {dryRun.SkippedSymlinksCount} symlinks preservados, {dryRun.WarningsOrErrors.Count} avisos/erros)";
+                    ? $"SOMENTE ESTIMATIVA (Dry-Run): Nada para limpar ({dryRun.SkippedSymlinksCount} links preservados)"
+                    : $"SOMENTE ESTIMATIVA (Dry-Run): {mb:F2} MB estimados ({dryRun.CandidateFilesCount} arquivos, {dryRun.SkippedSymlinksCount} links preservados, {dryRun.Errors.Count} erros)";
 
                 foreach (var sample in dryRun.CandidateFileSamples)
                 {
                     CleanerAffectedFilesLog.Add($"[DRY-RUN ESTIMATIVA] {cat.CategoryKey}: {sample}");
                 }
-                foreach (var warn in dryRun.WarningsOrErrors)
+                foreach (var warn in dryRun.Warnings)
                 {
-                    CleanerAffectedFilesLog.Add($"[AVISO/ERRO DRY-RUN] {cat.CategoryKey}: {warn}");
+                    CleanerAffectedFilesLog.Add($"[AVISO DRY-RUN] {cat.CategoryKey}: {warn}");
+                }
+                foreach (var err in dryRun.Errors)
+                {
+                    CleanerAffectedFilesLog.Add($"[ERRO DRY-RUN] {cat.CategoryKey}: {err}");
                 }
             }
 
-            if (totalFiles == 0 && totalWarnings == 0)
+            if (totalFiles == 0 && totalErrors == 0)
             {
-                DebloatSummaryText = $"SOMENTE ESTIMATIVA (Dry-Run): Nenhum arquivo elegível para limpeza encontrado ({totalSymlinks} symlinks/junctions preservados).";
+                DebloatSummaryText = $"SOMENTE ESTIMATIVA (Dry-Run): Nada para limpar ({totalSymlinks} links preservados). Nenhum espaço foi liberado.";
+            }
+            else if (totalFiles == 0 && totalErrors > 0)
+            {
+                DebloatSummaryText = $"SOMENTE ESTIMATIVA (Dry-Run): Falha ao inspecionar ({totalErrors} erros encontrados, {totalSymlinks} links preservados).";
             }
             else
             {
-                DebloatSummaryText = $"SOMENTE ESTIMATIVA (Dry-Run): {(totalEstimated / (1024.0 * 1024.0)):F2} MB estimados em {totalFiles} arquivos elegíveis ({totalSymlinks} symlinks preservados, {totalWarnings} avisos/erros). Nenhum arquivo foi removido.";
+                DebloatSummaryText = $"SOMENTE ESTIMATIVA (Dry-Run): {(totalEstimated / (1024.0 * 1024.0)):F2} MB estimados em {totalFiles} arquivos elegíveis ({totalSymlinks} links preservados, {totalErrors} erros). Nenhum arquivo foi removido.";
             }
         });
 
@@ -1388,18 +1464,22 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     DiskPurgeStatus.Completed => "Limpeza concluída",
                     DiskPurgeStatus.Partial => "Limpeza parcial",
-                    DiskPurgeStatus.NothingToClean => "Nenhum item encontrado",
+                    DiskPurgeStatus.NothingToClean => "Nada para limpar",
                     _ => "Falha na limpeza"
                 };
 
                 cat.LastOperationStatus = $"{statusLabel} ({report.DeletedFilesCount} removidos)";
                 cat.RealFreedText =
-                    $"{statusLabel}: {freedMb:F2} MB liberados ({report.DeletedFilesCount} removidos, {report.SkippedLockedCount} bloqueados, {report.SkippedSymlinksCount} symlinks preservados, {report.Errors.Count} erros)";
+                    $"{statusLabel}: {freedMb:F2} MB efetivamente liberados ({report.DeletedFilesCount} removidos, {report.SkippedLockedCount} não processados, {report.SkippedSymlinksCount} links preservados, {report.Errors.Count} erros)";
 
                 CleanerAffectedFilesLog.Clear();
                 foreach (var logLine in report.AffectedItemsLog)
                 {
                     CleanerAffectedFilesLog.Add(logLine);
+                }
+                foreach (var warnLine in report.Warnings)
+                {
+                    CleanerAffectedFilesLog.Add($"[AVISO] {warnLine}");
                 }
                 foreach (var errLine in report.Errors)
                 {
@@ -1409,13 +1489,13 @@ public class MainViewModel : INotifyPropertyChanged
                 DebloatSummaryText = report.Status switch
                 {
                     DiskPurgeStatus.Completed =>
-                        $"Limpeza concluída em '{cat.CategoryKey}': {report.DeletedFilesCount} arquivos removidos ({freedMb:F2} MB liberados, 0 bloqueados, 0 erros).",
+                        $"Limpeza concluída em '{cat.CategoryKey}': {report.DeletedFilesCount} arquivos removidos, {freedMb:F2} MB efetivamente liberados, 0 arquivos não processados, 0 links preservados, 0 erros.",
                     DiskPurgeStatus.Partial =>
-                        $"Limpeza parcial em '{cat.CategoryKey}': {report.DeletedFilesCount} arquivos removidos ({freedMb:F2} MB liberados), {report.SkippedLockedCount} bloqueados, {report.SkippedSymlinksCount} symlinks preservados, {report.Errors.Count} erros.",
+                        $"Limpeza parcial em '{cat.CategoryKey}': {report.DeletedFilesCount} arquivos removidos ({freedMb:F2} MB efetivamente liberados), {report.SkippedLockedCount} arquivos não processados, {report.SkippedSymlinksCount} links preservados, {report.Errors.Count} erros encontrados.",
                     DiskPurgeStatus.NothingToClean =>
-                        $"Nenhum item elegível para limpar em '{cat.CategoryKey}': 0 arquivos removidos (0.00 MB liberados, {report.SkippedSymlinksCount} symlinks preservados).",
+                        $"Nada para limpar em '{cat.CategoryKey}': 0 arquivos removidos, 0.00 MB liberados, {report.SkippedSymlinksCount} links preservados, 0 erros.",
                     _ =>
-                        $"Falha ao limpar '{cat.CategoryKey}': 0 arquivos removidos ({report.SkippedLockedCount} bloqueados, {report.Errors.Count} erros). Detalhe: {report.Message}"
+                        $"Falha na limpeza em '{cat.CategoryKey}': 0 arquivos removidos, 0.00 MB liberados, {report.SkippedLockedCount} arquivos não processados, {report.SkippedSymlinksCount} links preservados, {report.Errors.Count} erros encontrados. Detalhe: {report.Message}"
                 };
             }
         });

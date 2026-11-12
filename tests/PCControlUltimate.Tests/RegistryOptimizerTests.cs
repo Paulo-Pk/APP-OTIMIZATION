@@ -350,6 +350,38 @@ public class RegistryOptimizerTests
         Assert.False(pathMismatchCheck.IsValid);
         Assert.Equal("ENTRY_PATH_MISMATCH", pathMismatchCheck.ErrorCode);
 
+        // 2b. Entry with mismatched Hive ("HKLM" instead of "HKCU" for perf-game-dvr) -> ENTRY_PATH_MISMATCH
+        var mismatchedHiveEntry = mismatchedPathEntry with
+        {
+            OperationId = "op-mismatch-hive-test",
+            Hive = "HKLM",
+            SubKeyPath = def.SubKeyPath
+        };
+        RegistryStateLedger.SaveRawEntryForTesting(mismatchedHiveEntry, recomputeValidHmac: true);
+
+        var hiveMismatchCheck = RegistryStateLedger.ResolveTrustedRestoreEntry("perf-game-dvr", "op-mismatch-hive-test");
+        Assert.False(hiveMismatchCheck.IsValid);
+        Assert.Equal("ENTRY_PATH_MISMATCH", hiveMismatchCheck.ErrorCode);
+
+        // 2c. Entry with tampered HMAC stored in Ledger -> ENTRY_HMAC_INVALID
+        var tamperedHmacEntry = mismatchedPathEntry with
+        {
+            OperationId = "op-tampered-hmac-test",
+            Hive = def.Hive,
+            SubKeyPath = def.SubKeyPath,
+            EntryHmac = "0000000000000000000000000000000000000000000000000000000000000000"
+        };
+        RegistryStateLedger.SaveRawEntryForTesting(tamperedHmacEntry, recomputeValidHmac: false);
+
+        var tamperedRestoreAttempt = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", "op-tampered-hmac-test");
+        Assert.False(tamperedRestoreAttempt.Success);
+        Assert.Equal("ENTRY_HMAC_INVALID", tamperedRestoreAttempt.ErrorCode);
+
+        // 2d. Unknown OperationId -> OPERATION_NOT_FOUND
+        var unknownOpAttempt = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", "op-does-not-exist-999");
+        Assert.False(unknownOpAttempt.Success);
+        Assert.Equal("OPERATION_NOT_FOUND", unknownOpAttempt.ErrorCode);
+
         // 3. Entry with invalid OriginalRawValue for DWord -> INVALID_ORIGINAL_VALUE_FORMAT
         var invalidFormatEntry = new RegistryLedgerEntry
         {
