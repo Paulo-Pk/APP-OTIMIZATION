@@ -619,6 +619,7 @@ public static class RegistryOptimizer
         RegistryValueKind previousKind = targetKind;
         bool wasInitiallyAbsent = false;
         bool keyCreatedByApp = false;
+        string operationStage = "READ_PRE_STATE";
 
         try
         {
@@ -633,7 +634,9 @@ public static class RegistryOptimizer
 
             object typedTarget = DeserializeRegistryValue(serializedTargetValue, targetKind);
 
+            operationStage = "WRITE_TARGET";
             RegistryBackend.Write(def.Hive, def.SubKeyPath, def.ValueName, typedTarget, targetKind);
+            operationStage = "VERIFY_TARGET";
             RegistryValueSnapshot after = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
             if (!after.KeyExists || !after.ValueExists)
             {
@@ -687,7 +690,7 @@ public static class RegistryOptimizer
             RecordAudit("APPLY_SECURITY_DENIED", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, ErrorCode: "REGISTRY_ACCESS_DENIED");
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -695,15 +698,18 @@ public static class RegistryOptimizer
             RecordAudit("APPLY_UAC_REQUIRED", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, ErrorCode: "REGISTRY_ACCESS_DENIED");
         }
         catch (Exception ex)
         {
             string msg = $"Erro ao gravar no Registro: {ex.Message}";
             RecordAudit("APPLY_ERROR", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
+            string errorCode = operationStage.StartsWith("VERIFY", StringComparison.Ordinal)
+                ? "REGISTRY_READ_ERROR"
+                : operationStage == "READ_PRE_STATE" ? "REGISTRY_READ_ERROR" : "REGISTRY_OPERATION_FAILED";
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, ErrorCode: errorCode);
         }
     }
 
@@ -1077,6 +1083,7 @@ public static class RegistryOptimizer
             );
         }
 
+        string operationStage = "READ_CURRENT_STATE";
         try
         {
             RegistryValueSnapshot before = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
@@ -1086,7 +1093,9 @@ public static class RegistryOptimizer
 
             if (wasInitiallyAbsent || originalSerializedValue == null)
             {
+                operationStage = "DELETE_VALUE";
                 RegistryBackend.DeleteValue(def.Hive, def.SubKeyPath, def.ValueName);
+                operationStage = "VERIFY_DELETE";
                 RegistryValueSnapshot afterDelete = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
                 if (afterDelete.ValueExists)
                 {
@@ -1098,7 +1107,10 @@ public static class RegistryOptimizer
                 }
 
                 if (keyCreatedByApp)
+                {
+                    operationStage = "DELETE_CREATED_KEY";
                     RegistryBackend.DeleteKeyIfEmpty(def.Hive, def.SubKeyPath);
+                }
 
                 RecordAudit("RESTORE_DELETED_ABSENT", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
                     currentBeforeRestore, "<DELETE>", "REMOVED_ABSENT_VALUE", true, null);
@@ -1108,8 +1120,9 @@ public static class RegistryOptimizer
 
             RegistryValueKind originalKind = check.parsedKind;
             object typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
+            operationStage = "WRITE_RESTORE_VALUE";
             RegistryBackend.Write(def.Hive, def.SubKeyPath, def.ValueName, typedOriginal, originalKind);
-
+            operationStage = "VERIFY_RESTORE_VALUE";
             RegistryValueSnapshot after = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
             object? verified = after.Value;
             RegistryValueKind verifiedKind = after.ValueExists ? after.Kind : RegistryValueKind.Unknown;
@@ -1129,13 +1142,36 @@ public static class RegistryOptimizer
             return new RegistryOperationResult(false, currentBeforeRestore, verifiedStr,
                 originalKind.ToString(), false, false, mismatchErr, def.TweakId, operationId);
         }
+        catch (SecurityException ex)
+        {
+            string msg = $"Acesso de segurança negado ao restaurar o Registro: {ex.Message}";
+            RecordAudit("RESTORE_ACCESS_DENIED", def.TweakId, fullKeyPath, def.ValueName,
+                originalValueKindStr ?? def.ValueKind.ToString(), null, originalSerializedValue, null, false, msg);
+            return new RegistryOperationResult(false, originalSerializedValue, null,
+                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg,
+                def.TweakId, operationId, "REGISTRY_ACCESS_DENIED");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            string msg = $"Permissão insuficiente ao restaurar o Registro: {ex.Message}";
+            RecordAudit("RESTORE_ACCESS_DENIED", def.TweakId, fullKeyPath, def.ValueName,
+                originalValueKindStr ?? def.ValueKind.ToString(), null, originalSerializedValue, null, false, msg);
+            return new RegistryOperationResult(false, originalSerializedValue, null,
+                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg,
+                def.TweakId, operationId, "REGISTRY_ACCESS_DENIED");
+        }
         catch (Exception ex)
         {
-            string msg = $"Falha ao restaurar valor no Registro: {ex.Message}";
+            string msg = $"Falha ao restaurar valor no Registro durante {operationStage}: {ex.Message}";
+            string errorCode = operationStage.StartsWith("READ", StringComparison.Ordinal) ||
+                               operationStage.StartsWith("VERIFY", StringComparison.Ordinal)
+                ? "REGISTRY_READ_ERROR"
+                : "REGISTRY_RESTORE_FAILED";
             RecordAudit("RESTORE_ERROR", def.TweakId, fullKeyPath, def.ValueName,
                 originalValueKindStr ?? def.ValueKind.ToString(), null, originalSerializedValue, null, false, msg);
             return new RegistryOperationResult(false, originalSerializedValue, null,
-                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId);
+                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg,
+                def.TweakId, operationId, errorCode);
         }
     }
 
