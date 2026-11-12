@@ -648,6 +648,34 @@ public static class RegistryOptimizer
                 previousSerialized = SerializeRegistryValue(before.Value, previousKind);
             }
 
+            // Enforce the same safe-default rule in the privileged backend, not only in the UI.
+            // This closes the time-of-check/time-of-use gap if the Registry changes after inspection.
+            bool knownInactiveState;
+            if (before.ValueExists)
+            {
+                knownInactiveState = before.Kind == def.ValueKind &&
+                    string.Equals(previousSerialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(previousSerialized, serializedTargetValue, StringComparison.OrdinalIgnoreCase);
+            }
+            else
+            {
+                knownInactiveState =
+                    def.DefaultBehavior is TweakDefaultBehaviorKind.KnownDocumentedValue or TweakDefaultBehaviorKind.AbsentWithKnownDefault &&
+                    !string.Equals(def.DefaultOriginValue, serializedTargetValue, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!knownInactiveState)
+            {
+                string reason = before.ValueExists
+                    ? "Ajuste bloqueado: o valor atual do Registro não corresponde ao padrão conhecido/inativo. O PC Control não sobrescreverá valores ativos, personalizados ou com tipo incompatível."
+                    : "Ajuste bloqueado: a ausência do valor não possui um padrão conhecido que permita aplicar esta alteração com segurança.";
+                string code = before.ValueExists ? "REGISTRY_STATE_NOT_DEFAULT" : "REGISTRY_DEFAULT_UNDETERMINED";
+                RecordAudit("APPLY_BLOCKED_NON_DEFAULT_STATE", def.TweakId, fullKeyPath, def.ValueName,
+                    before.Kind.ToString(), previousSerialized, serializedTargetValue, null, false, reason);
+                return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
+                    wasInitiallyAbsent, keyCreatedByApp, reason, def.TweakId, null, code);
+            }
+
             object typedTarget = DeserializeRegistryValue(serializedTargetValue, targetKind);
 
             // Persist an authenticated recovery point BEFORE changing the Windows Registry.
