@@ -334,7 +334,10 @@ public static class WireGuardTunnelManager
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        string allowedIpsLine = cidrs.Count > 0 ? string.Join(", ", cidrs) : "155.133.248.0/24";
+        if (cidrs.Count == 0)
+            throw new ArgumentException("Nenhum CIDR de servidor de jogo válido foi informado. O túnel seletivo não será criado com uma rota presumida.", nameof(overrideGameCidrs));
+
+        string allowedIpsLine = string.Join(", ", cidrs);
 
         var sb = new StringBuilder();
         sb.AppendLine("[Interface]");
