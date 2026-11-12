@@ -30,6 +30,20 @@ export type TweakCategory =
   | 'gaming'
   | 'system';
 
+export interface RegistryTweakInspection {
+  tweakId: string;
+  state: string;
+  isUndeterminable: boolean;
+  currentValue: string | null;
+  actualValueKind: string | null;
+  expectedValueKind: string;
+  absenceKind: string | null;
+  diagnosticDetail: string | null;
+  recommendedValue: string;
+  canApply: boolean;
+  canRestore: boolean;
+}
+
 export interface SystemTweak {
   id: string;
   name: string;
@@ -47,6 +61,13 @@ export interface SystemTweak {
   targetRawValue?: string;
   commandScript?: string;
   reversible: boolean;
+  registryState?: string;
+  registryDiagnostic?: string;
+  actualRegistryKind?: string;
+  expectedRegistryKind?: string;
+  canApply?: boolean;
+  canRestore?: boolean;
+  isUndeterminable?: boolean;
 }
 
 export interface GpuTelemetry {

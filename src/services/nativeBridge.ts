@@ -1,4 +1,4 @@
-import { HardwareTelemetry, DriverInfo } from '../types';
+import { HardwareTelemetry, DriverInfo, RegistryTweakInspection } from '../types';
 
 export interface NativeAgentStatus {
   isConnected: boolean;
@@ -130,6 +130,37 @@ class NativeBridgeService {
       console.warn('Failed to fetch real telemetry from native agent:', e);
     }
     return null;
+  }
+
+  public async inspectRegistryTweaks(): Promise<{
+    success: boolean;
+    inspections: RegistryTweakInspection[];
+    error?: string;
+  }> {
+    if (!this.agentStatus.isConnected) {
+      return { success: false, inspections: [], error: 'AGENT_DISCONNECTED' };
+    }
+
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/inspect`, {
+        headers: this.getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success !== true || !Array.isArray(data.inspections)) {
+        return {
+          success: false,
+          inspections: [],
+          error: data.error || data.message || `HTTP ${res.status}`,
+        };
+      }
+      return { success: true, inspections: data.inspections as RegistryTweakInspection[] };
+    } catch (err: any) {
+      return {
+        success: false,
+        inspections: [],
+        error: err?.message || 'Falha ao consultar o Registro pelo agente Windows',
+      };
+    }
   }
 
   public async applyRegistryTweak(

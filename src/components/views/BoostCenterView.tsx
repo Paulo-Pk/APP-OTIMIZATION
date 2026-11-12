@@ -212,6 +212,12 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
                     {tweak.expectedBenefit}
                   </span>
                 </div>
+                <div className="text-[10px] text-slate-300">
+                  Registro: <strong>{tweak.registryState || 'Não consultado'}</strong> · Valor: {tweak.currentValue} · Tipo: {tweak.actualRegistryKind || 'N/D'}
+                </div>
+                {tweak.registryDiagnostic && (
+                  <p className="text-[10px] text-amber-300/90">{tweak.registryDiagnostic}</p>
+                )}
 
                 <div className="grid grid-cols-2 gap-2 text-[11px] font-mono pt-1">
                   <div className="p-2 rounded bg-[#090b11] border border-slate-900">
@@ -242,7 +248,9 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
                   {tweak.isApplied ? (
                     <button
                       onClick={() => onToggleTweak(tweak.id)}
-                      className="px-3 py-1.5 rounded-lg bg-[#161a29] hover:bg-[#1f243a] border border-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
+                      disabled={tweak.canRestore !== true}
+                      title={tweak.canRestore ? 'Restaurar estado original autenticado' : 'Sem histórico confiável pendente para restaurar'}
+                      className="px-3 py-1.5 rounded-lg bg-[#161a29] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#1f243a] border border-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
                     >
                       <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
                       <span>{t.common.restore}</span>
@@ -250,7 +258,9 @@ export const BoostCenterView: React.FC<BoostCenterViewProps> = ({
                   ) : (
                     <button
                       onClick={() => onToggleTweak(tweak.id)}
-                      className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all cursor-pointer border border-purple-400/40 shadow-sm flex items-center gap-1.5"
+                      disabled={tweak.canApply !== true}
+                      title={tweak.canApply ? 'Aplicar após leitura confirmada do padrão/inativo' : 'Bloqueado até leitura confirmada do Registro'}
+                      className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r disabled:opacity-40 disabled:cursor-not-allowed from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all cursor-pointer border border-purple-400/40 shadow-sm flex items-center gap-1.5"
                     >
                       <Zap className="w-3.5 h-3.5 fill-current" />
                       <span>{t.common.apply}</span>

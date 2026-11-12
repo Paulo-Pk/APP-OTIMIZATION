@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   TabId,
   SystemTweak,
@@ -52,7 +52,17 @@ export default function App() {
   const { t } = useI18n();
   const [currentTab, setCurrentTab] = useState<TabId>('dashboard');
   const [telemetry, setTelemetry] = useState(initialHardwareTelemetry);
-  const [tweaks, setTweaks] = useState<SystemTweak[]>(initialTweaks);
+  const [tweaks, setTweaks] = useState<SystemTweak[]>(() =>
+    initialTweaks.map((tweak) => ({
+      ...tweak,
+      currentValue: 'Não consultado',
+      registryState: 'Não consultado',
+      registryDiagnostic: 'Aguardando conexão autenticada com o agente Windows.',
+      canApply: false,
+      canRestore: false,
+      isUndeterminable: true,
+    }))
+  );
   const [games, setGames] = useState<GameProfile[]>(initialGames);
   const [agentStatus, setAgentStatus] = useState<NativeAgentStatus>(nativeBridge.getStatus());
 
@@ -69,6 +79,94 @@ export default function App() {
   const [notification, setNotification] = useState<NotificationState | null>(null);
   const [isBoostModalOpen, setIsBoostModalOpen] = useState<boolean>(false);
   const [gameProfileToEdit, setGameProfileToEdit] = useState<GameProfile | null>(null);
+  const [isRefreshingTweakStates, setIsRefreshingTweakStates] = useState(false);
+  const [tweakInspectionSummary, setTweakInspectionSummary] = useState('Aguardando consulta autenticada do Registro.');
+  const tweakInspectionInFlight = useRef(false);
+
+  const handleRefreshTweakStates = async () => {
+    if (tweakInspectionInFlight.current) return;
+    tweakInspectionInFlight.current = true;
+    setIsRefreshingTweakStates(true);
+    setTweakInspectionSummary('Consultando os ajustes em modo somente leitura...');
+
+    try {
+      const result = await nativeBridge.inspectRegistryTweaks();
+      if (!result.success) {
+        const message = result.error === 'AGENT_DISCONNECTED'
+          ? 'Agente Windows desconectado ou não autenticado; nenhum estado foi presumido.'
+          : `Falha na consulta do Registro: ${result.error || 'erro desconhecido'}`;
+        setTweaks((previous) => previous.map((item) => ({
+          ...item,
+          canApply: false,
+          canRestore: false,
+          registryState: 'Consulta indisponível',
+          registryDiagnostic: message,
+          isUndeterminable: true,
+        })));
+        setTweakInspectionSummary(message);
+        return;
+      }
+
+      const byId = new Map(result.inspections.map((item) => [item.tweakId.toLowerCase(), item]));
+      setTweaks((previous) => previous.map((item) => {
+        const inspection = byId.get(item.id.toLowerCase());
+        if (!inspection) {
+          return {
+            ...item,
+            canApply: false,
+            canRestore: false,
+            registryState: 'Não encontrado no catálogo nativo',
+            registryDiagnostic: 'Este item não foi retornado pelo catálogo autorizado do agente.',
+            isUndeterminable: true,
+          };
+        }
+
+        const absenceLabel = inspection.absenceKind === 'ChaveAusente'
+          ? 'Chave ausente'
+          : inspection.absenceKind === 'ValorAusenteChaveVazia'
+            ? 'Valor ausente; chave vazia'
+            : inspection.absenceKind === 'ValorAusenteChaveComConteudo'
+              ? 'Valor ausente; chave contém outros dados'
+              : 'Valor não informado';
+        return {
+          ...item,
+          isApplied: inspection.state === 'Ativo',
+          currentValue: inspection.currentValue ?? absenceLabel,
+          registryState: inspection.state,
+          registryDiagnostic: inspection.diagnosticDetail || '',
+          actualRegistryKind: inspection.actualValueKind || 'N/D',
+          expectedRegistryKind: inspection.expectedValueKind,
+          canApply: inspection.canApply,
+          canRestore: inspection.canRestore,
+          isUndeterminable: inspection.isUndeterminable,
+        };
+      }));
+
+      const active = result.inspections.filter((item) => item.state === 'Ativo').length;
+      const inactive = result.inspections.filter((item) => item.state === 'Inativo').length;
+      const custom = result.inspections.filter((item) => item.state === 'Personalizado').length;
+      const blocked = result.inspections.filter((item) =>
+        item.isUndeterminable || item.state === 'Acesso Negado' || item.state === 'Erro de Leitura'
+      ).length;
+      setTweakInspectionSummary(
+        `Leitura confirmada: ${result.inspections.length} ajustes — ${active} ativos, ${inactive} inativos, ${custom} personalizados e ${blocked} com estado indeterminável/bloqueado. Nenhuma chave foi gravada.`
+      );
+    } catch (error: any) {
+      const message = `Erro ao consultar o Registro: ${error?.message || 'falha inesperada'}`;
+      setTweakInspectionSummary(message);
+      setTweaks((previous) => previous.map((item) => ({
+        ...item,
+        canApply: false,
+        canRestore: false,
+        registryState: 'Erro de consulta',
+        registryDiagnostic: message,
+        isUndeterminable: true,
+      })));
+    } finally {
+      tweakInspectionInFlight.current = false;
+      setIsRefreshingTweakStates(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -83,6 +181,14 @@ export default function App() {
       setAgentStatus(status);
       if (!status.isConnected) {
         setTelemetry(initialHardwareTelemetry);
+        setTweakInspectionSummary('Agente Windows desconectado; aplicação e restauração ficam bloqueadas até nova consulta.');
+        setTweaks((previous) => previous.map((item) => ({
+          ...item,
+          canApply: false,
+          canRestore: false,
+        })));
+      } else {
+        void handleRefreshTweakStates();
       }
     });
 
@@ -109,6 +215,14 @@ export default function App() {
     const nextApplied = !target.isApplied;
 
     if (nextApplied) {
+      if (target.canApply !== true) {
+        setNotification({
+          type: 'warning',
+          title: 'Ajuste bloqueado por segurança',
+          message: target.registryDiagnostic || 'A aplicação exige leitura confirmada de um estado padrão/inativo conhecido.',
+        });
+        return;
+      }
       const res = await nativeBridge.applyRegistryTweak(
         target.id,
         target.registryKey || '',
@@ -154,14 +268,20 @@ export default function App() {
       };
 
       setRestoreItems((r) => [newRestore, ...r]);
-      setTweaks((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, isApplied: true } : item))
-      );
+      await handleRefreshTweakStates();
       setNotification({
         type: 'success',
         message: `${target.name}: ${t.common.tweakAppliedSuccess}`,
       });
     } else {
+      if (target.canRestore !== true) {
+        setNotification({
+          type: 'warning',
+          title: 'Restauração indisponível',
+          message: target.registryDiagnostic || 'Não existe uma operação confiável pendente para restaurar este ajuste.',
+        });
+        return;
+      }
       const existingRecord = restoreItems.find(
         (r) => r.tweakId === target.id || r.actionName === target.name
       );
@@ -190,9 +310,7 @@ export default function App() {
       setRestoreItems((r) =>
         r.filter((item) => item.tweakId !== target.id && item.actionName !== target.name)
       );
-      setTweaks((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, isApplied: false } : item))
-      );
+      await handleRefreshTweakStates();
       setNotification({
         type: 'success',
         message: `${target.name}: ${t.common.tweakRestoredSuccess}`,
@@ -221,7 +339,7 @@ export default function App() {
           ? item.level === 'conservative' || item.level === 'balanced'
           : item.level === 'conservative';
 
-      if (shouldApply && !item.isApplied) {
+      if (shouldApply && !item.isApplied && item.canApply === true) {
         const res = await nativeBridge.applyRegistryTweak(
           item.id,
           item.registryKey || '',
@@ -257,9 +375,7 @@ export default function App() {
     }
 
     if (appliedIds.length > 0) {
-      setTweaks((prev) =>
-        prev.map((tweak) => (appliedIds.includes(tweak.id) ? { ...tweak, isApplied: true } : tweak))
-      );
+      await handleRefreshTweakStates();
       setNotification({
         type: 'success',
         message: `${appliedIds.length} otimizações verificadas e aplicadas no Registro do Windows.`,
@@ -284,6 +400,10 @@ export default function App() {
 
     for (const item of tweaks) {
       if (item.isApplied) {
+        if (item.canRestore !== true) {
+          failedIds.push(item.id);
+          continue;
+        }
         const existingRecord = restoreItems.find(
           (r) => r.tweakId === item.id || r.actionName === item.name
         );
@@ -310,6 +430,7 @@ export default function App() {
 
     // Remove ONLY confirmed restored tweaks from history; preserve failed records intact
     setRestoreItems((prev) => prev.filter((item) => !restoredActionNames.has(item.actionName)));
+    await handleRefreshTweakStates();
 
     if (failedIds.length > 0 && restoredIds.length > 0) {
       setNotification({
@@ -403,6 +524,7 @@ export default function App() {
     }
 
     setRestoreItems((prev) => prev.filter((r) => r.id !== id));
+    await handleRefreshTweakStates();
     setNotification({
       type: 'success',
       message: `${item.actionName}: ${t.common.tweakRestoredSuccess}`,
@@ -689,6 +811,9 @@ export default function App() {
               tweaks={tweaks}
               onToggleTweak={handleToggleTweak}
               onRestoreAll={handleRestoreAll}
+              onRefreshTweakStates={handleRefreshTweakStates}
+              isRefreshingTweakStates={isRefreshingTweakStates}
+              inspectionSummary={tweakInspectionSummary}
             />
           )}
 

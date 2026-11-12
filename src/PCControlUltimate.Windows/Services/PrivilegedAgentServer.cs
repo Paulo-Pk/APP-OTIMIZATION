@@ -645,6 +645,39 @@ public class PrivilegedAgentServer : IDisposable
 
                     using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
 
+                    // Read-only inspection endpoint. It exposes only the closed catalog and never accepts
+                    // client-supplied Registry paths, value names, types, or write instructions.
+                    if (path == "/api/tweaks/inspect" && req.HttpMethod == "GET")
+                    {
+                        var inspections = RegistryOptimizer.Catalog.Values
+                            .OrderBy(def => def.TweakId, StringComparer.OrdinalIgnoreCase)
+                            .Select(def =>
+                            {
+                                RegistryTweakInspectionResult inspection = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+                                LedgerValidationResult restore = RegistryStateLedger.ResolveTrustedRestoreEntry(def.TweakId);
+                                return new
+                                {
+                                    tweakId = def.TweakId,
+                                    state = inspection.State,
+                                    isUndeterminable = inspection.IsUndeterminable,
+                                    currentValue = inspection.CurrentValue,
+                                    actualValueKind = inspection.ActualValueKind?.ToString(),
+                                    expectedValueKind = def.ValueKind.ToString(),
+                                    absenceKind = inspection.AbsenceKind,
+                                    diagnosticDetail = inspection.DiagnosticDetail,
+                                    recommendedValue = def.RecommendedValue,
+                                    canApply = string.Equals(inspection.State, "Inativo", StringComparison.OrdinalIgnoreCase)
+                                        && !inspection.IsUndeterminable,
+                                    canRestore = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase)
+                                        && restore.IsValid
+                                };
+                            })
+                            .ToArray();
+
+                        await SendJsonAsync(res, new { success = true, count = inspections.Length, inspections });
+                        return;
+                    }
+
                     // CRITICAL SECURITY FIX: /api/tweaks/apply ONLY accepts a cataloged tweakId!
                     if (path == "/api/tweaks/apply")
                     {

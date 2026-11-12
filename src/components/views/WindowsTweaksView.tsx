@@ -14,12 +14,18 @@ interface WindowsTweaksViewProps {
   tweaks: SystemTweak[];
   onToggleTweak: (id: string) => void;
   onRestoreAll: () => void;
+  onRefreshTweakStates: () => void;
+  isRefreshingTweakStates: boolean;
+  inspectionSummary: string;
 }
 
 export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
   tweaks,
   onToggleTweak,
   onRestoreAll,
+  onRefreshTweakStates,
+  isRefreshingTweakStates,
+  inspectionSummary,
 }) => {
   const { t } = useI18n();
   const [activeCategory, setActiveCategory] = useState<string>('all');
@@ -53,6 +59,15 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
           </p>
         </div>
 
+        <div className="flex items-center gap-2">
+        <button
+          onClick={onRefreshTweakStates}
+          disabled={isRefreshingTweakStates}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#141724] hover:bg-[#1b2033] border border-cyan-800/60 text-cyan-200 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Sliders className={`w-3.5 h-3.5 ${isRefreshingTweakStates ? 'animate-spin' : ''}`} />
+          <span>{isRefreshingTweakStates ? 'Consultando...' : 'Atualizar estados'}</span>
+        </button>
         <button
           onClick={onRestoreAll}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#141724] hover:bg-[#1b2033] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
@@ -60,6 +75,10 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
           <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
           <span>{t.windowsTweaks.restoreDefaults}</span>
         </button>
+        </div>
+      </div>
+      <div className="px-4 py-3 rounded-lg bg-[#0f121b] border border-slate-800 text-[11px] text-slate-300">
+        {inspectionSummary}
       </div>
 
       {/* Categories Filter Tabs */}
@@ -100,6 +119,14 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
                   )}
                 </div>
                 <p className="text-slate-400 leading-relaxed">{item.description}</p>
+                <div className="text-[11px] text-slate-300 pt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  <span>Estado: <strong>{item.registryState || 'Não consultado'}</strong></span>
+                  <span>Valor lido: <strong>{item.currentValue}</strong></span>
+                  <span>Tipo: <strong>{item.actualRegistryKind || 'N/D'}</strong> / esperado: {item.expectedRegistryKind || item.valueKind || 'N/D'}</span>
+                </div>
+                {item.registryDiagnostic && (
+                  <p className="text-[10px] text-amber-300/90 leading-relaxed">{item.registryDiagnostic}</p>
+                )}
                 <div className="text-[11px] font-mono text-slate-500 pt-0.5">
                   {t.windowsTweaks.keyLabel} {item.registryKey || item.commandScript || t.windowsTweaks.systemRegistryLabel}
                 </div>
@@ -117,7 +144,11 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
 
                 <button
                   onClick={() => onToggleTweak(item.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  disabled={item.isApplied ? item.canRestore !== true : item.canApply !== true}
+                  title={item.isApplied
+                    ? (item.canRestore ? 'Restaurar estado original autenticado' : 'Sem histórico confiável pendente para restaurar')
+                    : (item.canApply ? 'Aplicar após leitura confirmada do padrão/inativo' : 'Bloqueado até que a leitura confirme o padrão/inativo conhecido')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 ${
                     item.isApplied
                       ? 'bg-[#181c2d] text-slate-300 hover:bg-[#20263c] border border-slate-700'
                       : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/30 shadow-sm'
