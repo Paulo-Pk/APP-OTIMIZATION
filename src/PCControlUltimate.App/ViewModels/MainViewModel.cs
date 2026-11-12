@@ -856,9 +856,8 @@ public class MainViewModel : INotifyPropertyChanged
 
         foreach (var def in RegistryOptimizer.Catalog.Values)
         {
-            // One read per tweak during startup; reuse the full result for all displayed diagnostics.
-            RegistryTweakInspectionResult initialInspection = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
-            string initialState = initialInspection.State;
+            // Keep startup responsive: create the rows first and perform one read-only
+            // catalog inspection asynchronously after the view model is fully initialized.
             CatalogTweaks.Add(new TweakItemViewModel
             {
                 TweakId = def.TweakId,
@@ -871,12 +870,15 @@ public class MainViewModel : INotifyPropertyChanged
                 ValueKind = def.ValueKind.ToString(),
                 RecommendedValue = def.RecommendedValue,
                 RiskLevel = def.RiskLevel,
-                IsApplied = string.Equals(initialState, "Ativo", StringComparison.OrdinalIgnoreCase),
-                VerificationState = GetTweakStateDisplay(initialState, Loc.CurrentCulture == "pt-BR"),
-                CurrentValueText = initialInspection.CurrentValue ?? "—",
-                RegistryTypeText = initialInspection.ActualValueKind?.ToString() ?? "N/D",
-                DiagnosticDetailText = initialInspection.DiagnosticDetail ??
-                    (initialInspection.AbsenceKind ?? (initialInspection.IsUndeterminable ? "Estado não determinável." : "Leitura inicial confirmada."))
+                IsApplied = false,
+                VerificationState = Loc.CurrentCulture == "pt-BR"
+                    ? "Aguardando primeira leitura do Registro..."
+                    : "Waiting for initial Registry inspection...",
+                CurrentValueText = "N/D",
+                RegistryTypeText = "N/D",
+                DiagnosticDetailText = Loc.CurrentCulture == "pt-BR"
+                    ? "A consulta inicial será executada em segundo plano. Nenhuma alteração será gravada."
+                    : "Initial inspection will run in the background. No changes will be written."
             });
         }
 
@@ -1759,6 +1761,12 @@ public class MainViewModel : INotifyPropertyChanged
         };
         _telemetryRefreshTimer.Start();
         _ = RefreshTelemetryAndStatusAsync();
+
+        // Run the single initial Registry inspection after construction on the UI dispatcher.
+        // The actual reads execute inside Task.Run; the continuation updates bound properties safely.
+        Application.Current?.Dispatcher.BeginInvoke(
+            DispatcherPriority.Background,
+            new Action(async () => await RefreshAllTweakStatesAsync()));
     }
 
     private void InitializeVerifiedSoftwareCatalog()
