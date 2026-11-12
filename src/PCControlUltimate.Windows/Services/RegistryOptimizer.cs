@@ -1153,6 +1153,8 @@ public static class RegistryOptimizer
 
             // A ledger restore must not overwrite a value changed manually after the app's write.
             // Snapshot restoration is an explicit recovery action and does not supply this guard.
+            bool stillHasAppliedValue = false;
+            bool alreadyHasOriginalValue = false;
             if (expectedAppliedValue != null)
             {
                 if (string.IsNullOrWhiteSpace(expectedAppliedValue))
@@ -1165,10 +1167,10 @@ public static class RegistryOptimizer
                 }
 
                 object expectedTyped = DeserializeRegistryValue(expectedAppliedValue, def.ValueKind);
-                bool stillHasAppliedValue = before.ValueExists &&
+                stillHasAppliedValue = before.ValueExists &&
                     before.Kind == def.ValueKind &&
                     ValuesMatch(before.Value, expectedTyped, def.ValueKind);
-                bool alreadyHasOriginalValue = wasInitiallyAbsent
+                alreadyHasOriginalValue = wasInitiallyAbsent
                     ? !before.ValueExists
                     : before.ValueExists &&
                       before.Kind == check.parsedKind &&
@@ -1184,6 +1186,17 @@ public static class RegistryOptimizer
                     return new RegistryOperationResult(false, currentBeforeRestore, null, before.Kind.ToString(),
                         wasInitiallyAbsent, keyCreatedByApp, changedStateMessage, def.TweakId, operationId, "REGISTRY_STATE_CHANGED");
                 }
+            }
+
+            // When the exact original value is already present, do not write it again.
+            // For an originally absent value, keep the deletion/key-cleanup path below.
+            if (expectedAppliedValue != null && alreadyHasOriginalValue && !wasInitiallyAbsent)
+            {
+                string originalValue = originalSerializedValue ?? string.Empty;
+                RecordAudit("RESTORE_ALREADY_ORIGINAL", def.TweakId, fullKeyPath, def.ValueName,
+                    check.parsedKind.ToString(), currentBeforeRestore, originalValue, currentBeforeRestore, true, null);
+                return new RegistryOperationResult(true, currentBeforeRestore, currentBeforeRestore,
+                    check.parsedKind.ToString(), false, keyCreatedByApp, null, def.TweakId, operationId);
             }
 
             if (wasInitiallyAbsent || originalSerializedValue == null)
