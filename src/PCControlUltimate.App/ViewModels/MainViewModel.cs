@@ -791,7 +791,7 @@ public class MainViewModel : INotifyPropertyChanged
                         tweak.ValueName,
                         "Ledger-DPAPI",
                         tweak.RecommendedValue,
-                        isApplied: true,
+                        isApplied: tweak.IsApplied,
                         backupId: tweak.LastOperationId
                     );
                     StatusMessage = tweak.IsApplied
@@ -832,7 +832,7 @@ public class MainViewModel : INotifyPropertyChanged
                         tweak.ValueName,
                         "Ledger-DPAPI",
                         tweak.RecommendedValue,
-                        isApplied: false,
+                        isApplied: tweak.IsApplied,
                         backupId: tweak.LastOperationId
                     );
                     StatusMessage = tweak.IsApplied
