@@ -263,8 +263,8 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
             "DisablePagingExecutive", RegistryValueKind.DWord,
             "1", "0", new[] { "0", "1" },
-            "Impede a paginação de partes do executivo do kernel. Pode aumentar o uso de memória física; não garante menor latência ou melhor desempenho em jogos.",
-            "Prevents paging of parts of the kernel executive. It may increase physical memory use and does not guarantee lower latency or better gaming performance.",
+            "Impede a paginação de partes do executivo do kernel. Pode aumentar o uso de memória física; não existe requisito mínimo universal de 16 GB. Avalie a RAM disponível e a carga real; não há garantia de menor latência ou melhor desempenho em jogos.",
+            "Prevents paging of parts of the kernel executive. It may increase physical memory use; there is no universal 16 GB minimum requirement. Evaluate available RAM and actual workload; lower latency or better gaming performance is not guaranteed.",
             "Memory", "Médio", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["game-hags"] = new(
