@@ -271,6 +271,23 @@ public class GameNetworkAcceleratorTests
     }
 
     [Fact]
+    public void WireGuardTunnelManager_ShouldNotInventGameCidrs_WhenNodeHasNoTargets()
+    {
+        var node = new RelayNodeCandidate(
+            "sa-gru-empty", "Empty Relay", "SA-EAST-1", "203.0.113.30", 51820,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=",
+            Array.Empty<string>(), true);
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            WireGuardTunnelManager.BuildSelectiveGameTunnelConfig(
+                "wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=",
+                "10.66.66.2/32",
+                node));
+
+        Assert.Contains("Nenhum CIDR", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void RegisterOrUpdateRelayNode_ShouldValidateHostPortAndCidrs_AndRecordEvaluationHistory()
     {
         GameNetworkAcceleratorService.ClearNodesForTesting();
