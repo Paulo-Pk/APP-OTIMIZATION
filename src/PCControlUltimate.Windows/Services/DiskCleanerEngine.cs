@@ -36,7 +36,10 @@ public record DiskPurgeReport(
     int SkippedLockedCount,
     int SkippedSymlinksCount,
     IReadOnlyList<string> AffectedItemsLog,
-    IReadOnlyList<string> Errors
+    IReadOnlyList<string> Errors,
+    string Status = "Completed",
+    bool DirectoryExisted = true,
+    IReadOnlyList<string>? Warnings = null
 )
 {
     public long BytesFreed => FreedBytes;
@@ -132,7 +135,7 @@ public static class DiskCleanerEngine
 
             foreach (var personal in personalSubtrees)
             {
-                if (!string.IsNullOrEmpty(personal) && fullPath.StartsWith(personal, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(personal) && IsSameOrDescendantPath(fullPath, personal))
                     return false;
             }
 
@@ -142,6 +145,18 @@ public static class DiskCleanerEngine
         {
             return false;
         }
+    }
+
+    private static bool IsSameOrDescendantPath(string candidatePath, string parentPath)
+    {
+        string candidate = Path.GetFullPath(candidatePath);
+        string parent = Path.GetFullPath(parentPath);
+        string relative = Path.GetRelativePath(parent, candidate);
+        return relative == "." ||
+               (!Path.IsPathRooted(relative) &&
+                relative != ".." &&
+                !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+                !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal));
     }
 
     public static bool IsReparsePointOrSymlink(FileSystemInfo info)
@@ -248,7 +263,9 @@ public static class DiskCleanerEngine
 
         if (!Directory.Exists(targetDir))
         {
-            return new DiskPurgeReport(true, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
+            errors.Add("O diretório autorizado não existe; nenhuma limpeza foi executada.");
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors,
+                Status: "DirectoryMissing", DirectoryExisted: false);
         }
 
         var rootDir = new DirectoryInfo(targetDir);
@@ -275,11 +292,16 @@ public static class DiskCleanerEngine
             errors
         );
 
-        bool fullSuccess = errors.Count == 0 && skippedLocked == 0;
-        bool partialSuccess = deletedFiles > 0 && (skippedLocked > 0 || errors.Count > 0);
+        bool hasSkippedItems = skippedLocked > 0 || skippedSymlinks > 0;
+        bool fullSuccess = errors.Count == 0 && !hasSkippedItems && deletedFiles > 0;
+        bool partialSuccess = deletedFiles > 0 && (hasSkippedItems || errors.Count > 0);
+        bool nothingToClean = deletedFiles == 0 && skippedLocked == 0 && skippedSymlinks == 0 && errors.Count == 0;
+        string status = fullSuccess ? "Completed" :
+            partialSuccess ? "Partial" :
+            nothingToClean ? "NothingToClean" : "Failed";
 
         return new DiskPurgeReport(
-            Success: fullSuccess || partialSuccess,
+            Success: fullSuccess || partialSuccess || nothingToClean,
             PartialSuccess: partialSuccess,
             CategoryKey: categoryKey,
             FreedBytes: freedBytes,
@@ -287,7 +309,12 @@ public static class DiskCleanerEngine
             SkippedLockedCount: skippedLocked,
             SkippedSymlinksCount: skippedSymlinks,
             AffectedItemsLog: affectedItems.Take(100).ToList(),
-            Errors: errors
+            Errors: errors,
+            Status: status,
+            DirectoryExisted: true,
+            Warnings: skippedSymlinks > 0
+                ? new[] { $"{skippedSymlinks} link(s) simbólico(s) ou junction(s) foram preservados." }
+                : Array.Empty<string>()
         );
     }
 
@@ -305,8 +332,13 @@ public static class DiskCleanerEngine
         try
         {
             string currentCanonical = Path.GetFullPath(currentDir.FullName);
-            if (!currentCanonical.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
+            string relativePath = Path.GetRelativePath(canonicalRoot, currentCanonical);
+            if (Path.IsPathRooted(relativePath) ||
+                relativePath == ".." ||
+                relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
+                relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
             {
+                errors.Add($"Caminho fora da raiz autorizada bloqueado: '{currentCanonical}'.");
                 return;
             }
 
