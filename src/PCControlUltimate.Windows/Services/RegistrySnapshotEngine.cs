@@ -500,13 +500,22 @@ public static class RegistrySnapshotEngine
             if (manifest == null || string.IsNullOrWhiteSpace(manifest.SnapshotId) || manifest.Entries == null)
                 return (false, null, "Estrutura JSON do arquivo de backup está corrompida ou inválida.");
 
-            // Validate every entry path against the strict whitelist before trusting the backup
+            // Validate every entry path against the strict whitelist and reject duplicate
+            // targets before any restore can write the same Registry value more than once.
+            var seenTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var entry in manifest.Entries)
             {
                 if (!RegistryOptimizer.IsPathAllowed(entry.KeyPath))
                 {
                     return (false, manifest.ChecksumSha256,
                         $"Subchave fora da whitelist detectada no arquivo de backup: {entry.KeyPath}");
+                }
+
+                string targetIdentity = $"{RegistryOptimizer.NormalizeSubKeyPath(entry.KeyPath)}|{entry.ValueName}";
+                if (!seenTargets.Add(targetIdentity))
+                {
+                    return (false, manifest.ChecksumSha256,
+                        $"Entrada duplicada detectada no arquivo de backup: {entry.KeyPath}\\{entry.ValueName}");
                 }
             }
 
