@@ -619,6 +619,7 @@ public static class RegistryOptimizer
         RegistryValueKind previousKind = targetKind;
         bool wasInitiallyAbsent = false;
         bool keyCreatedByApp = false;
+        string? operationId = null;
         string operationStage = "READ_PRE_STATE";
 
         try
@@ -634,82 +635,96 @@ public static class RegistryOptimizer
 
             object typedTarget = DeserializeRegistryValue(serializedTargetValue, targetKind);
 
+            // Persist an authenticated recovery point BEFORE changing the Windows Registry.
+            // If the subsequent write or readback fails, the pending entry remains available for rollback.
+            operationStage = "RECORD_TRUSTED_LEDGER";
+            var ledgerEntry = RegistryStateLedger.RecordAppliedTweakState(
+                def,
+                previousSerialized,
+                previousKind,
+                wasInitiallyAbsent,
+                keyCreatedByApp,
+                serializedTargetValue
+            );
+            operationId = ledgerEntry.OperationId;
+
             operationStage = "WRITE_TARGET";
             RegistryBackend.Write(def.Hive, def.SubKeyPath, def.ValueName, typedTarget, targetKind);
             operationStage = "VERIFY_TARGET";
             RegistryValueSnapshot after = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
             if (!after.KeyExists || !after.ValueExists)
             {
-                string err = "Falha na verificação: subchave ou valor não encontrado após escrita.";
+                string err = "Falha na verificação: subchave ou valor não encontrado após escrita. O estado original foi preservado no histórico para restauração.";
                 RecordAudit("APPLY_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                     previousSerialized, serializedTargetValue, null, false, err);
                 return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                    wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId, ErrorCode: "REGISTRY_READBACK_MISSING");
+                    wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId, operationId, "REGISTRY_READBACK_MISSING");
             }
 
             object? readBack = after.Value;
             RegistryValueKind verifiedKind = after.Kind;
             string? verifiedStr = SerializeRegistryValue(readBack, verifiedKind);
 
-                if (verifiedKind == targetKind && ValuesMatch(readBack, typedTarget, targetKind))
-                {
-                    // Record trusted pre-modification state in the DPAPI + HMAC-SHA256 backend ledger
-                    var ledgerEntry = RegistryStateLedger.RecordAppliedTweakState(
-                        def,
-                        previousSerialized,
-                        previousKind,
-                        wasInitiallyAbsent,
-                        keyCreatedByApp,
-                        serializedTargetValue
-                    );
+            if (verifiedKind == targetKind && ValuesMatch(readBack, typedTarget, targetKind))
+            {
+                RecordAudit("APPLY_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                    wasInitiallyAbsent ? "<ABSENT>" : previousSerialized, serializedTargetValue, verifiedStr, true, null);
+                return new RegistryOperationResult(
+                    true,
+                    wasInitiallyAbsent ? null : previousSerialized,
+                    verifiedStr,
+                    previousKind.ToString(),
+                    wasInitiallyAbsent,
+                    keyCreatedByApp,
+                    null,
+                    def.TweakId,
+                    operationId
+                );
+            }
 
-                    RecordAudit("APPLY_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                        wasInitiallyAbsent ? "<ABSENT>" : previousSerialized, serializedTargetValue, verifiedStr, true, null);
-                    return new RegistryOperationResult(
-                        true,
-                        wasInitiallyAbsent ? null : previousSerialized,
-                        verifiedStr,
-                        previousKind.ToString(),
-                        wasInitiallyAbsent,
-                        keyCreatedByApp,
-                        null,
-                        def.TweakId,
-                        ledgerEntry.OperationId
-                    );
-                }
-
-            string mismatchErr = "Verificação falhou: valor ou tipo lido após gravação difere do esperado.";
+            string mismatchErr = "Verificação falhou: valor ou tipo lido após gravação difere do esperado. O estado original permanece disponível no histórico para restauração.";
             RecordAudit("APPLY_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, verifiedStr, false, mismatchErr);
             return new RegistryOperationResult(false, previousSerialized, verifiedStr,
-                previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr, def.TweakId, ErrorCode: "REGISTRY_READBACK_MISMATCH");
+                previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr,
+                def.TweakId, operationId, "REGISTRY_READBACK_MISMATCH");
         }
         catch (SecurityException ex)
         {
-            string msg = $"Acesso de segurança negado (Elevação UAC necessária para {def.Hive}): {ex.Message}";
+            string msg = operationStage == "RECORD_TRUSTED_LEDGER"
+                ? $"Acesso negado ao gravar o histórico seguro do ajuste. Nenhuma alteração no Registro foi iniciada: {ex.Message}"
+                : $"Acesso de segurança negado (Elevação UAC necessária para {def.Hive}): {ex.Message}";
             RecordAudit("APPLY_SECURITY_DENIED", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, ErrorCode: "REGISTRY_ACCESS_DENIED");
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId,
+                operationStage == "RECORD_TRUSTED_LEDGER" ? "REGISTRY_LEDGER_WRITE_FAILED" : "REGISTRY_ACCESS_DENIED");
         }
         catch (UnauthorizedAccessException ex)
         {
-            string msg = $"Privilégios insuficientes para {def.Hive}. Execute como Administrador (UAC): {ex.Message}";
+            string msg = operationStage == "RECORD_TRUSTED_LEDGER"
+                ? $"Não foi possível gravar o histórico seguro do ajuste. Nenhuma alteração no Registro foi iniciada: {ex.Message}"
+                : $"Privilégios insuficientes para {def.Hive}. Execute como Administrador (UAC): {ex.Message}";
             RecordAudit("APPLY_UAC_REQUIRED", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, ErrorCode: "REGISTRY_ACCESS_DENIED");
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId,
+                operationStage == "RECORD_TRUSTED_LEDGER" ? "REGISTRY_LEDGER_WRITE_FAILED" : "REGISTRY_ACCESS_DENIED");
         }
         catch (Exception ex)
         {
-            string msg = $"Erro ao gravar no Registro: {ex.Message}";
+            string msg = operationStage == "RECORD_TRUSTED_LEDGER"
+                ? $"Não foi possível registrar o estado original no histórico seguro; a alteração do Registro foi bloqueada: {ex.Message}"
+                : $"Erro ao gravar no Registro: {ex.Message}";
             RecordAudit("APPLY_ERROR", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
-            string errorCode = operationStage.StartsWith("VERIFY", StringComparison.Ordinal)
-                ? "REGISTRY_READ_ERROR"
-                : operationStage == "READ_PRE_STATE" ? "REGISTRY_READ_ERROR" : "REGISTRY_OPERATION_FAILED";
+            string errorCode = operationStage == "RECORD_TRUSTED_LEDGER"
+                ? "REGISTRY_LEDGER_WRITE_FAILED"
+                : operationStage.StartsWith("VERIFY", StringComparison.Ordinal) || operationStage == "READ_PRE_STATE"
+                    ? "REGISTRY_READ_ERROR"
+                    : "REGISTRY_OPERATION_FAILED";
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, ErrorCode: errorCode);
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId, errorCode);
         }
     }
 
