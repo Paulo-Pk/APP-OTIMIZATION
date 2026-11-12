@@ -559,7 +559,7 @@ public static class WireGuardTunnelManager
     private static HashSet<string> ExtractIpv4RouteEntries(string routeOutput)
     {
         var routes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string line in routeOutput.Split(new[] { '\\r', '\\n' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (string line in routeOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
         {
             string[] parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 5 ||
