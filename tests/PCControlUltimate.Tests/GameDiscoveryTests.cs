@@ -240,6 +240,67 @@ public sealed class GameDiscoveryTests : IDisposable
         }
     }
 
+    [Fact]
+    public void DiscoverInstalledGames_ReadsEpicManifestAndValidatesLaunchExecutable()
+    {
+        string manifestsRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "Epic", "EpicGamesLauncher", "Data", "Manifests");
+        string appName = $"PCControlEpic_{Guid.NewGuid():N}";
+        string manifestPath = Path.Combine(manifestsRoot, $"{appName}.item");
+        string installRoot = Path.Combine(Path.GetTempPath(), appName);
+        string executablePath = Path.Combine(installRoot, "Binaries", "Win64", "game.exe");
+
+        Directory.CreateDirectory(manifestsRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(executablePath)!);
+        File.WriteAllText(executablePath, "test");
+        File.WriteAllText(manifestPath,
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                DisplayName = "PC Control Epic Test",
+                InstallLocation = installRoot,
+                AppName = appName,
+                LaunchExecutable = Path.Combine("Binaries", "Win64", "game.exe")
+            }));
+
+        try
+        {
+            var game = Assert.Single(GameNetworkAcceleratorService.DiscoverInstalledGames()
+                .Where(item => item.Launcher == "Epic Games" && item.AppId == appName));
+
+            Assert.Equal("PC Control Epic Test", game.Title);
+            Assert.Equal(Path.GetFullPath(installRoot), game.InstallLocation);
+            Assert.Equal(Path.GetFullPath(executablePath), game.ExecutablePath);
+            Assert.True(game.IsInstalled);
+        }
+        finally
+        {
+            try { File.Delete(manifestPath); } catch { }
+            try { Directory.Delete(installRoot, recursive: true); } catch { }
+
+            // Remove only empty directories created for this test; preserve launcher data.
+            try { if (Directory.Exists(manifestsRoot) && !Directory.EnumerateFileSystemEntries(manifestsRoot).Any()) Directory.Delete(manifestsRoot); } catch { }
+            try
+            {
+                string dataRoot = Directory.GetParent(manifestsRoot)!.FullName;
+                if (Directory.Exists(dataRoot) && !Directory.EnumerateFileSystemEntries(dataRoot).Any()) Directory.Delete(dataRoot);
+            }
+            catch { }
+            try
+            {
+                string launcherRoot = Directory.GetParent(Directory.GetParent(manifestsRoot)!.FullName)!.FullName;
+                if (Directory.Exists(launcherRoot) && !Directory.EnumerateFileSystemEntries(launcherRoot).Any()) Directory.Delete(launcherRoot);
+            }
+            catch { }
+            try
+            {
+                string epicRoot = Directory.GetParent(Directory.GetParent(Directory.GetParent(manifestsRoot)!.FullName)!.FullName)!.FullName;
+                if (Directory.Exists(epicRoot) && !Directory.EnumerateFileSystemEntries(epicRoot).Any()) Directory.Delete(epicRoot);
+            }
+            catch { }
+        }
+    }
+
     public void Dispose()
     {
         try
