@@ -384,16 +384,34 @@ public static class WireGuardTunnelManager
         }
 
         string serviceName = $"WireGuardTunnel${tunnelName}";
-        var (svcInstalled, svcRunning) = await CheckWindowsServiceStateAsync(serviceName, cancellationToken);
+        var (svcInstalled, svcRunning, serviceQuerySucceeded) =
+            await CheckWindowsServiceStateAsync(serviceName, cancellationToken);
 
-        if (!svcRunning || string.IsNullOrEmpty(wgCliPath))
+        if (!serviceQuerySucceeded)
+        {
+            return new WireGuardTunnelStatusReport(
+                WireGuardInstalled: true,
+                WireGuardBinaryPath: wgExePath,
+                TunnelName: tunnelName,
+                ServiceInstalled: false,
+                ServiceRunning: false,
+                HandshakeVerified: false,
+                LastHandshakeEpochSeconds: null,
+                BytesReceived: 0,
+                BytesSent: 0,
+                ActiveAllowedIps: Array.Empty<string>(),
+                DiagnosticMessage: "Não foi possível consultar o estado do serviço WireGuard no Windows; o status do túnel permanece indeterminado."
+            );
+        }
+
+        if (!svcRunning)
         {
             return new WireGuardTunnelStatusReport(
                 WireGuardInstalled: true,
                 WireGuardBinaryPath: wgExePath,
                 TunnelName: tunnelName,
                 ServiceInstalled: svcInstalled,
-                ServiceRunning: svcRunning,
+                ServiceRunning: false,
                 HandshakeVerified: false,
                 LastHandshakeEpochSeconds: null,
                 BytesReceived: 0,
@@ -402,6 +420,23 @@ public static class WireGuardTunnelManager
                 DiagnosticMessage: svcInstalled
                     ? "Serviço do túnel instalado, porém parado (sem túnel ativo)."
                     : "Nenhum túnel WireGuard ativo no momento."
+            );
+        }
+
+        if (string.IsNullOrEmpty(wgCliPath))
+        {
+            return new WireGuardTunnelStatusReport(
+                WireGuardInstalled: true,
+                WireGuardBinaryPath: wgExePath,
+                TunnelName: tunnelName,
+                ServiceInstalled: true,
+                ServiceRunning: true,
+                HandshakeVerified: false,
+                LastHandshakeEpochSeconds: null,
+                BytesReceived: 0,
+                BytesSent: 0,
+                ActiveAllowedIps: Array.Empty<string>(),
+                DiagnosticMessage: "O serviço WireGuard está em execução, mas wg.exe não foi encontrado para verificar handshake e tráfego."
             );
         }
 
@@ -476,6 +511,12 @@ public static class WireGuardTunnelManager
 
     public static async Task<string> CaptureCurrentIPv4RouteTableSnapshotAsync(CancellationToken cancellationToken = default)
     {
+        _capturedRouteTableBeforeTunnel = await ReadCurrentIPv4RouteTableAsync(cancellationToken);
+        return _capturedRouteTableBeforeTunnel;
+    }
+
+    private static async Task<string> ReadCurrentIPv4RouteTableAsync(CancellationToken cancellationToken)
+    {
         try
         {
             var psi = new ProcessStartInfo
@@ -484,22 +525,56 @@ public static class WireGuardTunnelManager
                 Arguments = "print -4",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 CreateNoWindow = true
             };
             using var proc = Process.Start(psi);
             if (proc != null)
             {
-                string output = await proc.StandardOutput.ReadToEndAsync(cancellationToken);
+                Task<string> outputTask = proc.StandardOutput.ReadToEndAsync(cancellationToken);
+                Task<string> errorTask = proc.StandardError.ReadToEndAsync(cancellationToken);
                 await proc.WaitForExitAsync(cancellationToken);
-                _capturedRouteTableBeforeTunnel = output;
-                return output;
+                string output = await outputTask;
+                _ = await errorTask;
+                return proc.ExitCode == 0 ? output : string.Empty;
             }
         }
         catch
         {
-            // Ignore if route command unavailable
+            // A missing or failed route command must never be reported as a verified snapshot.
         }
         return string.Empty;
+    }
+
+    internal static bool AreIpv4RouteTablesEquivalent(string? before, string? after)
+    {
+        if (string.IsNullOrWhiteSpace(before) || string.IsNullOrWhiteSpace(after))
+            return false;
+
+        var beforeRoutes = ExtractIpv4RouteEntries(before);
+        var afterRoutes = ExtractIpv4RouteEntries(after);
+        return beforeRoutes.Count > 0 && afterRoutes.Count > 0 && beforeRoutes.SetEquals(afterRoutes);
+    }
+
+    private static HashSet<string> ExtractIpv4RouteEntries(string routeOutput)
+    {
+        var routes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string line in routeOutput.Split(new[] { '\\r', '\\n' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 5 ||
+                !IPAddress.TryParse(parts[0], out var destination) ||
+                destination.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
+                !IPAddress.TryParse(parts[1], out var mask) ||
+                mask.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
+                !IPAddress.TryParse(parts[3], out var iface) ||
+                iface.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
+                !int.TryParse(parts[4], out _))
+                continue;
+
+            routes.Add(string.Join("|", parts.Take(5)));
+        }
+        return routes;
     }
 
     public static string? GetLastCapturedRouteTableSnapshot() => _capturedRouteTableBeforeTunnel;
@@ -554,9 +629,32 @@ public static class WireGuardTunnelManager
             );
         }
 
-        await CaptureCurrentIPv4RouteTableSnapshotAsync(cancellationToken);
-
         string safeName = tunnelName.Trim();
+        var existingService = await CheckWindowsServiceStateAsync(
+            $"WireGuardTunnel${safeName}", cancellationToken);
+        if (!existingService.querySucceeded)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "SERVICE_STATE_VERIFICATION_FAILED",
+                "Não foi possível verificar se já existe um serviço WireGuard com esse nome. Instalação bloqueada por segurança.");
+        }
+        if (existingService.installed)
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "TUNNEL_ALREADY_INSTALLED",
+                $"O serviço WireGuard '{safeName}' já está instalado. Remova ou verifique o túnel existente antes de instalar novamente.");
+        }
+
+        string routeSnapshot = await CaptureCurrentIPv4RouteTableSnapshotAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(routeSnapshot))
+        {
+            return new WireGuardServiceOperationResult(
+                false,
+                "ROUTE_TABLE_SNAPSHOT_FAILED",
+                "Não foi possível capturar a tabela de rotas IPv4 antes da instalação. O túnel não será instalado porque a recuperação não poderá ser verificada.");
+        }
         string configDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PCControlUltimate",
@@ -743,21 +841,41 @@ public static class WireGuardTunnelManager
                 );
             }
 
-            // Explicitly verify that the tunnel service is stopped/removed and inspect current IPv4 route table
+            // Verify service removal and compare actual IPv4 routes against the pre-install snapshot.
+            // Do not overwrite the saved baseline with the post-uninstall table.
             string serviceName = $"WireGuardTunnel${safeName}";
-            var (svcStillInstalled, svcStillRunning) = await CheckWindowsServiceStateAsync(serviceName, cancellationToken);
-            string postUninstallRoutes = await CaptureCurrentIPv4RouteTableSnapshotAsync(cancellationToken);
-            bool routeTableVerified = !svcStillRunning &&
-                                      !svcStillInstalled &&
-                                      !string.IsNullOrWhiteSpace(postUninstallRoutes) &&
-                                      !postUninstallRoutes.Contains(safeName, StringComparison.OrdinalIgnoreCase);
+            var (svcStillInstalled, svcStillRunning, serviceQuerySucceeded) =
+                await CheckWindowsServiceStateAsync(serviceName, cancellationToken);
+            string postUninstallRoutes = await ReadCurrentIPv4RouteTableAsync(cancellationToken);
+            bool serviceRemoved = serviceQuerySucceeded && !svcStillInstalled && !svcStillRunning;
+            bool routeTableVerified = serviceRemoved &&
+                AreIpv4RouteTablesEquivalent(_capturedRouteTableBeforeTunnel, postUninstallRoutes);
+            bool operationVerified = serviceRemoved && routeTableVerified;
+
+            string errorCode = !serviceQuerySucceeded
+                ? "SERVICE_STATE_VERIFICATION_FAILED"
+                : svcStillRunning
+                    ? "SERVICE_STILL_RUNNING_AFTER_UNINSTALL"
+                    : svcStillInstalled
+                        ? "SERVICE_STILL_INSTALLED_AFTER_UNINSTALL"
+                        : !routeTableVerified
+                            ? "ROUTE_TABLE_RESTORE_UNVERIFIED"
+                            : string.Empty;
+
+            string message = operationVerified
+                ? $"Serviço do túnel '{safeName}' removido e tabela de rotas IPv4 comparada com o estado anterior à instalação."
+                : serviceRemoved
+                    ? "O serviço WireGuard foi removido, mas não foi possível confirmar que a tabela de rotas IPv4 voltou ao estado anterior. Verifique a conectividade antes de iniciar uma partida."
+                    : !serviceQuerySucceeded
+                        ? "O comando de remoção terminou, mas o estado do serviço não pôde ser verificado. Não considere a remoção concluída."
+                        : svcStillRunning
+                            ? "O serviço WireGuard continua em execução após a solicitação de remoção."
+                            : "O serviço WireGuard ainda aparece instalado após a solicitação de remoção.";
 
             return new WireGuardServiceOperationResult(
-                Success: !svcStillRunning,
-                ErrorCode: !svcStillRunning ? string.Empty : "SERVICE_STILL_RUNNING_AFTER_UNINSTALL",
-                Message: routeTableVerified
-                    ? $"Serviço do túnel '{safeName}' removido e restauração da tabela de rotas verificada no Windows."
-                    : $"Comando de remoção do túnel '{safeName}' concluído (serviço em execução: {svcStillRunning}; verificação da tabela de rotas: {(routeTableVerified ? "confirmada" : "pendente/parcial")}).",
+                Success: operationVerified,
+                ErrorCode: errorCode,
+                Message: message,
                 UacCancelled: false,
                 RouteTableRestored: routeTableVerified
             );
@@ -781,14 +899,12 @@ public static class WireGuardTunnelManager
         }
     }
 
-    private static async Task<(bool installed, bool running)> CheckWindowsServiceStateAsync(
+    private static async Task<(bool installed, bool running, bool querySucceeded)> CheckWindowsServiceStateAsync(
         string serviceName,
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
-        {
-            return (false, false);
-        }
+            return (false, false, false);
 
         try
         {
@@ -797,28 +913,40 @@ public static class WireGuardTunnelManager
                 FileName = "sc.exe",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 CreateNoWindow = true
             };
             psi.ArgumentList.Add("query");
             psi.ArgumentList.Add(serviceName);
 
             using var proc = Process.Start(psi);
-            if (proc == null) return (false, false);
+            if (proc == null) return (false, false, false);
 
-            string output = await proc.StandardOutput.ReadToEndAsync(cancellationToken);
+            Task<string> outputTask = proc.StandardOutput.ReadToEndAsync(cancellationToken);
+            Task<string> errorTask = proc.StandardError.ReadToEndAsync(cancellationToken);
             await proc.WaitForExitAsync(cancellationToken);
+            string output = await outputTask;
+            string error = await errorTask;
+            string combined = output + Environment.NewLine + error;
 
-            if (proc.ExitCode != 0 || output.Contains("1060", StringComparison.OrdinalIgnoreCase))
+            if (proc.ExitCode != 0)
             {
-                return (false, false);
+                // SC error 1060 is a successful determination that the service does not exist.
+                return combined.Contains("1060", StringComparison.OrdinalIgnoreCase)
+                    ? (false, false, true)
+                    : (false, false, false);
             }
 
             bool isRunning = output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase);
-            return (true, isRunning);
+            bool isStopped = output.Contains("STOPPED", StringComparison.OrdinalIgnoreCase);
+            if (!isRunning && !isStopped)
+                return (false, false, false);
+
+            return (true, isRunning, true);
         }
         catch
         {
-            return (false, false);
+            return (false, false, false);
         }
     }
 }
