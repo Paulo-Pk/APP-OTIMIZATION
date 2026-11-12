@@ -147,7 +147,8 @@ public class RegistryOptimizerTests : IDisposable
         var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
         Assert.True(applied.Success, applied.ErrorMessage);
 
-        _fakeRegistry.CorruptReadback = true;
+        // Corrupt only the post-write read-back; the pre-restore guard must see the genuine applied value.
+        _fakeRegistry.CorruptReadbackAtReadCall = _fakeRegistry.ReadCalls + 2;
         var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
 
         Assert.False(restored.Success);
@@ -314,6 +315,7 @@ public class RegistryOptimizerTests : IDisposable
         public Exception? WriteException { get; set; }
         public Exception? DeleteException { get; set; }
         public bool CorruptReadback { get; set; }
+        public int CorruptReadbackAtReadCall { get; set; }
         public int ReadCalls { get; private set; }
         public int WriteCalls { get; private set; }
 
@@ -335,7 +337,7 @@ public class RegistryOptimizerTests : IDisposable
                 return new RegistryValueSnapshot(false, false, null, RegistryValueKind.Unknown, 0, 0);
             if (_values.TryGetValue(ValueKey(hive, subKeyPath, valueName), out var item))
             {
-                if (CorruptReadback && ReadCalls >= 2)
+                if ((CorruptReadback && ReadCalls >= 2) || ReadCalls == CorruptReadbackAtReadCall)
                     return new RegistryValueSnapshot(true, true, "unexpected-value", RegistryValueKind.String, 1, 0);
                 return new RegistryValueSnapshot(true, true, item.Value, item.Kind, 1, 0);
             }
