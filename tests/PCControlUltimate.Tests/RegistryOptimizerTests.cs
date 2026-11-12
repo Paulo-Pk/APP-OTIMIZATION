@@ -48,6 +48,7 @@ public class RegistryOptimizerTests : IDisposable
         var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
         Assert.False(result.Success);
         Assert.Contains("simulated access denied", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("REGISTRY_ACCESS_DENIED", result.ErrorCode);
         Assert.Equal(0, _fakeRegistry.WriteCalls);
     }
 
@@ -69,6 +70,7 @@ public class RegistryOptimizerTests : IDisposable
         var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
         Assert.False(result.Success);
         Assert.Contains("Verificação falhou", result.ErrorMessage ?? string.Empty);
+        Assert.Equal("REGISTRY_READBACK_MISMATCH", result.ErrorCode);
     }
 
     [Fact]
@@ -109,6 +111,22 @@ public class RegistryOptimizerTests : IDisposable
 
         Assert.False(restored.Success);
         Assert.Contains("Verificação pós-restauração falhou", restored.ErrorMessage ?? string.Empty);
+        Assert.Equal("REGISTRY_READBACK_MISMATCH", restored.ErrorCode);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_AccessDeniedOnRead_ReturnsSpecificErrorCode()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated restore read denied");
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+
+        Assert.False(restored.Success);
+        Assert.Equal("REGISTRY_ACCESS_DENIED", restored.ErrorCode);
+        Assert.Contains("simulated restore read denied", restored.ErrorMessage ?? string.Empty);
     }
 
     [Fact]
