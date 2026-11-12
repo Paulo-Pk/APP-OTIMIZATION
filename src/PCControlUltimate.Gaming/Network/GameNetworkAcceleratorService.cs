@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Linq;
+using Microsoft.Win32;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -245,6 +246,19 @@ public static class GameNetworkAcceleratorService
             string defaultSteam = Path.Combine(programFilesX86, "Steam");
             if (Directory.Exists(defaultSteam)) steamRoots.Add(defaultSteam);
 
+            // Steam may be installed outside Program Files (x86). Read its registered
+            // install locations instead of scanning the entire disk.
+            AddSteamRegistryRoot(steamRoots, RegistryHive.CurrentUser, RegistryView.Registry32,
+                @"Software\Valve\Steam", "SteamPath");
+            AddSteamRegistryRoot(steamRoots, RegistryHive.CurrentUser, RegistryView.Registry64,
+                @"Software\Valve\Steam", "SteamPath");
+            AddSteamRegistryRoot(steamRoots, RegistryHive.LocalMachine, RegistryView.Registry32,
+                @"Software\Valve\Steam", "InstallPath");
+            AddSteamRegistryRoot(steamRoots, RegistryHive.LocalMachine, RegistryView.Registry64,
+                @"Software\Valve\Steam", "InstallPath");
+            AddSteamRegistryRoot(steamRoots, RegistryHive.LocalMachine, RegistryView.Registry64,
+                @"Software\WOW6432Node\Valve\Steam", "InstallPath");
+
             foreach (string root in steamRoots.ToArray())
             {
                 string libraryFile = Path.Combine(root, "steamapps", "libraryfolders.vdf");
@@ -318,6 +332,32 @@ public static class GameNetworkAcceleratorService
         catch { /* Epic Games is optional. */ }
 
         return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private static void AddSteamRegistryRoot(
+        HashSet<string> roots,
+        RegistryHive hive,
+        RegistryView view,
+        string subKeyPath,
+        string valueName)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view);
+            using RegistryKey? steamKey = baseKey.OpenSubKey(subKeyPath);
+            string? registeredPath = steamKey?.GetValue(valueName) as string;
+            if (string.IsNullOrWhiteSpace(registeredPath)) return;
+
+            string normalizedPath = Environment.ExpandEnvironmentVariables(registeredPath.Trim());
+            if (Directory.Exists(normalizedPath))
+                roots.Add(Path.GetFullPath(normalizedPath));
+        }
+        catch
+        {
+            // Registry access is optional; continue with other known Steam locations.
+        }
     }
 
     private static string ReadManifestString(JsonElement root, string propertyName)
