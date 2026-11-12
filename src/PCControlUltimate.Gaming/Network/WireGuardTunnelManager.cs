@@ -864,7 +864,7 @@ public static class WireGuardTunnelManager
             return new WireGuardServiceOperationResult(
                 true,
                 string.Empty,
-                $"Serviço do túnel '{safeName}' instalado sob autorização UAC e arquivo temporário de chave privada removido com segurança. Verifique o status de handshake antes de iniciar a partida."
+                $"Serviço do túnel '{safeName}' instalado sob autorização UAC. O aplicativo executou a rotina de exclusão do arquivo temporário de configuração (sobrescrita best-effort; isso não garante apagamento físico em SSD). Verifique o handshake antes de iniciar a partida."
             );
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
