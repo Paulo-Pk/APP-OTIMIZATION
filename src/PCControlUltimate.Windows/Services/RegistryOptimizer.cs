@@ -69,6 +69,7 @@ public record RegistryOperationResult(
 public static class RegistryOptimizer
 {
     private static readonly ConcurrentQueue<RegistryAuditLogEntry> _auditHistory = new();
+    internal static IRegistryBackend RegistryBackend { get; set; } = new WindowsRegistryBackend();
 
     public static string AuditLogFilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -614,7 +615,6 @@ public static class RegistryOptimizer
                 "Operação de Registro requer plataforma Windows nativa.", def.TweakId);
         }
 
-        RegistryKey root = GetRootKey(def.Hive);
         string? previousSerialized = null;
         RegistryValueKind previousKind = targetKind;
         bool wasInitiallyAbsent = false;
@@ -622,53 +622,31 @@ public static class RegistryOptimizer
 
         try
         {
-            // 1. Pre-read original value & type before modification
-            using (RegistryKey? readKey = root.OpenSubKey(def.SubKeyPath, false))
+            RegistryValueSnapshot before = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            wasInitiallyAbsent = !before.ValueExists;
+            keyCreatedByApp = !before.KeyExists;
+            if (before.ValueExists)
             {
-                if (readKey == null)
-                {
-                    wasInitiallyAbsent = true;
-                    keyCreatedByApp = true;
-                }
-                else
-                {
-                    object? rawPrev = readKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    if (rawPrev == null)
-                    {
-                        wasInitiallyAbsent = true;
-                    }
-                    else
-                    {
-                        previousKind = readKey.GetValueKind(def.ValueName);
-                        previousSerialized = SerializeRegistryValue(rawPrev, previousKind);
-                    }
-                }
+                previousKind = before.Kind;
+                previousSerialized = SerializeRegistryValue(before.Value, previousKind);
             }
 
             object typedTarget = DeserializeRegistryValue(serializedTargetValue, targetKind);
 
-            // 2. Write value with explicit RegistryValueKind
-            using (RegistryKey writeKey = root.CreateSubKey(def.SubKeyPath, true))
+            RegistryBackend.Write(def.Hive, def.SubKeyPath, def.ValueName, typedTarget, targetKind);
+            RegistryValueSnapshot after = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            if (!after.KeyExists || !after.ValueExists)
             {
-                writeKey.SetValue(def.ValueName, typedTarget, targetKind);
-                writeKey.Flush();
+                string err = "Falha na verificação: subchave ou valor não encontrado após escrita.";
+                RecordAudit("APPLY_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                    previousSerialized, serializedTargetValue, null, false, err);
+                return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
+                    wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId);
             }
 
-            // 3. Re-read and verify both value and kind immediately after write
-            using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
-            {
-                if (verifyKey == null)
-                {
-                    string err = "Falha na verificação: subchave não encontrada após escrita.";
-                    RecordAudit("APPLY_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                        previousSerialized, serializedTargetValue, null, false, err);
-                    return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                        wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId);
-                }
-
-                object? readBack = verifyKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                RegistryValueKind verifiedKind = verifyKey.GetValueKind(def.ValueName);
-                string? verifiedStr = SerializeRegistryValue(readBack, verifiedKind);
+            object? readBack = after.Value;
+            RegistryValueKind verifiedKind = after.Kind;
+            string? verifiedStr = SerializeRegistryValue(readBack, verifiedKind);
 
                 if (verifiedKind == targetKind && ValuesMatch(readBack, typedTarget, targetKind))
                 {
@@ -1100,99 +1078,57 @@ public static class RegistryOptimizer
             );
         }
 
-        RegistryKey root = GetRootKey(def.Hive);
-
         try
         {
-            string? currentBeforeRestore = null;
-            using (RegistryKey? preKey = root.OpenSubKey(def.SubKeyPath, false))
-            {
-                if (preKey != null)
-                {
-                    object? rawCurr = preKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    if (rawCurr != null)
-                    {
-                        currentBeforeRestore = SerializeRegistryValue(rawCurr, preKey.GetValueKind(def.ValueName));
-                    }
-                }
-            }
+            RegistryValueSnapshot before = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            string? currentBeforeRestore = before.ValueExists
+                ? SerializeRegistryValue(before.Value, before.Kind)
+                : null;
 
             if (wasInitiallyAbsent || originalSerializedValue == null)
             {
-                using (RegistryKey? writeKey = root.OpenSubKey(def.SubKeyPath, true))
+                RegistryBackend.DeleteValue(def.Hive, def.SubKeyPath, def.ValueName);
+                RegistryValueSnapshot afterDelete = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+                if (afterDelete.ValueExists)
                 {
-                    if (writeKey != null && writeKey.GetValue(def.ValueName) != null)
-                    {
-                        writeKey.DeleteValue(def.ValueName, false);
-                        writeKey.Flush();
-                    }
+                    string err = "Falha na verificação: o valor originalmente ausente permaneceu no Registro.";
+                    RecordAudit("RESTORE_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
+                        currentBeforeRestore, "<DELETE>", null, false, err);
+                    return new RegistryOperationResult(false, originalSerializedValue, null, "Deleted",
+                        true, keyCreatedByApp, err, def.TweakId, operationId);
                 }
 
-                // Verify that the value no longer exists
-                using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
-                {
-                    if (verifyKey != null && verifyKey.GetValue(def.ValueName) != null)
-                    {
-                        string err = "Falha na verificação: o valor originalmente ausente permaneceu no Registro.";
-                        RecordAudit("RESTORE_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
-                            currentBeforeRestore, "<DELETE>", null, false, err);
-                        return new RegistryOperationResult(false, originalSerializedValue, null, "Deleted",
-                            true, keyCreatedByApp, err, def.TweakId, operationId);
-                    }
-
-                    if (keyCreatedByApp && verifyKey != null && verifyKey.ValueCount == 0 && verifyKey.SubKeyCount == 0)
-                    {
-                        verifyKey.Close();
-                        root.DeleteSubKey(def.SubKeyPath, false);
-                    }
-                }
+                if (keyCreatedByApp)
+                    RegistryBackend.DeleteKeyIfEmpty(def.Hive, def.SubKeyPath);
 
                 RecordAudit("RESTORE_DELETED_ABSENT", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
                     currentBeforeRestore, "<DELETE>", "REMOVED_ABSENT_VALUE", true, null);
                 return new RegistryOperationResult(true, currentBeforeRestore, "REMOVED_ABSENT_VALUE", "Deleted",
                     true, keyCreatedByApp, null, def.TweakId, operationId);
             }
-            else
+
+            RegistryValueKind originalKind = check.parsedKind;
+            object typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
+            RegistryBackend.Write(def.Hive, def.SubKeyPath, def.ValueName, typedOriginal, originalKind);
+
+            RegistryValueSnapshot after = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            object? verified = after.Value;
+            RegistryValueKind verifiedKind = after.ValueExists ? after.Kind : RegistryValueKind.Unknown;
+            string? verifiedStr = after.ValueExists ? SerializeRegistryValue(verified, verifiedKind) : null;
+
+            if (after.ValueExists && verifiedKind == originalKind && ValuesMatch(verified, typedOriginal, originalKind))
             {
-                RegistryValueKind originalKind = check.parsedKind;
-                object typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
-
-                using (RegistryKey writeKey = root.CreateSubKey(def.SubKeyPath, true))
-                {
-                    writeKey.SetValue(def.ValueName, typedOriginal, originalKind);
-                    writeKey.Flush();
-                }
-
-                using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
-                {
-                    object? verified = verifyKey?.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    RegistryValueKind verifiedKind = verifyKey?.GetValueKind(def.ValueName) ?? RegistryValueKind.Unknown;
-                    string? verifiedStr = SerializeRegistryValue(verified, verifiedKind);
-
-                    if (verifiedKind == originalKind && ValuesMatch(verified, typedOriginal, originalKind))
-                    {
-                        RecordAudit("RESTORE_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
-                            currentBeforeRestore, originalSerializedValue, verifiedStr, true, null);
-                        return new RegistryOperationResult(
-                            true,
-                            currentBeforeRestore,
-                            verifiedStr,
-                            originalKind.ToString(),
-                            false,
-                            false,
-                            null,
-                            def.TweakId,
-                            operationId
-                        );
-                    }
-
-                    string err = "Verificação pós-restauração falhou: valor ou tipo não corresponde ao original.";
-                    RecordAudit("RESTORE_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
-                        currentBeforeRestore, originalSerializedValue, verifiedStr, false, err);
-                    return new RegistryOperationResult(false, currentBeforeRestore,
-                        verifiedStr, originalKind.ToString(), false, false, err, def.TweakId, operationId);
-                }
+                RecordAudit("RESTORE_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
+                    currentBeforeRestore, originalSerializedValue, verifiedStr, true, null);
+                return new RegistryOperationResult(true, currentBeforeRestore, verifiedStr,
+                    originalKind.ToString(), false, false, null, def.TweakId, operationId);
             }
+
+            string mismatchErr = "Verificação pós-restauração falhou: valor ou tipo não corresponde ao original.";
+            RecordAudit("RESTORE_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
+                currentBeforeRestore, originalSerializedValue, verifiedStr, false, mismatchErr);
+            return new RegistryOperationResult(false, currentBeforeRestore, verifiedStr,
+                originalKind.ToString(), false, false, mismatchErr, def.TweakId, operationId);
         }
         catch (Exception ex)
         {
@@ -1219,16 +1155,10 @@ public static class RegistryOptimizer
 
         try
         {
-            RegistryKey root = GetRootKey(def.Hive);
-            using var key = root.OpenSubKey(def.SubKeyPath, false);
-            if (key == null)
-                return "Chave Ausente";
-
-            object? raw = key.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-            if (raw == null)
-                return "Valor Ausente";
-
-            string? serialized = SerializeRegistryValue(raw, key.GetValueKind(def.ValueName));
+            RegistryValueSnapshot snapshot = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            if (!snapshot.KeyExists) return "Chave Ausente";
+            if (!snapshot.ValueExists) return "Valor Ausente";
+            string? serialized = SerializeRegistryValue(snapshot.Value, snapshot.Kind);
             if (string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
                 return "Ativo";
             if (string.Equals(serialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
