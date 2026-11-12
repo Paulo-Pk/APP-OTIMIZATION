@@ -1534,10 +1534,16 @@ public class MainViewModel : INotifyPropertyChanged
 
         ApplySafeBoostProfileCommand = new RelayCommand(async _ =>
         {
+            // Refresh the read-only Registry baseline immediately before selecting
+            // tweaks; never rely on a potentially stale screen state for a batch write.
+            await RefreshAllTweakStatesAsync();
+
             var safeTweaks = CatalogTweaks
                 .Where(t => t.CanApply &&
                     (string.Equals(t.RiskLevel, "Safe", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase)))
+                     string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(t.RiskLevel, "Low", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(t.RiskLevel, "Baixo", StringComparison.OrdinalIgnoreCase)))
                 .ToList();
 
             if (safeTweaks.Count == 0)
