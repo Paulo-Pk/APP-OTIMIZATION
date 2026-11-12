@@ -733,13 +733,14 @@ public class MainViewModel : INotifyPropertyChanged
 
             int active = states.Count(x => x.State == "Ativo");
             int inactive = states.Count(x => x.State == "Inativo");
+            int noChange = states.Count(x => x.State == "Sem Alteração Necessária");
             int custom = states.Count(x => x.State == "Personalizado");
             int denied = states.Count(x => x.State == "Acesso Negado");
             int readErrors = states.Count(x => x.State == "Erro de Leitura");
             int wrongType = states.Count(x => x.State == "Tipo Incorreto");
             int undetermined = states.Count(x => x.State == "Estado Não Determinável" || x.State == "Padrão Dependente");
 
-            TweakStatesSummaryText = $"Leitura concluída: {states.Length} ajustes — {active} ativos, {inactive} inativos, {custom} personalizados, {wrongType} com tipo incorreto, {denied} sem acesso, {readErrors} erros de leitura e {undetermined} não determináveis.";
+            TweakStatesSummaryText = $"Leitura concluída: {states.Length} ajustes — {active} ativos, {inactive} inativos, {noChange} sem alteração necessária, {custom} personalizados, {wrongType} com tipo incorreto, {denied} sem acesso, {readErrors} erros de leitura e {undetermined} não determináveis.";
             StatusMessage = TweakStatesSummaryText;
             OnPropertyChanged(nameof(AppliedTweaksCount));
             OnPropertyChanged(nameof(AppliedTweaksBadgeText));
@@ -789,6 +790,7 @@ public class MainViewModel : INotifyPropertyChanged
         return state switch
         {
             "Ativo" => isPortuguese ? "Ativo — leitura confirmada" : "Active — read-back confirmed",
+            "Sem Alteração Necessária" => isPortuguese ? "Sem alteração necessária — valor recomendado igual ao padrão" : "No change needed — recommended value matches the default",
             "Inativo" => isPortuguese ? "Padrão/inativo — leitura confirmada" : "Default/inactive — read-back confirmed",
             "Personalizado" or "Parcial" => isPortuguese ? "Personalizado — diferente do recomendado" : "Custom — differs from recommendation",
             "Chave Ausente" or "Valor Ausente" => isPortuguese ? "Valor ausente no Registro" : "Registry value is missing",
