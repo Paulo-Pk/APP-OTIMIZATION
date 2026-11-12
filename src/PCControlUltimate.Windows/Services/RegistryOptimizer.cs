@@ -808,7 +808,23 @@ public static class RegistryOptimizer
 
         if (restoreRes.Success)
         {
-            RegistryStateLedger.MarkOperationRestored(entry.OperationId);
+            try
+            {
+                if (!RegistryStateLedger.MarkOperationRestored(entry.OperationId))
+                    throw new InvalidOperationException("O Registro foi restaurado, mas o Ledger não confirmou a baixa da operação.");
+            }
+            catch (Exception ex)
+            {
+                string ledgerError = $"O valor original foi restaurado no Registro, porém não foi possível registrar a conclusão no Ledger. A operação permanece pendente e não deve ser repetida sem verificação manual. Detalhe: {ex.Message}";
+                RecordAudit("RESTORE_LEDGER_MARK_FAILED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
+                    entry.OriginalValueKind, null, entry.OriginalRawValue, restoreRes.VerifiedValue, false, ledgerError);
+                return restoreRes with
+                {
+                    Success = false,
+                    ErrorMessage = ledgerError,
+                    ErrorCode = "RESTORE_LEDGER_UPDATE_FAILED"
+                };
+            }
         }
 
         return restoreRes;
