@@ -845,7 +845,8 @@ public static class RegistryOptimizer
             entry.WasInitiallyAbsent,
             entry.KeyCreatedByApp,
             entry.OperationId,
-            entry.AppliedValue
+            entry.AppliedValue,
+            enforceExpectedCurrentState: true
         );
 
         if (restoreRes.Success)
@@ -926,7 +927,10 @@ public static class RegistryOptimizer
     /// </summary>
     internal static RegistryOperationResult RestoreFromVerifiedSnapshotEntry(
         TweakDefinition def,
-        RegistryValueEntry verifiedEntry)
+        RegistryValueEntry verifiedEntry,
+        bool enforceExpectedCurrentState = false,
+        string? expectedCurrentValue = null,
+        bool expectedCurrentAbsent = false)
     {
         var validation = ValidateRestoreParametersAgainstCatalog(
             def,
@@ -951,7 +955,10 @@ public static class RegistryOptimizer
             verifiedEntry.RawValue,
             verifiedEntry.ValueKind,
             verifiedEntry.WasInitiallyAbsent,
-            verifiedEntry.KeyCreatedByApp
+            verifiedEntry.KeyCreatedByApp,
+            expectedAppliedValue: expectedCurrentValue,
+            enforceExpectedCurrentState: enforceExpectedCurrentState,
+            expectedAppliedInitiallyAbsent: expectedCurrentAbsent
         );
     }
 
@@ -1108,7 +1115,9 @@ public static class RegistryOptimizer
         bool wasInitiallyAbsent,
         bool keyCreatedByApp,
         string? operationId = null,
-        string? expectedAppliedValue = null)
+        string? expectedAppliedValue = null,
+        bool enforceExpectedCurrentState = false,
+        bool expectedAppliedInitiallyAbsent = false)
     {
         // This method is reached only with state resolved from the authenticated backend ledger.
         // Restore the exact original value/type; AllowedValues applies to new writes, not recovery.
@@ -1155,9 +1164,9 @@ public static class RegistryOptimizer
             // Snapshot restoration is an explicit recovery action and does not supply this guard.
             bool stillHasAppliedValue = false;
             bool alreadyHasOriginalValue = false;
-            if (expectedAppliedValue != null)
+            if (enforceExpectedCurrentState)
             {
-                if (string.IsNullOrWhiteSpace(expectedAppliedValue))
+                if (!expectedAppliedInitiallyAbsent && string.IsNullOrWhiteSpace(expectedAppliedValue))
                 {
                     const string missingAppliedValue = "O histórico confiável não contém o valor aplicado necessário para verificar a restauração.";
                     RecordAudit("RESTORE_BLOCKED_INVALID_APPLIED_VALUE", def.TweakId, fullKeyPath, def.ValueName,
@@ -1166,10 +1175,11 @@ public static class RegistryOptimizer
                         wasInitiallyAbsent, keyCreatedByApp, missingAppliedValue, def.TweakId, operationId, "LEDGER_APPLIED_VALUE_MISSING");
                 }
 
-                object expectedTyped = DeserializeRegistryValue(expectedAppliedValue, def.ValueKind);
-                stillHasAppliedValue = before.ValueExists &&
-                    before.Kind == def.ValueKind &&
-                    ValuesMatch(before.Value, expectedTyped, def.ValueKind);
+                stillHasAppliedValue = expectedAppliedInitiallyAbsent
+                    ? !before.ValueExists
+                    : before.ValueExists &&
+                      before.Kind == def.ValueKind &&
+                      ValuesMatch(before.Value, DeserializeRegistryValue(expectedAppliedValue!, def.ValueKind), def.ValueKind);
                 alreadyHasOriginalValue = wasInitiallyAbsent
                     ? !before.ValueExists
                     : before.ValueExists &&
