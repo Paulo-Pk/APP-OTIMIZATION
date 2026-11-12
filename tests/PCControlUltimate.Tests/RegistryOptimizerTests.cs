@@ -316,4 +316,54 @@ public class RegistryOptimizerTests
         Assert.True(restoreResult.Success);
         Assert.Equal("REMOVED_ABSENT_VALUE", restoreResult.VerifiedCurrentValue);
     }
+    [Fact]
+    public void RegistryStateLedger_AuthenticatedCustomOriginalValueAndKind_AreRestorable()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+
+        var recorded = RegistryStateLedger.RecordBeforeModification(
+            def,
+            originalKind: RegistryValueKind.String,
+            originalRawValue: "custom-original-value",
+            wasInitiallyAbsent: false,
+            keyCreatedByApp: false,
+            appliedValue: "0"
+        );
+
+        var resolved = RegistryStateLedger.ResolveTrustedRestoreEntry(def.TweakId, recorded.OperationId);
+
+        Assert.True(resolved.IsValid, resolved.ErrorReason);
+        Assert.NotNull(resolved.Entry);
+        Assert.Equal("custom-original-value", resolved.Entry!.OriginalRawValue);
+        Assert.Equal(nameof(RegistryValueKind.String), resolved.Entry.OriginalValueKind);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_RestoredAtUtc_IsCoveredByEntryHmac()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        var entry = new RegistryLedgerEntry
+        {
+            OperationId = "op-test-restored-at",
+            TweakId = "perf-game-dvr",
+            Hive = "HKCU",
+            SubKeyPath = @"System\GameConfigStore",
+            ValueName = "GameDVR_Enabled",
+            OriginalValueKind = nameof(RegistryValueKind.DWord),
+            OriginalRawValue = "1",
+            WasInitiallyAbsent = false,
+            KeyCreatedByApp = false,
+            AppliedValue = "0",
+            CreatedAtUtc = DateTime.UtcNow.ToString("O"),
+            IsRestored = true,
+            RestoredAtUtc = "2026-11-12T10:00:00.0000000Z"
+        };
+        entry.EntryHmacSha256 = RegistryStateLedger.ComputeEntryHmac(entry);
+
+        Assert.True(RegistryStateLedger.VerifyEntryHmac(entry));
+        entry.RestoredAtUtc = "2026-11-12T10:01:00.0000000Z";
+        Assert.False(RegistryStateLedger.VerifyEntryHmac(entry));
+    }
+
 }
