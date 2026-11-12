@@ -187,6 +187,8 @@ public class MainViewModel : INotifyPropertyChanged
     private string _statusMessage = "Verificando comunicação com o Agente...";
     private bool _isRefreshingTweakStates;
     private string _tweakStatesSummaryText = "Estados do Registro ainda não atualizados nesta sessão.";
+    private bool _isRefreshingGameConnections;
+    private string _gameConnectionsStatusText = "A biblioteca ainda não foi atualizada nesta sessão.";
 
     // Hardware & GPU Health properties
     private string _hardwareSubsystemStatusText = "Sensor indisponível (N/D)";
@@ -429,6 +431,16 @@ public class MainViewModel : INotifyPropertyChanged
     {
         get => _tweakStatesSummaryText;
         set { _tweakStatesSummaryText = value; OnPropertyChanged(); }
+    }
+
+    public bool CanRefreshGameConnections => !_isRefreshingGameConnections;
+    public string RefreshGameConnectionsButtonText =>
+        _isRefreshingGameConnections ? "ESCANEANDO JOGOS..." : "ESCANEAR JOGOS E SOCKETS";
+
+    public string GameConnectionsStatusText
+    {
+        get => _gameConnectionsStatusText;
+        set { _gameConnectionsStatusText = value; OnPropertyChanged(); }
     }
 
     public string HardwareSubsystemStatusText
@@ -1295,24 +1307,53 @@ public class MainViewModel : INotifyPropertyChanged
             }
         });
 
-        RefreshGameConnectionsCommand = new RelayCommand(_ =>
+        RefreshGameConnectionsCommand = new RelayCommand(async _ =>
         {
-            InstalledGames.Clear();
-            foreach (var game in GameNetworkAcceleratorService.DiscoverInstalledGames())
+            if (_isRefreshingGameConnections) return;
+
+            _isRefreshingGameConnections = true;
+            OnPropertyChanged(nameof(CanRefreshGameConnections));
+            OnPropertyChanged(nameof(RefreshGameConnectionsButtonText));
+            GameConnectionsStatusText = "Lendo catálogos dos launchers e conexões ativas em segundo plano...";
+
+            try
             {
-                InstalledGames.Add(game);
+                var scan = await Task.Run(() => (
+                    Games: GameNetworkAcceleratorService.DiscoverInstalledGames(),
+                    Connections: GameNetworkAcceleratorService.DetectRunningGamesAndConnections(),
+                    Nodes: GameNetworkAcceleratorService.GetRegisteredRelayNodes()
+                ));
+
+                InstalledGames.Clear();
+                foreach (var game in scan.Games)
+                    InstalledGames.Add(game);
+
+                DetectedGameSockets.Clear();
+                foreach (var connection in scan.Connections)
+                    DetectedGameSockets.Add(connection);
+
+                RelayNodes.Clear();
+                foreach (var node in scan.Nodes)
+                    RelayNodes.Add(node);
+
+                GameConnectionsStatusText =
+                    $"Varredura concluída: {InstalledGames.Count} jogo(s) instalado(s), " +
+                    $"{DetectedGameSockets.Count} conexão(ões) de jogos e {RelayNodes.Count} nó(s) de rota.";
+                StatusMessage = GameConnectionsStatusText;
             }
-            DetectedGameSockets.Clear();
-            foreach (var conn in GameNetworkAcceleratorService.DetectRunningGamesAndConnections())
+            catch (Exception ex)
             {
-                DetectedGameSockets.Add(conn);
+                GameConnectionsStatusText = $"Falha ao atualizar a biblioteca de jogos: {ex.Message}";
+                StatusMessage = GameConnectionsStatusText;
             }
-            RelayNodes.Clear();
-            foreach (var node in GameNetworkAcceleratorService.GetRegisteredRelayNodes())
+            finally
             {
-                RelayNodes.Add(node);
+                _isRefreshingGameConnections = false;
+                OnPropertyChanged(nameof(CanRefreshGameConnections));
+                OnPropertyChanged(nameof(RefreshGameConnectionsButtonText));
+                CommandManager.InvalidateRequerySuggested();
             }
-        });
+        }, _ => CanRefreshGameConnections);
 
         EvaluateGameRouteCommand = new RelayCommand(async _ =>
         {
