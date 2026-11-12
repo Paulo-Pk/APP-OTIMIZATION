@@ -273,6 +273,8 @@ public static class WireGuardTunnelManager
                     interfaceAddress = val;
                 else if (key.Equals("Table", StringComparison.OrdinalIgnoreCase))
                     tableSetting = val;
+                else if (key.Equals("DNS", StringComparison.OrdinalIgnoreCase))
+                    return InvalidConfigAudit("GLOBAL_DNS_OVERRIDE_BLOCKED: O acelerador de jogos não altera os servidores DNS globais do Windows. Remova a diretiva DNS da configuração.");
             }
             else if (inPeer)
             {
