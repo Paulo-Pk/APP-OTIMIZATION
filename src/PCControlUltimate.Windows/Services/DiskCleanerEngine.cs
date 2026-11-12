@@ -179,20 +179,31 @@ public static class DiskCleanerEngine
     {
         string? targetDir = GetCategoryPath(categoryKey);
         if (string.IsNullOrEmpty(targetDir) || !IsPathSafe(targetDir))
-        {
             return new DiskDryRunReport(categoryKey, targetDir ?? "N/D", true, 0, 0, 0, Success: false);
-        }
 
+        return SimulateDirectoryDryRunCore(categoryKey, targetDir);
+    }
+
+    // Internal path injection keeps automated tests inside isolated temporary directories.
+    internal static DiskDryRunReport SimulateDirectoryDryRunForTesting(string categoryKey, string targetDir)
+    {
+        if (string.IsNullOrWhiteSpace(categoryKey) || !AllowedCategories.Contains(categoryKey) ||
+            string.IsNullOrWhiteSpace(targetDir) || !IsPathSafe(targetDir))
+            return new DiskDryRunReport(categoryKey, targetDir ?? "N/D", true, 0, 0, 0, Success: false);
+
+        return SimulateDirectoryDryRunCore(categoryKey, targetDir);
+    }
+
+    private static DiskDryRunReport SimulateDirectoryDryRunCore(string categoryKey, string targetDir)
+    {
         if (!Directory.Exists(targetDir))
-        {
-            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 0, Success: false);
-        }
+            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 0, Success: false,
+                Errors: new[] { "O diretório de teste/limpeza não existe." });
 
         var rootDir = new DirectoryInfo(targetDir);
         if (IsReparsePointOrSymlink(rootDir))
-        {
-            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 1, Success: false);
-        }
+            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 1, Success: false,
+                Errors: new[] { "O diretório raiz é um link simbólico ou junction." });
 
         long bytes = 0;
         int files = 0;
@@ -273,6 +284,27 @@ public static class DiskCleanerEngine
             return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
+        return PurgeAuthorizedDirectory(categoryKey, targetDir);
+    }
+
+    // Internal path injection is available only to the test assembly via InternalsVisibleTo.
+    internal static DiskPurgeReport PurgeDirectoryForTesting(string categoryKey, string targetDir)
+    {
+        if (string.IsNullOrWhiteSpace(categoryKey) || !AllowedCategories.Contains(categoryKey) ||
+            string.IsNullOrWhiteSpace(targetDir) || !IsPathSafe(targetDir) ||
+            string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase))
+        {
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0,
+                Array.Empty<string>(), new[] { "Categoria ou caminho de teste não autorizado." }, Status: "Failed");
+        }
+
+        return PurgeAuthorizedDirectory(categoryKey, targetDir);
+    }
+
+    private static DiskPurgeReport PurgeAuthorizedDirectory(string categoryKey, string targetDir)
+    {
+        var errors = new List<string>();
+        var affectedItems = new List<string>();
         if (!Directory.Exists(targetDir))
         {
             errors.Add("O diretório autorizado não existe; nenhuma limpeza foi executada.");
