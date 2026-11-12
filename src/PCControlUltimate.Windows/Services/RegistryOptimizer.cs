@@ -144,8 +144,8 @@ public static class RegistryOptimizer
             @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
             "SystemResponsiveness", RegistryValueKind.DWord,
             "10", "20", new[] { "10", "20" },
-            "Prioriza threads multimídia e reduz latência de áudio/DPC em jogos.",
-            "Prioritizes multimedia threads and lowers audio/DPC latency in games.",
+            "Ajusta SystemResponsiveness para 10; o efeito depende da carga e da configuração do Windows, sem garantia de redução de latência DPC.",
+            "Sets SystemResponsiveness to 10; effects depend on workload and Windows configuration, with no guaranteed DPC-latency reduction.",
             "Performance", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-game-dvr"] = new(
@@ -162,27 +162,27 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\PriorityControl",
             "Win32PrioritySeparation", RegistryValueKind.DWord,
             "38", "2", new[] { "2", "38", "26" },
-            "Otimiza o quantum de prioridade de janelas em primeiro plano (Win32PrioritySeparation=0x26).",
-            "Optimizes foreground window thread priority quantum (Win32PrioritySeparation=0x26).",
-            "Performance", "Médio"
+            "Ajusta Win32PrioritySeparation; o comportamento do escalonador varia conforme a versão e a configuração do Windows.",
+            "Adjusts Win32PrioritySeparation; scheduler behavior varies by Windows version and configuration.",
+            "Performance", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-tcp-nagle"] = new(
             "perf-tcp-nagle", "HKLM",
             @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
             "NetworkThrottlingIndex", RegistryValueKind.DWord,
             "-1", "10", new[] { "-1", "10", "1" },
-            "Desativa limitação artificial de pacotes de rede multimídia (NetworkThrottlingIndex).",
-            "Disables artificial multimedia network packet throttling (NetworkThrottlingIndex).",
-            "Performance", "Baixo"
+            "Ajusta NetworkThrottlingIndex; não altera Nagle e não garante redução de ping ou jitter.",
+            "Adjusts NetworkThrottlingIndex; it does not change Nagle and does not guarantee lower ping or jitter.",
+            "Performance", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["start-fast-boot"] = new(
             "start-fast-boot", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\Session Manager\Power",
             "HiberbootEnabled", RegistryValueKind.DWord,
             "0", "1", new[] { "0", "1" },
-            "Realiza inicialização limpa do kernel a cada boot (HiberbootEnabled=0).",
-            "Performs a clean kernel initialization on every boot (HiberbootEnabled=0).",
-            "Startup", "Baixo"
+            "Desativa a Inicialização Rápida do Windows; pode aumentar o tempo de boot e alterar o comportamento de hibernação.",
+            "Disables Windows Fast Startup; boot time may increase and hibernation behavior may change.",
+            "Startup", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["start-edge-preload"] = new(
             "start-edge-preload", "HKLM",
@@ -191,7 +191,7 @@ public static class RegistryOptimizer
             "0", "1", new[] { "0", "1" },
             "Impede pré-carregamento em segundo plano do Microsoft Edge no boot.",
             "Prevents Microsoft Edge background preloading at startup.",
-            "Startup", "Baixo"
+            "Startup", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["bg-telemetry"] = new(
             "bg-telemetry", "HKLM",
@@ -200,7 +200,7 @@ public static class RegistryOptimizer
             "1", "3", new[] { "1", "3" },
             "Reduz coleta diagnóstica para nível básico sem afetar segurança.",
             "Reduces diagnostic telemetry collection to basic level without affecting security.",
-            "Background", "Baixo"
+            "Background", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["bg-cortana-news"] = new(
             "bg-cortana-news", "HKCU",
@@ -209,7 +209,7 @@ public static class RegistryOptimizer
             "2", "0", new[] { "0", "1", "2" },
             "Desativa carregamento contínuo do feed de notícias na barra de tarefas.",
             "Disables continuous loading of the taskbar news and interests feed.",
-            "Background", "Baixo"
+            "Background", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["power-ultimate-plan"] = new(
             "power-ultimate-plan", "HKLM",
@@ -218,7 +218,7 @@ public static class RegistryOptimizer
             "1", "0", new[] { "0", "1" },
             "Desativa redução automática de clock (Power Throttling) para processos em execução.",
             "Disables automatic CPU clock throttling (Power Throttling) for active processes.",
-            "Power", "Baixo"
+            "Power", "Baixo", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["power-pcie-link"] = new(
             "power-pcie-link", "HKLM",
@@ -227,7 +227,7 @@ public static class RegistryOptimizer
             "High", "Medium", new[] { "High", "Medium", "Low" },
             "Define a categoria de escalonamento MMCSS de Jogos para High (REG_SZ).",
             "Sets the MMCSS Games task scheduling category to High (REG_SZ).",
-            "Power", "Baixo"
+            "Power", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["serv-sysmain"] = new(
             "serv-sysmain", "HKLM",
@@ -236,7 +236,7 @@ public static class RegistryOptimizer
             "3", "2", new[] { "2", "3" },
             "Configura serviço SysMain para inicialização manual em SSDs NVMe.",
             "Configures the SysMain service for manual startup on NVMe SSDs.",
-            "Services", "Baixo"
+            "Services", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["serv-spooler"] = new(
             "serv-spooler", "HKLM",
@@ -245,7 +245,7 @@ public static class RegistryOptimizer
             "3", "2", new[] { "2", "3" },
             "Configura Spooler de Impressão para modo sob demanda (Manual).",
             "Configures Print Spooler for on-demand (Manual) startup.",
-            "Services", "Baixo"
+            "Services", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["mem-standby-clean"] = new(
             "mem-standby-clean", "HKLM",
@@ -272,7 +272,7 @@ public static class RegistryOptimizer
             "2", "1", new[] { "1", "2" },
             "Habilita agendamento de GPU acelerado por hardware (HAGS).",
             "Enables Hardware-Accelerated GPU Scheduling (HAGS).",
-            "Gaming", "Baixo"
+            "Gaming", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["game-fso-override"] = new(
             "game-fso-override", "HKCU",
@@ -281,7 +281,7 @@ public static class RegistryOptimizer
             "2", "0", new[] { "0", "2" },
             "Otimiza apresentação Flip Model em tela cheia para DX11/DX12.",
             "Optimizes fullscreen Flip Model presentation for DX11/DX12.",
-            "Gaming", "Baixo"
+            "Gaming", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-fso-flags"] = new(
             "perf-fso-flags", "HKCU",
@@ -290,7 +290,7 @@ public static class RegistryOptimizer
             "2", "0", new[] { "0", "2" },
             "Define flags de comportamento Fullscreen Optimizations (GameDVR_FSEBehavior).",
             "Configures Fullscreen Optimizations behavior flags (GameDVR_FSEBehavior).",
-            "Gaming", "Baixo"
+            "Gaming", "Baixo", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
         ),
         ["sys-delivery-p2p"] = new(
             "sys-delivery-p2p", "HKLM",
@@ -299,7 +299,7 @@ public static class RegistryOptimizer
             "0", "1", new[] { "0", "1" },
             "Restringe otimização de entrega P2P em segundo plano durante jogos.",
             "Restricts background P2P Windows Update Delivery Optimization during gaming.",
-            "System", "Baixo"
+            "System", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["sys-transparency"] = new(
             "sys-transparency", "HKCU",
@@ -308,7 +308,7 @@ public static class RegistryOptimizer
             "0", "1", new[] { "0", "1" },
             "Desativa efeito acrílico do DWM para liberar ciclos de GPU.",
             "Disables DWM acrylic transparency blur to free GPU cycles.",
-            "Interface", "Baixo"
+            "Interface", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["storage-ntfs-lastaccess"] = new(
             "storage-ntfs-lastaccess", "HKLM",
@@ -317,16 +317,16 @@ public static class RegistryOptimizer
             "1", "0", new[] { "0", "1", "-2147483647" },
             "Reduz escritas desnecessárias de metadados NTFS em SSDs NVMe e SATA.",
             "Reduces unnecessary NTFS last-access metadata writes on NVMe and SATA SSDs.",
-            "Storage", "Baixo"
+            "Storage", "Baixo", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
         ),
         ["net-tcp-autotuning"] = new(
             "net-tcp-autotuning", "HKLM",
             @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
             "TcpMaxDataRetransmissions", RegistryValueKind.DWord,
             "5", "5", new[] { "3", "5", "7" },
-            "Mantém limite seguro de retransmissão TCP conforme RFC sem quebrar conexões.",
-            "Maintains RFC-compliant safe TCP retransmission limit without breaking connections.",
-            "Network", "Baixo"
+            "Mantém TcpMaxDataRetransmissions em 5, valor padrão de referência; não é TCP autotuning nem uma otimização de ping.",
+            "Keeps TcpMaxDataRetransmissions at the reference default of 5; this is not TCP autotuning or a ping optimization.",
+            "Network", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["priv-advertising-id"] = new(
             "priv-advertising-id", "HKCU",
@@ -335,7 +335,7 @@ public static class RegistryOptimizer
             "0", "1", new[] { "0", "1" },
             "Desativa o identificador de anúncios direcionados do perfil de usuário no Windows.",
             "Disables the targeted advertising ID for the user profile in Windows.",
-            "Privacy", "Baixo"
+            "Privacy", "Baixo", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["maint-startup-delay"] = new(
             "maint-startup-delay", "HKCU",
@@ -344,7 +344,7 @@ public static class RegistryOptimizer
             "0", "1000", new[] { "0", "1000" },
             "Remove atraso artificial do Explorer na inicialização de aplicativos de bandeja.",
             "Removes artificial Explorer startup delay for tray applications.",
-            "Maintenance", "Baixo"
+            "Maintenance", "Baixo", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
         )
     };
 

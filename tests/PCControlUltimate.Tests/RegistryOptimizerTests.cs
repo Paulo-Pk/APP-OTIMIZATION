@@ -263,6 +263,27 @@ public class RegistryOptimizerTests : IDisposable
         Assert.Equal(0, _fakeRegistry.WriteCalls);
     }
 
+
+    [Fact]
+    public void InspectCatalogTweak_AccessDenied_MarksInspectionUndeterminable()
+    {
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated inspection denial");
+        var result = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal("Acesso Negado", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_ReadError_MarksInspectionUndeterminable()
+    {
+        _fakeRegistry.ReadException = new IOException("simulated inspection read error");
+        var result = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal("Erro de Leitura", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
     private sealed class FakeRegistryBackend : IRegistryBackend
     {
         private readonly Dictionary<string, (object Value, RegistryValueKind Kind)> _values = new(StringComparer.OrdinalIgnoreCase);
