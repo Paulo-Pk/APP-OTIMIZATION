@@ -97,12 +97,40 @@ public class RegistryOptimizerTests : IDisposable
         Assert.False(snapshot.KeyExists);
     }
 
+    [Fact]
+    public void RestoreCatalogTweak_ReadbackMismatch_ReturnsFailure()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        _fakeRegistry.CorruptReadback = true;
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+
+        Assert.False(restored.Success);
+        Assert.Contains("Verificação pós-restauração falhou", restored.ErrorMessage ?? string.Empty);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_DeleteAccessDenied_ReturnsFailure()
+    {
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        _fakeRegistry.DeleteException = new UnauthorizedAccessException("simulated delete denied");
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+
+        Assert.False(restored.Success);
+        Assert.Contains("simulated delete denied", restored.ErrorMessage ?? string.Empty);
+    }
+
     private sealed class FakeRegistryBackend : IRegistryBackend
     {
         private readonly Dictionary<string, (object Value, RegistryValueKind Kind)> _values = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _keys = new(StringComparer.OrdinalIgnoreCase);
         public Exception? ReadException { get; set; }
         public Exception? WriteException { get; set; }
+        public Exception? DeleteException { get; set; }
         public bool CorruptReadback { get; set; }
         public int ReadCalls { get; private set; }
         public int WriteCalls { get; private set; }
@@ -143,6 +171,7 @@ public class RegistryOptimizerTests : IDisposable
 
         public void DeleteValue(string hive, string subKeyPath, string valueName)
         {
+            if (DeleteException != null) throw DeleteException;
             _values.Remove(ValueKey(hive, subKeyPath, valueName));
         }
 
