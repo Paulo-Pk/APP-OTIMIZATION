@@ -67,6 +67,9 @@ public static class RegistryStateLedger
         "tweak_state_ledger.dpapi"
     );
 
+    internal static Func<string, string, TokenProtectionResult> ProtectedTokenWriter { get; set; } = IntegrityVerifier.SaveProtectedSessionTokenWithReport;
+    internal static Func<string, string?> ProtectedTokenReader { get; set; } = IntegrityVerifier.ReadProtectedSessionToken;
+
     // Initialize only after LedgerFilePath so DPAPI key and ledger share the protected application directory.
     private static readonly string _ledgerSecretKey = InitializeProcessLedgerKey();
 
@@ -88,7 +91,9 @@ public static class RegistryStateLedger
             byte[] keyBytes = new byte[32];
             RandomNumberGenerator.Fill(keyBytes);
             string generated = Convert.ToHexString(keyBytes).ToLowerInvariant();
-            IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerKeyFilePath, generated);
+            TokenProtectionResult protection = IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerKeyFilePath, generated);
+            if (!protection.Success || (OperatingSystem.IsWindows() && (!protection.DpapiProtected || !protection.AclRestricted)))
+                throw new CryptographicException(protection.ErrorMessage ?? "A chave do Ledger não recebeu proteção DPAPI/ACL.");
             string? persisted = IntegrityVerifier.ReadProtectedSessionToken(LedgerKeyFilePath);
             if (!string.Equals(persisted, generated, StringComparison.Ordinal))
                 throw new CryptographicException("Não foi possível confirmar a persistência protegida da chave do Ledger.");
@@ -498,6 +503,46 @@ public static class RegistryStateLedger
         ledger.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
         ledger.LedgerHmacSha256 = IntegrityVerifier.ComputeHmacSha256(_ledgerSecretKey, BuildLedgerCanonicalString(ledger.Entries));
         string json = JsonSerializer.Serialize(ledger, new JsonSerializerOptions { WriteIndented = true });
-        IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerFilePath, json);
+        string? directory = Path.GetDirectoryName(LedgerFilePath);
+        if (string.IsNullOrWhiteSpace(directory)) throw new InvalidOperationException("Diretório do Ledger inválido.");
+        Directory.CreateDirectory(directory);
+
+        string tempPath = LedgerFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        string backupPath = LedgerFilePath + "." + Guid.NewGuid().ToString("N") + ".bak";
+        bool originalExisted = File.Exists(LedgerFilePath);
+        bool replaced = false;
+        try
+        {
+            TokenProtectionResult protection = ProtectedTokenWriter(tempPath, json);
+            if (!protection.Success || (OperatingSystem.IsWindows() && (!protection.DpapiProtected || !protection.AclRestricted)))
+                throw new IOException(protection.ErrorMessage ?? "O arquivo temporário do Ledger não recebeu proteção DPAPI/ACL obrigatória.");
+            if (!string.Equals(ProtectedTokenReader(tempPath), json, StringComparison.Ordinal))
+                throw new CryptographicException("A verificação de leitura do Ledger temporário falhou.");
+
+            if (originalExisted) File.Replace(tempPath, LedgerFilePath, backupPath, ignoreMetadataErrors: true);
+            else File.Move(tempPath, LedgerFilePath);
+            replaced = true;
+
+            if (!string.Equals(ProtectedTokenReader(LedgerFilePath), json, StringComparison.Ordinal))
+                throw new CryptographicException("A verificação do Ledger após a substituição falhou.");
+            if (File.Exists(backupPath)) File.Delete(backupPath);
+        }
+        catch
+        {
+            if (replaced && originalExisted && File.Exists(backupPath))
+            {
+                try { File.Replace(backupPath, LedgerFilePath, null, ignoreMetadataErrors: true); } catch { }
+            }
+            else if (replaced && !originalExisted)
+            {
+                try { File.Delete(LedgerFilePath); } catch { }
+            }
+            throw;
+        }
+        finally
+        {
+            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+            try { if (File.Exists(backupPath)) File.Delete(backupPath); } catch { }
+        }
     }
 }
