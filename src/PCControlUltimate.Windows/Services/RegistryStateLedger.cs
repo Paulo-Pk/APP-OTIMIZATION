@@ -120,6 +120,37 @@ public static class RegistryStateLedger
         );
     }
 
+    // Legacy v2.5 canonical form. Used only to verify already-authenticated entries before
+    // upgrading their HMAC to the current form; unverifiable entries are never migrated.
+    private static string BuildLegacyEntryCanonicalString(RegistryLedgerEntry entry)
+    {
+        return string.Join("|",
+            entry.OperationId ?? string.Empty,
+            (entry.TweakId ?? string.Empty).ToLowerInvariant(),
+            (entry.Hive ?? string.Empty).ToUpperInvariant(),
+            RegistryOptimizer.NormalizeSubKeyPath(entry.SubKeyPath ?? string.Empty).ToLowerInvariant(),
+            (entry.ValueName ?? string.Empty).ToLowerInvariant(),
+            entry.OriginalValueKind ?? string.Empty,
+            entry.WasInitiallyAbsent ? "1" : "0",
+            entry.KeyCreatedByApp ? "1" : "0",
+            entry.OriginalRawValue ?? "<ABSENT>",
+            entry.AppliedValue ?? string.Empty,
+            entry.CreatedAtUtc ?? string.Empty,
+            entry.IsRestored ? "1" : "0"
+        );
+    }
+
+    private static bool VerifyLegacyEntryHmac(RegistryLedgerEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey) || string.IsNullOrWhiteSpace(entry.EntryHmacSha256))
+            return false;
+        return IntegrityVerifier.VerifyHmacSha256(
+            _ledgerSecretKey,
+            BuildLegacyEntryCanonicalString(entry),
+            entry.EntryHmacSha256
+        );
+    }
+
     public static string ComputeEntryHmac(RegistryLedgerEntry entry)
     {
         if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
@@ -429,14 +460,26 @@ public static class RegistryStateLedger
                 return null;
             }
 
+            bool migratedLegacyEntries = false;
             foreach (var entry in ledger.Entries)
             {
-                if (!VerifyEntryHmac(entry))
+                if (VerifyEntryHmac(entry))
+                    continue;
+
+                if (!VerifyLegacyEntryHmac(entry))
                 {
                     errorMessage = $"Assinatura HMAC-SHA256 inválida para a operação '{entry.OperationId}'.";
                     return null;
                 }
+
+                // RestoredAtUtc was not authenticated in v2.5. Do not trust its legacy value.
+                entry.RestoredAtUtc = null;
+                entry.EntryHmacSha256 = ComputeEntryHmac(entry);
+                migratedLegacyEntries = true;
             }
+
+            if (migratedLegacyEntries)
+                SaveLedgerInternal(ledger);
 
             return ledger;
         }
