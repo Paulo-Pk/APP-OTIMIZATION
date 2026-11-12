@@ -185,6 +185,8 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isAgentConnected;
     private bool _isAdmin;
     private string _statusMessage = "Verificando comunicação com o Agente...";
+    private bool _isRefreshingTweakStates;
+    private string _tweakStatesSummaryText = "Estados do Registro ainda não atualizados nesta sessão.";
 
     // Hardware & GPU Health properties
     private string _hardwareSubsystemStatusText = "Sensor indisponível (N/D)";
@@ -421,6 +423,14 @@ public class MainViewModel : INotifyPropertyChanged
         set { _statusMessage = value; OnPropertyChanged(); }
     }
 
+    public bool CanRefreshTweakStates => !_isRefreshingTweakStates;
+    public string RefreshTweakStatesButtonText => _isRefreshingTweakStates ? "CONSULTANDO REGISTRO..." : "ATUALIZAR ESTADOS";
+    public string TweakStatesSummaryText
+    {
+        get => _tweakStatesSummaryText;
+        set { _tweakStatesSummaryText = value; OnPropertyChanged(); }
+    }
+
     public string HardwareSubsystemStatusText
     {
         get => _hardwareSubsystemStatusText;
@@ -630,6 +640,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand SetLanguageEnCommand { get; }
     public ICommand CreateSnapshotCommand { get; }
     public ICommand RefreshStatusCommand { get; }
+    public ICommand RefreshTweakStatesCommand { get; }
     public ICommand ApplyTweakCommand { get; }
     public ICommand RestoreSingleTweakCommand { get; }
     public ICommand RefreshBackupsCommand { get; }
@@ -657,6 +668,61 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RunBenchmarkCommand { get; }
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
+
+    private async Task RefreshAllTweakStatesAsync()
+    {
+        if (_isRefreshingTweakStates)
+            return;
+
+        _isRefreshingTweakStates = true;
+        OnPropertyChanged(nameof(CanRefreshTweakStates));
+        OnPropertyChanged(nameof(RefreshTweakStatesButtonText));
+        TweakStatesSummaryText = "Consultando o Registro em modo somente leitura...";
+        StatusMessage = "CONSULTANDO REGISTRO... Nenhuma alteração será gravada.";
+
+        try
+        {
+            var states = await Task.Run(() =>
+                RegistryOptimizer.Catalog.Keys
+                    .Select(id => (TweakId: id, State: RegistryOptimizer.InspectCatalogTweakCurrentState(id)))
+                    .ToArray());
+
+            var byId = states.ToDictionary(x => x.TweakId, x => x.State, StringComparer.OrdinalIgnoreCase);
+            foreach (var tweak in CatalogTweaks)
+            {
+                if (!byId.TryGetValue(tweak.TweakId, out string? state))
+                    continue;
+
+                tweak.IsApplied = string.Equals(state, "Ativo", StringComparison.OrdinalIgnoreCase);
+                tweak.VerificationState = GetTweakStateDisplay(state, Loc.CurrentCulture == "pt-BR");
+            }
+
+            int active = states.Count(x => x.State == "Ativo");
+            int inactive = states.Count(x => x.State == "Inativo");
+            int custom = states.Count(x => x.State == "Personalizado");
+            int denied = states.Count(x => x.State == "Acesso Negado");
+            int readErrors = states.Count(x => x.State == "Erro de Leitura");
+            int wrongType = states.Count(x => x.State == "Tipo Incorreto");
+            int undetermined = states.Count(x => x.State == "Estado Não Determinável" || x.State == "Padrão Dependente");
+
+            TweakStatesSummaryText = $"Leitura concluída: {states.Length} ajustes — {active} ativos, {inactive} inativos, {custom} personalizados, {wrongType} com tipo incorreto, {denied} sem acesso, {readErrors} erros de leitura e {undetermined} não determináveis.";
+            StatusMessage = TweakStatesSummaryText;
+            OnPropertyChanged(nameof(AppliedTweaksCount));
+            OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+        }
+        catch (Exception ex)
+        {
+            TweakStatesSummaryText = $"Não foi possível atualizar os estados: {ex.Message}";
+            StatusMessage = TweakStatesSummaryText;
+        }
+        finally
+        {
+            _isRefreshingTweakStates = false;
+            OnPropertyChanged(nameof(CanRefreshTweakStates));
+            OnPropertyChanged(nameof(RefreshTweakStatesButtonText));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
 
     private static string BuildGpuThermalUserMessage(GpuThermalEvaluationResult evaluation, bool isPortuguese)
     {
@@ -693,6 +759,10 @@ public class MainViewModel : INotifyPropertyChanged
             "Personalizado" or "Parcial" => isPortuguese ? "Personalizado — diferente do recomendado" : "Custom — differs from recommendation",
             "Chave Ausente" or "Valor Ausente" => isPortuguese ? "Valor ausente no Registro" : "Registry value is missing",
             "Acesso Negado" => isPortuguese ? "Acesso negado — requer permissão" : "Access denied — permission required",
+            "Tipo Incorreto" => isPortuguese ? "Tipo incorreto — esperado diferente do encontrado" : "Wrong Registry type — expected type mismatch",
+            "Estado Não Determinável" => isPortuguese ? "Estado não determinável — valor ausente sem padrão confirmado" : "Undetermined — absent value has no confirmed default",
+            "Padrão Dependente" => isPortuguese ? "Padrão depende da edição/configuração do Windows" : "Default depends on Windows edition/configuration",
+            "Erro de Leitura" => isPortuguese ? "Erro de leitura — estado não determinável" : "Read error — state undetermined",
             "Não Disponível Neste Sistema" => isPortuguese ? "Consulta disponível somente no Windows" : "Inspection is available on Windows only",
             _ => isPortuguese ? "Não foi possível consultar" : "Unable to inspect"
         };
@@ -720,6 +790,8 @@ public class MainViewModel : INotifyPropertyChanged
 
         foreach (var def in RegistryOptimizer.Catalog.Values)
         {
+            // One read per tweak during startup; use the same result for both UI fields.
+            string initialState = RegistryOptimizer.InspectCatalogTweakCurrentState(def.TweakId);
             CatalogTweaks.Add(new TweakItemViewModel
             {
                 TweakId = def.TweakId,
@@ -732,13 +804,8 @@ public class MainViewModel : INotifyPropertyChanged
                 ValueKind = def.ValueKind.ToString(),
                 RecommendedValue = def.RecommendedValue,
                 RiskLevel = def.RiskLevel,
-                IsApplied = string.Equals(
-                    RegistryOptimizer.InspectCatalogTweakCurrentState(def.TweakId),
-                    "Ativo",
-                    StringComparison.OrdinalIgnoreCase),
-                VerificationState = GetTweakStateDisplay(
-                    RegistryOptimizer.InspectCatalogTweakCurrentState(def.TweakId),
-                    Loc.CurrentCulture == "pt-BR")
+                IsApplied = string.Equals(initialState, "Ativo", StringComparison.OrdinalIgnoreCase),
+                VerificationState = GetTweakStateDisplay(initialState, Loc.CurrentCulture == "pt-BR")
             });
         }
 
@@ -754,6 +821,8 @@ public class MainViewModel : INotifyPropertyChanged
                 RequiresAdminUac = cat.RequiresAdminUac
             });
         }
+
+        RefreshTweakStatesCommand = new RelayCommand(async _ => await RefreshAllTweakStatesAsync(), _ => CanRefreshTweakStates);
 
         SelectTabCommand = new RelayCommand(tab =>
         {

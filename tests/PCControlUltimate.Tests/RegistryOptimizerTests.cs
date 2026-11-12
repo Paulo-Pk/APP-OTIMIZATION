@@ -182,6 +182,66 @@ public class RegistryOptimizerTests : IDisposable
         Assert.Contains("simulated delete denied", restored.ErrorMessage ?? string.Empty);
     }
 
+    [Fact]
+    public void InspectCatalogTweakCurrentState_KnownDocumentedAbsentValue_UsesDocumentedDefault()
+    {
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss");
+        Assert.Equal("Inativo", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_AbsentWithKnownDefault_UsesKnownDefault()
+    {
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("mem-lock-executive");
+        Assert.Equal("Inativo", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_EditionDependentAbsentValue_IsNotAssumedInactive()
+    {
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-game-dvr");
+        Assert.Equal("Padrão Dependente", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_WrongRegistryType_ReturnsWrongTypeWithoutWriting()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, "0", RegistryValueKind.String);
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState(def.TweakId);
+        Assert.Equal("Tipo Incorreto", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_AbsentUndocumentedValue_ReturnsUndeterminedWithoutWriting()
+    {
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("start-fast-boot");
+        Assert.Equal("Estado Não Determinável", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_AccessDenied_PreservesAccessDeniedStateWithoutWriting()
+    {
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated inspection denial");
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-game-dvr");
+        Assert.Equal("Acesso Negado", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_ReadError_PreservesReadErrorStateWithoutWriting()
+    {
+        _fakeRegistry.ReadException = new IOException("simulated inspection read error");
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-game-dvr");
+        Assert.Equal("Erro de Leitura", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
     private sealed class FakeRegistryBackend : IRegistryBackend
     {
         private readonly Dictionary<string, (object Value, RegistryValueKind Kind)> _values = new(StringComparer.OrdinalIgnoreCase);

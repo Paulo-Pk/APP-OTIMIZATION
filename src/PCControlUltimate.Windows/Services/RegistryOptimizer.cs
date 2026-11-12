@@ -14,6 +14,14 @@ using Microsoft.Win32;
 
 namespace PCControlUltimate.Windows.Services;
 
+public enum TweakDefaultBehaviorKind
+{
+    KnownDocumentedValue,
+    AbsentWithKnownDefault,
+    EditionOrConfigDependent,
+    UndeterminedWhenAbsent
+}
+
 public record TweakDefinition(
     string TweakId,
     string Hive,
@@ -26,7 +34,8 @@ public record TweakDefinition(
     string Description,
     string DescriptionEn,
     string Category,
-    string RiskLevel
+    string RiskLevel,
+    TweakDefaultBehaviorKind DefaultBehavior = TweakDefaultBehaviorKind.UndeterminedWhenAbsent
 )
 {
     public string TargetRawValue => RecommendedValue;
@@ -131,7 +140,7 @@ public static class RegistryOptimizer
             "10", "20", new[] { "10", "20" },
             "Prioriza threads multimídia e reduz latência de áudio/DPC em jogos.",
             "Prioritizes multimedia threads and lowers audio/DPC latency in games.",
-            "Performance", "Baixo"
+            "Performance", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-game-dvr"] = new(
             "perf-game-dvr", "HKCU",
@@ -140,7 +149,7 @@ public static class RegistryOptimizer
             "0", "1", new[] { "0", "1" },
             "Desativa gravação contínua em segundo plano do Xbox Game DVR.",
             "Disables continuous background recording by Xbox Game DVR.",
-            "Performance", "Baixo"
+            "Performance", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["perf-hpet"] = new(
             "perf-hpet", "HKLM",
@@ -248,7 +257,7 @@ public static class RegistryOptimizer
             "1", "0", new[] { "0", "1" },
             "Mantém executivo do kernel e drivers na memória RAM física.",
             "Keeps kernel executive and drivers resident in physical RAM.",
-            "Memory", "Baixo"
+            "Memory", "Baixo", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["game-hags"] = new(
             "game-hags", "HKLM",
@@ -1206,8 +1215,23 @@ public static class RegistryOptimizer
         try
         {
             RegistryValueSnapshot snapshot = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
-            if (!snapshot.KeyExists) return "Chave Ausente";
-            if (!snapshot.ValueExists) return "Valor Ausente";
+
+            if (!snapshot.KeyExists || !snapshot.ValueExists)
+            {
+                return def.DefaultBehavior switch
+                {
+                    TweakDefaultBehaviorKind.KnownDocumentedValue => "Inativo",
+                    TweakDefaultBehaviorKind.AbsentWithKnownDefault => "Inativo",
+                    TweakDefaultBehaviorKind.EditionOrConfigDependent => "Padrão Dependente",
+                    _ => "Estado Não Determinável"
+                };
+            }
+
+            // A value with a different Registry type is incompatible, not a custom value.
+            // Inspection is read-only: never rewrite or coerce an unexpected value.
+            if (snapshot.Kind != def.ValueKind)
+                return "Tipo Incorreto";
+
             string? serialized = SerializeRegistryValue(snapshot.Value, snapshot.Kind);
             if (string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
                 return "Ativo";

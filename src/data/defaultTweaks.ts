@@ -1,5 +1,6 @@
 import { SystemTweak } from '../types';
 
+// Preview metadata only. RegistryOptimizer.Catalog is the authoritative source for executable tweaks.
 export const initialTweaks: SystemTweak[] = [
   // 1. Performance
   {
@@ -7,7 +8,7 @@ export const initialTweaks: SystemTweak[] = [
     name: 'Otimização Multimedia Class Scheduler (MMCSS)',
     category: 'performance',
     description: 'Prioriza threads de jogos competitivos no escalonador de áudio e tarefas multimídia do Windows NT.',
-    expectedBenefit: 'Redução de stuttering de áudio e menor latência de interrupção DPC em jogos.',
+    expectedBenefit: 'Pode alterar o escalonamento de tarefas multimídia; não garante aumento de FPS nem redução de latência DPC.'
     risk: 'Baixo',
     level: 'conservative',
     currentValue: 'Padrão (SystemResponsiveness=20)',
@@ -24,7 +25,7 @@ export const initialTweaks: SystemTweak[] = [
     name: 'Desativar Captura em Segundo Plano do Game DVR',
     category: 'performance',
     description: 'Desativa a gravação contínua do Xbox Game DVR que consome ciclos de GPU e I/O de disco sem o usuário notar.',
-    expectedBenefit: '+5% a +12% em estabilidade de 1% Low FPS e alívio do encoder da GPU.',
+    expectedBenefit: 'Pode reduzir uso de recursos quando a captura em segundo plano estiver ativa; o impacto em FPS varia conforme o sistema.'
     risk: 'Baixo',
     level: 'conservative',
     currentValue: 'GameDVR_Enabled = 1 (Ativo)',
@@ -94,7 +95,7 @@ export const initialTweaks: SystemTweak[] = [
     name: 'Desativar Pré-Carregamento do Microsoft Edge no Boot',
     category: 'startup',
     description: 'Impede que o Edge inicie instâncias fantasmas de renderização e widgets na inicialização.',
-    expectedBenefit: 'Libera ~450MB de RAM e 4 a 6 segundos no tempo total de inicialização.',
+    expectedBenefit: 'Pode reduzir atividade em segundo plano; consumo de memória e tempo de inicialização variam conforme a instalação.'
     risk: 'Baixo',
     level: 'conservative',
     currentValue: 'StartupBoostEnabled = 1 (Ativado)',
@@ -130,7 +131,7 @@ export const initialTweaks: SystemTweak[] = [
     name: 'Desativar Feed Notícias & Interesses da Barra de Tarefas',
     category: 'background',
     description: 'Remove o widget de notícias e clima que mantém conexão WebView2 contínua.',
-    expectedBenefit: 'Menos 150MB de memória privada e zero interrupções na barra de tarefas.',
+    expectedBenefit: 'Pode reduzir atividade do feed em segundo plano; o consumo de memória varia conforme a versão do Windows.'
     risk: 'Baixo',
     level: 'conservative',
     currentValue: 'ShellFeedsTaskbarViewMode = 0 (Ativo)',
@@ -310,7 +311,7 @@ export const initialTweaks: SystemTweak[] = [
     name: 'Modo Focado da Interface do Windows (Sem Efeitos de Desfoque Acrylic)',
     category: 'system',
     description: 'Remove o cálculo em tempo real de transparência e blur do Desktop Window Manager (DWM).',
-    expectedBenefit: 'Economiza 2% a 4% de recursos de renderização da placa de vídeo.',
+    expectedBenefit: 'Reduz efeitos de transparência; qualquer ganho de GPU depende da carga e pode ser imperceptível.'
     risk: 'Baixo',
     level: 'advanced',
     currentValue: 'EnableTransparency = 1',

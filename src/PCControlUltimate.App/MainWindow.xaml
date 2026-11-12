@@ -1040,11 +1040,18 @@
                             <TextBlock Text="Windows Tweaks — Otimizações Reais de Registro" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="Nenhuma chave fora da whitelist é tocada. Toda operação registra o estado anterior real no Ledger DPAPI+HMAC." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
-                        <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionSecondaryButton}" Command="{Binding CreateSnapshotCommand}">
-                            <TextBlock Text="Criar Snapshot Antes de Alterar"/>
-                        </Button>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button Style="{StaticResource ActionSecondaryButton}" Margin="0,0,8,0" Command="{Binding RefreshTweakStatesCommand}" IsEnabled="{Binding CanRefreshTweakStates}">
+                                <TextBlock Text="{Binding RefreshTweakStatesButtonText}"/>
+                            </Button>
+                            <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding CreateSnapshotCommand}">
+                                <TextBlock Text="Criar Snapshot Antes de Alterar"/>
+                            </Button>
+                        </StackPanel>
                     </Grid>
                 </Border>
+
+                <TextBlock Text="{Binding TweakStatesSummaryText}" Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,12"/>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="520">
