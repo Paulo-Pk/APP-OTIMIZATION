@@ -271,7 +271,8 @@ public static class DiskCleanerEngine
             ref deletedFiles,
             ref skippedLocked,
             ref skippedSymlinks,
-            affectedItems
+            affectedItems,
+            errors
         );
 
         bool fullSuccess = errors.Count == 0 && skippedLocked == 0;
@@ -298,7 +299,8 @@ public static class DiskCleanerEngine
         ref int deletedFiles,
         ref int skippedLocked,
         ref int skippedSymlinks,
-        List<string> affectedItems)
+        List<string> affectedItems,
+        List<string> errors)
     {
         try
         {
@@ -328,9 +330,10 @@ public static class DiskCleanerEngine
                         affectedItems.Add($"[DEL] {fullName} ({size} B)");
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     skippedLocked++;
+                    if (errors.Count < 100) errors.Add($"Falha ao excluir arquivo '{file.FullName}': {ex.Message}");
                 }
             }
 
@@ -352,7 +355,8 @@ public static class DiskCleanerEngine
                         ref deletedFiles,
                         ref skippedLocked,
                         ref skippedSymlinks,
-                        affectedItems
+                        affectedItems,
+                        errors
                     );
 
                     if (subDir.GetFileSystemInfos().Length == 0)
@@ -365,15 +369,17 @@ public static class DiskCleanerEngine
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     skippedLocked++;
+                    if (errors.Count < 100) errors.Add($"Falha ao processar pasta '{subDir.FullName}': {ex.Message}");
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
             skippedLocked++;
+            if (errors.Count < 100) errors.Add($"Falha ao acessar pasta '{currentDir.FullName}': {ex.Message}");
         }
     }
 
