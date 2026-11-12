@@ -318,6 +318,35 @@ public class RegistryOptimizerTests : IDisposable
     }
 
 
+    [Theory]
+    [InlineData("mem-standby-clean")]
+    [InlineData("net-tcp-autotuning")]
+    public void InspectCatalogTweak_NoOpCatalogEntry_AbsentValueReportsNoChangeNeeded(string tweakId)
+    {
+        var result = RegistryOptimizer.InspectCatalogTweak(tweakId);
+
+        Assert.Equal("Sem Alteração Necessária", result.State);
+        Assert.False(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Theory]
+    [InlineData("mem-standby-clean")]
+    [InlineData("net-tcp-autotuning")]
+    public void InspectCatalogTweak_NoOpCatalogEntry_DefaultValueReportsNoChangeNeeded(string tweakId)
+    {
+        var def = RegistryOptimizer.Catalog[tweakId];
+        object value = RegistryOptimizer.DeserializeValue(def.RecommendedValue, def.ValueKind)!;
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, value, def.ValueKind);
+
+        var result = RegistryOptimizer.InspectCatalogTweak(tweakId);
+
+        Assert.Equal("Sem Alteração Necessária", result.State);
+        Assert.Equal(def.RecommendedValue, result.CurrentValue);
+        Assert.False(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
     [Fact]
     public void InspectCatalogTweak_AccessDenied_MarksInspectionUndeterminable()
     {
