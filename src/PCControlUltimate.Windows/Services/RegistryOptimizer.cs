@@ -675,12 +675,11 @@ public static class RegistryOptimizer
                     );
                 }
 
-                string mismatchErr = "Verificação falhou: valor ou tipo lido após gravação difere do esperado.";
-                RecordAudit("APPLY_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                    previousSerialized, serializedTargetValue, verifiedStr, false, mismatchErr);
-                return new RegistryOperationResult(false, previousSerialized, verifiedStr,
-                    previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr, def.TweakId);
-            }
+            string mismatchErr = "Verificação falhou: valor ou tipo lido após gravação difere do esperado.";
+            RecordAudit("APPLY_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                previousSerialized, serializedTargetValue, verifiedStr, false, mismatchErr);
+            return new RegistryOperationResult(false, previousSerialized, verifiedStr,
+                previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr, def.TweakId);
         }
         catch (SecurityException ex)
         {
