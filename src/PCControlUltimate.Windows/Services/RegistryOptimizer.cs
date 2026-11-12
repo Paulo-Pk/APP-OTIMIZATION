@@ -816,7 +816,8 @@ public static class RegistryOptimizer
             entry.OriginalValueKind,
             entry.WasInitiallyAbsent,
             entry.KeyCreatedByApp,
-            entry.OperationId
+            entry.OperationId,
+            entry.AppliedValue
         );
 
         if (restoreRes.Success)
@@ -1078,7 +1079,8 @@ public static class RegistryOptimizer
         string? originalValueKindStr,
         bool wasInitiallyAbsent,
         bool keyCreatedByApp,
-        string? operationId = null)
+        string? operationId = null,
+        string? expectedAppliedValue = null)
     {
         // This method is reached only with state resolved from the authenticated backend ledger.
         // Restore the exact original value/type; AllowedValues applies to new writes, not recovery.
@@ -1120,6 +1122,31 @@ public static class RegistryOptimizer
             string? currentBeforeRestore = before.ValueExists
                 ? SerializeRegistryValue(before.Value, before.Kind)
                 : null;
+
+            // A ledger restore must not overwrite a value changed manually after the app's write.
+            // Snapshot restoration is an explicit recovery action and does not supply this guard.
+            if (expectedAppliedValue != null)
+            {
+                if (string.IsNullOrWhiteSpace(expectedAppliedValue))
+                {
+                    const string missingAppliedValue = "O histórico confiável não contém o valor aplicado necessário para verificar a restauração.";
+                    RecordAudit("RESTORE_BLOCKED_INVALID_APPLIED_VALUE", def.TweakId, fullKeyPath, def.ValueName,
+                        def.ValueKind.ToString(), currentBeforeRestore, expectedAppliedValue, null, false, missingAppliedValue);
+                    return new RegistryOperationResult(false, currentBeforeRestore, null, def.ValueKind.ToString(),
+                        wasInitiallyAbsent, keyCreatedByApp, missingAppliedValue, def.TweakId, operationId, "LEDGER_APPLIED_VALUE_MISSING");
+                }
+
+                object expectedTyped = DeserializeRegistryValue(expectedAppliedValue, def.ValueKind);
+                if (!before.ValueExists || before.Kind != def.ValueKind ||
+                    !ValuesMatch(before.Value, expectedTyped, def.ValueKind))
+                {
+                    const string changedStateMessage = "A restauração foi bloqueada porque o valor atual do Registro não corresponde mais ao valor aplicado pelo PC Control. A configuração pode ter sido alterada depois; verifique-a antes de restaurar.";
+                    RecordAudit("RESTORE_BLOCKED_EXTERNAL_CHANGE", def.TweakId, fullKeyPath, def.ValueName,
+                        before.Kind.ToString(), currentBeforeRestore, expectedAppliedValue, null, false, changedStateMessage);
+                    return new RegistryOperationResult(false, currentBeforeRestore, null, before.Kind.ToString(),
+                        wasInitiallyAbsent, keyCreatedByApp, changedStateMessage, def.TweakId, operationId, "REGISTRY_STATE_CHANGED");
+                }
+            }
 
             if (wasInitiallyAbsent || originalSerializedValue == null)
             {
