@@ -83,6 +83,36 @@ public class GameNetworkAcceleratorTests
     }
 
     [Fact]
+    public void WireGuardTunnelManager_RouteTableComparison_RequiresExactPreTunnelRouteRecovery()
+    {
+        const string before = """
+            IPv4 Route Table
+            Active Routes:
+            Network Destination        Netmask          Gateway       Interface  Metric
+            0.0.0.0                    0.0.0.0          192.168.1.1   192.168.1.100  25
+            192.168.1.0                255.255.255.0    On-link       192.168.1.100  281
+            """;
+        const string same = """
+            IPv4 Route Table
+            Active Routes:
+            Network Destination        Netmask          Gateway       Interface  Metric
+            0.0.0.0                    0.0.0.0          192.168.1.1   192.168.1.100  25
+            192.168.1.0                255.255.255.0    On-link       192.168.1.100  281
+            """;
+        const string changedDefaultRoute = """
+            IPv4 Route Table
+            Active Routes:
+            Network Destination        Netmask          Gateway       Interface  Metric
+            0.0.0.0                    0.0.0.0          10.66.66.1    10.66.66.2  5
+            192.168.1.0                255.255.255.0    On-link       192.168.1.100  281
+            """;
+
+        Assert.True(WireGuardTunnelManager.AreIpv4RouteTablesEquivalent(before, same));
+        Assert.False(WireGuardTunnelManager.AreIpv4RouteTablesEquivalent(before, changedDefaultRoute));
+        Assert.False(WireGuardTunnelManager.AreIpv4RouteTablesEquivalent(before, string.Empty));
+    }
+
+    [Fact]
     public void WireGuardTunnelManager_ShouldBlockIpv4DefaultRouteOverride_WhenSelectiveRoutingRequired()
     {
         string ipv4FullTunnelConfig = """
