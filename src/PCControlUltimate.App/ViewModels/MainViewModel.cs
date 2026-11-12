@@ -822,6 +822,20 @@ public class MainViewModel : INotifyPropertyChanged
         return $"{status}. {readings}{limitation}";
     }
 
+    private static void UpdateTweakInspection(
+        TweakItemViewModel tweak,
+        RegistryTweakInspectionResult inspection,
+        bool isPortuguese)
+    {
+        tweak.InspectionState = inspection.State;
+        tweak.IsApplied = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase);
+        tweak.VerificationState = GetTweakStateDisplay(inspection.State, isPortuguese);
+        tweak.CurrentValueText = inspection.CurrentValue ?? "—";
+        tweak.RegistryTypeText = inspection.ActualValueKind?.ToString() ?? "N/D";
+        tweak.DiagnosticDetailText = inspection.DiagnosticDetail ??
+            (inspection.AbsenceKind ?? (inspection.IsUndeterminable ? "Estado não determinável." : "Leitura confirmada."));
+    }
+
     private static string GetTweakStateDisplay(string state, bool isPortuguese)
     {
         return state switch
@@ -836,6 +850,8 @@ public class MainViewModel : INotifyPropertyChanged
             "Estado Não Determinável" => isPortuguese ? "Estado não determinável — valor ausente sem padrão confirmado" : "Undetermined — absent value has no confirmed default",
             "Não Suportado" => isPortuguese ? "Ajuste não reconhecido pelo catálogo" : "Tweak is not in the supported catalog",
             "Não Verificado" => isPortuguese ? "Aguardando primeira leitura do Registro..." : "Waiting for initial Registry inspection...",
+            "Erro de Aplicação" => isPortuguese ? "Falha ao aplicar — confira o diagnóstico" : "Apply failed — inspect the diagnostic",
+            "Erro de Restauração" => isPortuguese ? "Falha ao restaurar — confira o diagnóstico" : "Restore failed — inspect the diagnostic",
             "Padrão Dependente" => isPortuguese ? "Padrão depende da edição/configuração do Windows" : "Default depends on Windows edition/configuration",
             "Erro de Leitura" => isPortuguese ? "Erro de leitura — estado não determinável" : "Read error — state undetermined",
             "Não Disponível Neste Sistema" => isPortuguese ? "Consulta disponível somente no Windows" : "Inspection is available on Windows only",
@@ -987,9 +1003,8 @@ public class MainViewModel : INotifyPropertyChanged
                     }
                     catch { }
 
-                    var readBackState = RegistryOptimizer.InspectCatalogTweakCurrentState(tweak.TweakId);
-                    tweak.IsApplied = string.Equals(readBackState, "Ativo", StringComparison.OrdinalIgnoreCase);
-                    tweak.VerificationState = GetTweakStateDisplay(readBackState, Loc.CurrentCulture == "pt-BR");
+                    var readBack = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
+                    UpdateTweakInspection(tweak, readBack, Loc.CurrentCulture == "pt-BR");
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     CommandManager.InvalidateRequerySuggested();
@@ -1010,7 +1025,9 @@ public class MainViewModel : INotifyPropertyChanged
                 }
                 else
                 {
-                    tweak.VerificationState = "Falha / Requer UAC";
+                    tweak.InspectionState = "Erro de Aplicação";
+                    tweak.VerificationState = GetTweakStateDisplay(tweak.InspectionState, Loc.CurrentCulture == "pt-BR");
+                    tweak.DiagnosticDetailText = details;
                     StatusMessage = $"Não foi possível aplicar '{tweak.TweakId}': {details}";
                 }
             }
@@ -1031,9 +1048,8 @@ public class MainViewModel : INotifyPropertyChanged
                 RefreshAuditLogs();
                 if (ok)
                 {
-                    var restoredReadBackState = RegistryOptimizer.InspectCatalogTweakCurrentState(tweak.TweakId);
-                    tweak.IsApplied = string.Equals(restoredReadBackState, "Ativo", StringComparison.OrdinalIgnoreCase);
-                    tweak.VerificationState = GetTweakStateDisplay(restoredReadBackState, Loc.CurrentCulture == "pt-BR");
+                    var restoredInspection = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
+                    UpdateTweakInspection(tweak, restoredInspection, Loc.CurrentCulture == "pt-BR");
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     await _databaseService.UpsertOptimizationActionAsync(
@@ -1053,6 +1069,9 @@ public class MainViewModel : INotifyPropertyChanged
                 }
                 else
                 {
+                    tweak.InspectionState = "Erro de Restauração";
+                    tweak.VerificationState = GetTweakStateDisplay(tweak.InspectionState, Loc.CurrentCulture == "pt-BR");
+                    tweak.DiagnosticDetailText = details;
                     StatusMessage = $"Falha ao reverter '{tweak.TweakId}': {details}";
                 }
             }
@@ -1660,9 +1679,8 @@ public class MainViewModel : INotifyPropertyChanged
     
                     // A successful agent response confirms the write request, not the
                     // effective Registry state. Re-read the value before reporting success.
-                    var readBackState = RegistryOptimizer.InspectCatalogTweakCurrentState(tweak.TweakId);
-                    tweak.IsApplied = string.Equals(readBackState, "Ativo", StringComparison.OrdinalIgnoreCase);
-                    tweak.VerificationState = GetTweakStateDisplay(readBackState, Loc.CurrentCulture == "pt-BR");
+                    var readBack = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
+                    UpdateTweakInspection(tweak, readBack, Loc.CurrentCulture == "pt-BR");
     
                     if (!tweak.IsApplied)
                     {
