@@ -953,10 +953,12 @@ public class MainViewModel : INotifyPropertyChanged
             if (param is TweakItemViewModel tweak)
             {
                 // Secure backend-only restoration via DPAPI+HMAC ledger or verified snapshot
+                // Individual reversal must use the trusted operation ledger for this tweak.
+                // A previously selected snapshot is unrelated and must never silently override that history.
                 var (ok, details) = await _agentClient.RestoreCatalogTweakAsync(
                     tweak.TweakId,
                     tweak.LastOperationId,
-                    SelectedBackup?.SnapshotId
+                    snapshotId: null
                 );
                 RefreshAuditLogs();
                 if (ok)
