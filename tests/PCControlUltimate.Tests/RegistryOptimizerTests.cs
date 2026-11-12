@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using PCControlUltimate.Windows.Services;
@@ -9,8 +10,32 @@ using Xunit;
 namespace PCControlUltimate.Tests;
 
 [SupportedOSPlatform("windows")]
-public class RegistryOptimizerTests
+public class RegistryOptimizerTests : IDisposable
 {
+    private readonly string _testLedgerDirectory;
+
+    public RegistryOptimizerTests()
+    {
+        _testLedgerDirectory = Path.Combine(Path.GetTempPath(), $"pccontrol-registry-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_testLedgerDirectory);
+        RegistryStateLedger.LedgerFilePath = Path.Combine(_testLedgerDirectory, "test-ledger.dpapi");
+        RegistryStateLedger.ClearLedgerForTesting();
+    }
+
+    public void Dispose()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        try
+        {
+            if (Directory.Exists(_testLedgerDirectory))
+                Directory.Delete(_testLedgerDirectory, recursive: true);
+        }
+        catch
+        {
+            // Test cleanup must not mask the actual assertion result.
+        }
+    }
+
     [Theory]
     [InlineData(@"SYSTEM\CurrentControlSet\Control\PriorityControl")]
     [InlineData(@"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces")]
@@ -272,18 +297,10 @@ public class RegistryOptimizerTests
     }
 
     [Fact]
-    public void RestoreCatalogTweak_ClientCannotChooseArbitraryOriginalValue_BackendUsesLedgerInstead()
+    public void RestoreCatalogTweak_LegacyCallerSuppliedState_IsIgnoredWithoutTrustedHistory()
     {
         RegistryStateLedger.ClearLedgerForTesting();
-
-        // Apply tweak to HKCU\System\GameConfigStore\GameDVR_Enabled
-        var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
-        Assert.True(applyResult.Success);
-        Assert.NotNull(applyResult.OperationId);
-
-        // Even if caller passes a malicious/arbitrary originalRawValue ("999999") to the legacy method,
-        // the backend ignores the caller-supplied value and restores strictly from the DPAPI+HMAC ledger!
-        var restoreResult = RegistryOptimizer.RestoreCatalogTweak(
+        var result = RegistryOptimizer.RestoreCatalogTweak(
             "perf-game-dvr",
             wasInitiallyAbsent: false,
             originalRawValue: "999999",
@@ -291,31 +308,19 @@ public class RegistryOptimizerTests
             keyCreatedByApp: false
         );
 
-        Assert.True(restoreResult.Success);
-        Assert.NotEqual("999999", restoreResult.VerifiedCurrentValue);
+        Assert.False(result.Success);
+        Assert.Equal("NO_TRUSTED_BACKEND_HISTORY", result.ErrorCode);
     }
 
     [Fact]
-    public void RestoreCatalogTweakFromTrustedSource_WhenValueWasInitiallyAbsent_RemovesValueAndVerifiesAbsence()
+    public void RestoreCatalogTweakFromTrustedSource_DoesNotTouchRealRegistryWithoutTrustedHistory()
     {
         RegistryStateLedger.ClearLedgerForTesting();
-        var def = RegistryOptimizer.Catalog["perf-fso-flags"];
-
-        // Ensure value is absent before recording
-        using (var baseKey = RegistryKey.OpenBaseKey(RegistryOptimizer.ParseRegistryHive(def.Hive), RegistryView.Registry64))
-        using (var subKey = baseKey.OpenSubKey(def.SubKeyPath, writable: true))
-        {
-            subKey?.DeleteValue(def.ValueName, throwOnMissingValue: false);
-        }
-
-        var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-fso-flags", "2");
-        Assert.True(applyResult.Success);
-        Assert.True(applyResult.WasInitiallyAbsent);
-
-        var restoreResult = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-fso-flags", applyResult.OperationId);
-        Assert.True(restoreResult.Success);
-        Assert.Equal("REMOVED_ABSENT_VALUE", restoreResult.VerifiedCurrentValue);
+        var result = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-fso-flags");
+        Assert.False(result.Success);
+        Assert.Equal("NO_TRUSTED_BACKEND_HISTORY", result.ErrorCode);
     }
+
     [Fact]
     public void RegistryStateLedger_AuthenticatedCustomOriginalValueAndKind_AreRestorable()
     {
