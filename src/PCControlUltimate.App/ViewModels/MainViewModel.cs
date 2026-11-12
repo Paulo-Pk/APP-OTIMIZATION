@@ -151,6 +151,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly DatabaseService _databaseService;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
+    private readonly SystemDoctorService _systemDoctor = new();
     private CancellationTokenSource? _presentMonCts;
     private readonly SemaphoreSlim _telemetryRefreshGate = new(1, 1);
     private readonly DispatcherTimer _telemetryRefreshTimer;
@@ -239,6 +240,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<TracerouteHopResult> TracerouteHops { get; } = new();
     public ObservableCollection<RelayNodeCandidate> RelayNodes { get; } = new();
     public ObservableCollection<ModuleCapabilityMatrixItem> ModuleCapabilityMatrix { get; } = new();
+    public ObservableCollection<SystemDoctorFinding> SystemDoctorFindings { get; } = new();
     public ObservableCollection<RunningProcessInfo> AvailableProcesses { get; } = new();
     public ObservableCollection<double> RecentFrametimeSamples { get; } = new();
     public ObservableCollection<PresentMonCaptureResponse> PresentMonHistory { get; } = new();
@@ -544,6 +546,13 @@ public class MainViewModel : INotifyPropertyChanged
         set { _presentMonMetricsSummary = value; OnPropertyChanged(); }
     }
 
+    private string _systemDoctorSummaryText = "Clique em Executar Diagnóstico para verificar temperaturas, memória, armazenamento e eventos recentes do Windows.";
+    public string SystemDoctorSummaryText
+    {
+        get => _systemDoctorSummaryText;
+        set { _systemDoctorSummaryText = value; OnPropertyChanged(); }
+    }
+
     public string SecurityPostureText
     {
         get => _securityPostureText;
@@ -783,6 +792,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         RefreshStatusCommand = new RelayCommand(async _ =>
         {
+            await RunSystemDoctorAuditAsync();
             await RefreshTelemetryAndStatusAsync();
         });
 
@@ -1416,6 +1426,49 @@ public class MainViewModel : INotifyPropertyChanged
                 $"winget install --id \"{pkg.PackageId}\" --exact --source winget --accept-package-agreements --accept-source-agreements",
                 pkg.Description
             ));
+        }
+    }
+
+    private async Task RunSystemDoctorAuditAsync()
+    {
+        SystemDoctorSummaryText = "Verificando o computador... Aguarde.";
+        SystemDoctorFindings.Clear();
+
+        try
+        {
+            HardwareSnapshot snapshot;
+            if (_hardwareMonitor != null)
+            {
+                snapshot = await _hardwareMonitor.CaptureSnapshotAsync();
+            }
+            else
+            {
+                snapshot = new HardwareSnapshot(
+                    DateTime.UtcNow, null, null, null, null, null, null, null, null,
+                    Array.Empty<SensorDataPoint>(),
+                    MonitorStatus: SensorReadingStatus.ReadingUnavailable,
+                    DiagnosticMessage: "Monitor de hardware não disponível.");
+            }
+
+            SystemDoctorReport report = await _systemDoctor.RunComprehensiveAuditAsync(snapshot);
+            foreach (SystemDoctorFinding finding in report.Findings)
+                SystemDoctorFindings.Add(finding);
+
+            SystemDoctorSummaryText = $"{report.ExecutiveSummary} Verificação realizada em {report.AuditedAtUtc.ToLocalTime():dd/MM/yyyy HH:mm}. Os resultados abaixo mostram somente os itens que o Windows e os sensores conseguiram verificar.";
+            if (report.Findings.Count == 0)
+                SystemDoctorSummaryText += " Nenhum alerta foi encontrado nos itens verificados.";
+        }
+        catch (Exception ex)
+        {
+            SystemDoctorSummaryText = $"Não foi possível concluir o diagnóstico: {ex.Message}";
+            SystemDoctorFindings.Add(new SystemDoctorFinding(
+                "Diagnóstico",
+                "A verificação foi interrompida",
+                DiagnosticSeverityLevel.Alto,
+                ex.Message,
+                "Falha ao consultar um ou mais recursos do Windows ou sensores.",
+                "Feche e abra o aplicativo novamente. Se persistir, envie este erro ao suporte.",
+                false));
         }
     }
 
