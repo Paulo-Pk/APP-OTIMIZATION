@@ -306,6 +306,75 @@ public class RegistryOptimizerTests
     }
 
     [Fact]
+    public void RegistryStateLedger_AntiReplay_PathMismatch_AndInvalidOriginalValueFormat_MustBeRejected()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
+        RegistryStateLedger.ClearLedgerForTesting();
+
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 1, RegistryValueKind.DWord);
+
+        // 1. Apply and restore once -> succeeds; second restore with same operationId -> blocked by anti-replay
+        var applyRes = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applyRes.Success);
+
+        var firstRestore = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applyRes.OperationId);
+        Assert.True(firstRestore.Success);
+
+        var replayAttempt = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applyRes.OperationId);
+        Assert.False(replayAttempt.Success);
+        Assert.Equal("OPERATION_ALREADY_RESTORED", replayAttempt.ErrorCode);
+
+        // 2. Entry with mismatched SubKeyPath (outside catalog mapping for perf-game-dvr) -> ENTRY_PATH_MISMATCH
+        var mismatchedPathEntry = new RegistryLedgerEntry
+        {
+            OperationId = "op-mismatch-path-test",
+            TweakId = def.TweakId,
+            Hive = def.Hive,
+            SubKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            ValueName = def.ValueName,
+            OriginalValueKind = RegistryValueKind.DWord.ToString(),
+            OriginalRawValue = "1",
+            WasInitiallyAbsent = false,
+            KeyCreatedByApp = false,
+            AppliedValue = "0",
+            CreatedAtUtc = DateTime.UtcNow.ToString("O"),
+            IsRestored = false,
+            RestoredAtUtc = null
+        };
+        RegistryStateLedger.SaveRawEntryForTesting(mismatchedPathEntry, recomputeValidHmac: true);
+
+        var pathMismatchCheck = RegistryStateLedger.ResolveTrustedRestoreEntry("perf-game-dvr", "op-mismatch-path-test");
+        Assert.False(pathMismatchCheck.IsValid);
+        Assert.Equal("ENTRY_PATH_MISMATCH", pathMismatchCheck.ErrorCode);
+
+        // 3. Entry with invalid OriginalRawValue for DWord -> INVALID_ORIGINAL_VALUE_FORMAT
+        var invalidFormatEntry = new RegistryLedgerEntry
+        {
+            OperationId = "op-invalid-format-test",
+            TweakId = def.TweakId,
+            Hive = def.Hive,
+            SubKeyPath = def.SubKeyPath,
+            ValueName = def.ValueName,
+            OriginalValueKind = RegistryValueKind.DWord.ToString(),
+            OriginalRawValue = "corrupted_non_numeric_dword",
+            WasInitiallyAbsent = false,
+            KeyCreatedByApp = false,
+            AppliedValue = "0",
+            CreatedAtUtc = DateTime.UtcNow.ToString("O"),
+            IsRestored = false,
+            RestoredAtUtc = null
+        };
+        RegistryStateLedger.SaveRawEntryForTesting(invalidFormatEntry, recomputeValidHmac: true);
+
+        var formatCheck = RegistryStateLedger.ResolveTrustedRestoreEntry("perf-game-dvr", "op-invalid-format-test");
+        Assert.False(formatCheck.IsValid);
+        Assert.Equal("INVALID_ORIGINAL_VALUE_FORMAT", formatCheck.ErrorCode);
+    }
+
+    [Fact]
     public void RestoreCatalogTweak_ClientCannotChooseArbitraryOriginalValue_BackendUsesLedgerInstead()
     {
         var probe = new SimulatedRegistryKeyProbe();

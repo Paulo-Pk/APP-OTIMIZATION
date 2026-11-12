@@ -47,6 +47,7 @@ public enum TweakRecommendationStatus
 public enum RegistryProbeReadOutcome
 {
     ValueFound,
+    Success = ValueFound,
     KeyNotFound,
     ValueNotFound,
     AccessDenied,
@@ -63,7 +64,10 @@ public record RegistryProbeReadResult(
     RegistryValueKind ActualValueKind = RegistryValueKind.Unknown,
     string? SerializedValue = null,
     string? ErrorMessage = null
-);
+)
+{
+    public RegistryValueKind ValueKind => ActualValueKind;
+}
 
 /// <summary>
 /// Injectable abstraction for reading and writing Registry keys so unit tests can deterministically
@@ -515,7 +519,11 @@ public record TweakStateReport(
     bool IsRecommendedValueMatch,
     string DiagnosticMessagePt,
     string DiagnosticMessageEn
-);
+)
+{
+    public string StateBadgePt => StateDisplayPt.ToUpperInvariant();
+    public string StateBadgeEn => StateDisplayEn.ToUpperInvariant();
+}
 
 public record TweakDefinition(
     string TweakId,
@@ -583,10 +591,13 @@ public record RegistryOperationResult(
     string? ErrorMessage,
     string? TweakId = null,
     string? OperationId = null,
-    string? ErrorCode = null
+    string? ErrorCode = null,
+    RegistryValueKind? PreviousKind = null
 )
 {
     public string? VerifiedCurrentValue => VerifiedValue;
+    public string? PreviousRawValue => PreviousValue;
+    public string Message => ErrorMessage ?? (Success ? $"OK ({VerifiedValue ?? "Applied"})" : "Falha na operação de Registro.");
 }
 
 [SupportedOSPlatform("windows")]
@@ -1586,18 +1597,18 @@ public static class RegistryOptimizer
                 case RegistryValueKind.MultiString:
                 {
                     string trimmed = serialized.Trim();
-                    if (trimmed.StartsWith("[", StringComparison.Ordinal))
+                    if (!trimmed.StartsWith("[", StringComparison.Ordinal) || !trimmed.EndsWith("]", StringComparison.Ordinal))
                     {
-                        string[]? arr = JsonSerializer.Deserialize<string[]>(trimmed);
-                        if (arr == null)
-                        {
-                            errorMessage = "Array JSON inválido para REG_MULTI_SZ.";
-                            return false;
-                        }
-                        typedValue = arr;
-                        return true;
+                        errorMessage = "Valor para REG_MULTI_SZ deve ser um array JSON válido.";
+                        return false;
                     }
-                    typedValue = new[] { serialized };
+                    string[]? arr = JsonSerializer.Deserialize<string[]>(trimmed);
+                    if (arr == null)
+                    {
+                        errorMessage = "Array JSON inválido para REG_MULTI_SZ.";
+                        return false;
+                    }
+                    typedValue = arr;
                     return true;
                 }
                 case RegistryValueKind.Binary:
@@ -1900,7 +1911,9 @@ public static class RegistryOptimizer
                 keyCreatedByApp,
                 null,
                 def.TweakId,
-                ledgerEntry.OperationId
+                ledgerEntry.OperationId,
+                ErrorCode: null,
+                PreviousKind: wasInitiallyAbsent ? null : previousKind
             );
         }
 

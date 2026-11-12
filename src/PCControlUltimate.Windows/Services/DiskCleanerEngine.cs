@@ -31,13 +31,18 @@ public record DiskDryRunReport(
     long EstimatedBytes,
     int CandidateFilesCount,
     int SkippedSymlinksCount,
-    bool Success = true,
+    bool Success = false,
     bool DirectoryExisted = true,
-    IReadOnlyList<string>? WarningsOrErrors = null
+    IReadOnlyList<string>? WarningsOrErrors = null,
+    DiskPurgeStatus Status = DiskPurgeStatus.NothingToClean,
+    IReadOnlyList<string>? CandidateFileSamples = null,
+    string Message = ""
 )
 {
     public int EstimatedFilesCount => CandidateFilesCount;
-    public IReadOnlyList<string> Errors => WarningsOrErrors ?? Array.Empty<string>();
+    public IReadOnlyList<string> WarningsOrErrors { get; init; } = WarningsOrErrors ?? Array.Empty<string>();
+    public IReadOnlyList<string> Errors => this.WarningsOrErrors;
+    public IReadOnlyList<string> CandidateFileSamples { get; init; } = CandidateFileSamples ?? Array.Empty<string>();
 }
 
 public record DiskPurgeReport(
@@ -51,10 +56,12 @@ public record DiskPurgeReport(
     IReadOnlyList<string> AffectedItemsLog,
     IReadOnlyList<string> Errors,
     DiskPurgeStatus Status = DiskPurgeStatus.NothingToClean,
-    bool DirectoryExisted = true
+    bool DirectoryExisted = true,
+    string? Message = null
 )
 {
     public long BytesFreed => FreedBytes;
+    public string Message { get; init; } = Message ?? (Errors.Count > 0 ? string.Join(" | ", Errors) : Status.ToString());
 }
 
 public static class DiskCleanerEngine
@@ -232,6 +239,7 @@ public static class DiskCleanerEngine
     public static DiskDryRunReport SimulateCategoryDryRun(string categoryKey)
     {
         var warningsOrErrors = new List<string>();
+        var candidateSamples = new List<string>();
         string? targetDir = GetCategoryPath(categoryKey);
         if (string.IsNullOrEmpty(targetDir) || !IsPathSafe(targetDir))
         {
@@ -245,7 +253,10 @@ public static class DiskCleanerEngine
                 SkippedSymlinksCount: 0,
                 Success: false,
                 DirectoryExisted: false,
-                WarningsOrErrors: warningsOrErrors
+                WarningsOrErrors: warningsOrErrors,
+                Status: DiskPurgeStatus.Failed,
+                CandidateFileSamples: candidateSamples,
+                Message: "Categoria não autorizada ou caminho inseguro rejeitado."
             );
         }
 
@@ -258,9 +269,12 @@ public static class DiskCleanerEngine
                 EstimatedBytes: 0,
                 CandidateFilesCount: 0,
                 SkippedSymlinksCount: 0,
-                Success: true,
+                Success: false,
                 DirectoryExisted: false,
-                WarningsOrErrors: warningsOrErrors
+                WarningsOrErrors: warningsOrErrors,
+                Status: DiskPurgeStatus.NothingToClean,
+                CandidateFileSamples: candidateSamples,
+                Message: "Diretório alvo inexistente; nenhum item elegível para limpeza."
             );
         }
 
@@ -277,7 +291,10 @@ public static class DiskCleanerEngine
                 SkippedSymlinksCount: 1,
                 Success: false,
                 DirectoryExisted: true,
-                WarningsOrErrors: warningsOrErrors
+                WarningsOrErrors: warningsOrErrors,
+                Status: DiskPurgeStatus.Failed,
+                CandidateFileSamples: candidateSamples,
+                Message: "Operação abortada: o diretório alvo é um link simbólico ou junction NTFS."
             );
         }
 
@@ -285,7 +302,24 @@ public static class DiskCleanerEngine
         int files = 0;
         int symlinks = 0;
         var failureHook = _testOverrideContext.Value?.SimulatedFileFailureHook;
-        ScanDirectoryRecursiveSafe(rootDir, ref bytes, ref files, ref symlinks, warningsOrErrors, failureHook);
+        ScanDirectoryRecursiveSafe(rootDir, ref bytes, ref files, ref symlinks, warningsOrErrors, candidateSamples, failureHook);
+
+        DiskPurgeStatus status;
+        bool isSuccess;
+        if (files > 0)
+        {
+            status = (symlinks > 0 || warningsOrErrors.Count > 0)
+                ? DiskPurgeStatus.Partial
+                : DiskPurgeStatus.Completed;
+            isSuccess = true;
+        }
+        else
+        {
+            status = warningsOrErrors.Count > 0
+                ? DiskPurgeStatus.Failed
+                : DiskPurgeStatus.NothingToClean;
+            isSuccess = false;
+        }
 
         return new DiskDryRunReport(
             categoryKey,
@@ -294,9 +328,14 @@ public static class DiskCleanerEngine
             EstimatedBytes: bytes,
             CandidateFilesCount: files,
             SkippedSymlinksCount: symlinks,
-            Success: true,
+            Success: isSuccess,
             DirectoryExisted: true,
-            WarningsOrErrors: warningsOrErrors
+            WarningsOrErrors: warningsOrErrors,
+            Status: status,
+            CandidateFileSamples: candidateSamples,
+            Message: status == DiskPurgeStatus.NothingToClean
+                ? "Nenhum arquivo elegível encontrado para limpeza."
+                : $"Estimativa concluída ({files} arquivos elegíveis)."
         );
     }
 
@@ -312,6 +351,7 @@ public static class DiskCleanerEngine
         ref int filesCount,
         ref int symlinksCount,
         List<string> warningsOrErrors,
+        List<string> candidateSamples,
         Func<string, Exception?>? failureHook)
     {
         try
@@ -338,8 +378,13 @@ public static class DiskCleanerEngine
                         throw simulatedFileEx;
                     }
 
-                    bytes += file.Length;
+                    long len = file.Length;
+                    bytes += len;
                     filesCount++;
+                    if (candidateSamples.Count < 50)
+                    {
+                        candidateSamples.Add($"{file.FullName} ({len} B)");
+                    }
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException || ex is SecurityException)
                 {
@@ -361,7 +406,7 @@ public static class DiskCleanerEngine
                         continue;
                     }
 
-                    ScanDirectoryRecursiveSafe(subDir, ref bytes, ref filesCount, ref symlinksCount, warningsOrErrors, failureHook);
+                    ScanDirectoryRecursiveSafe(subDir, ref bytes, ref filesCount, ref symlinksCount, warningsOrErrors, candidateSamples, failureHook);
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException || ex is SecurityException)
                 {

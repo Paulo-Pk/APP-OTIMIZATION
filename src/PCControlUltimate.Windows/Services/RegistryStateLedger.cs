@@ -471,6 +471,24 @@ public static class RegistryStateLedger
         }
     }
 
+    public static IReadOnlyList<RegistryLedgerEntry> GetHistoryForTweak(string tweakId)
+    {
+        if (string.IsNullOrWhiteSpace(tweakId))
+            return Array.Empty<RegistryLedgerEntry>();
+
+        lock (_syncRoot)
+        {
+            var ledger = LoadVerifiedLedgerInternal();
+            if (ledger == null)
+                return Array.Empty<RegistryLedgerEntry>();
+
+            return ledger.Entries
+                .Where(e => string.Equals(e.TweakId, tweakId.Trim(), StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(e => e.CreatedAtUtc, StringComparer.Ordinal)
+                .ToList();
+        }
+    }
+
     public static void ClearLedgerForTesting() => ClearLedger();
 
     public static void ClearLedger()
