@@ -686,6 +686,24 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void RegistryStateLedger_UnreadableExistingKey_FailsClosedWithoutReplacingIt()
+    {
+        string keyPath = Path.Combine(_testLedgerDirectory, "ledger_hmac_key.dpapi");
+        const string corruptPayload = "unreadable-existing-ledger-key";
+        File.WriteAllText(keyPath, corruptPayload);
+
+        var method = typeof(RegistryStateLedger).GetMethod(
+            "InitializeProcessLedgerKey",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        string? result = method!.Invoke(null, null) as string;
+
+        Assert.Equal(string.Empty, result);
+        Assert.Equal(corruptPayload, File.ReadAllText(keyPath));
+    }
+
+    [Fact]
     public void RegistryStateLedger_ValidLegacyV25Ledger_IsMigratedToCurrentCanonicalHmac()
     {
         var keyField = typeof(RegistryStateLedger).GetField(
