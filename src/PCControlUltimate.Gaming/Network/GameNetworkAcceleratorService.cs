@@ -331,7 +331,106 @@ public static class GameNetworkAcceleratorService
         }
         catch { /* Epic Games is optional. */ }
 
+        // Additional launchers expose installed-game locations through their own registry catalogs.
+        // These are bounded lookups; no disk-wide executable scan is performed.
+        AddRegistryGameCatalog(games, RegistryHive.CurrentUser, RegistryView.Registry32,
+            @"Software\\GOG.com\\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
+            @"Software\\GOG.com\\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
+            @"Software\\GOG.com\\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
+
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
+            @"Software\\Ubisoft\\Launcher\\Installs", "Ubisoft Connect",
+            new[] { "InstallDir", "InstallLocation", "InstallPath" },
+            new[] { "DisplayName", "GameName", "name" }, new[] { "Exe", "Executable" });
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
+            @"Software\\Ubisoft\\Launcher\\Installs", "Ubisoft Connect",
+            new[] { "InstallDir", "InstallLocation", "InstallPath" },
+            new[] { "DisplayName", "GameName", "name" }, new[] { "Exe", "Executable" });
+
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
+            @"Software\\EA Games", "EA app",
+            new[] { "Install Dir", "InstallDir", "InstallLocation" },
+            new[] { "DisplayName", "GameName", "ProductName" }, new[] { "Executable", "Exe" });
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
+            @"Software\\EA Games", "EA app",
+            new[] { "Install Dir", "InstallDir", "InstallLocation" },
+            new[] { "DisplayName", "GameName", "ProductName" }, new[] { "Executable", "Exe" });
+
         return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private static void AddRegistryGameCatalog(
+        Dictionary<string, InstalledGameEntry> games,
+        RegistryHive hive,
+        RegistryView view,
+        string catalogPath,
+        string launcher,
+        IReadOnlyList<string> locationValueNames,
+        IReadOnlyList<string> titleValueNames,
+        IReadOnlyList<string> executableValueNames)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view);
+            using RegistryKey? catalog = baseKey.OpenSubKey(catalogPath);
+            if (catalog is null) return;
+
+            foreach (string subKeyName in catalog.GetSubKeyNames())
+            {
+                try
+                {
+                    using RegistryKey? entry = catalog.OpenSubKey(subKeyName);
+                    if (entry is null) continue;
+
+                    string ReadFirst(IReadOnlyList<string> names)
+                    {
+                        foreach (string name in names)
+                        {
+                            string? value = entry.GetValue(name) as string;
+                            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+                        }
+                        return string.Empty;
+                    }
+
+                    string rawLocation = ReadFirst(locationValueNames);
+                    if (string.IsNullOrWhiteSpace(rawLocation)) continue;
+                    string location = Path.GetFullPath(Environment.ExpandEnvironmentVariables(rawLocation));
+                    if (!Directory.Exists(location)) continue;
+
+                    string title = ReadFirst(titleValueNames);
+                    if (string.IsNullOrWhiteSpace(title)) title = subKeyName;
+                    string rawExecutable = ReadFirst(executableValueNames);
+                    string? executable = null;
+                    if (!string.IsNullOrWhiteSpace(rawExecutable))
+                    {
+                        string candidate = Path.IsPathRooted(rawExecutable)
+                            ? Path.GetFullPath(rawExecutable)
+                            : Path.GetFullPath(Path.Combine(location, rawExecutable));
+                        string prefix = location.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                        if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+                            executable = candidate;
+                    }
+
+                    string key = launcher + ":" + subKeyName;
+                    games[key] = new InstalledGameEntry(title, launcher, location, subKeyName, executable, true);
+                }
+                catch
+                {
+                    // One malformed launcher entry must not stop discovery of other games.
+                }
+            }
+        }
+        catch
+        {
+            // Launcher registry catalogs are optional and may be absent or inaccessible.
+        }
     }
 
     private static void AddSteamRegistryRoot(
