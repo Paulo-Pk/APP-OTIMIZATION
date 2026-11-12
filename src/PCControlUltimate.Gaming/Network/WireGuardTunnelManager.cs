@@ -660,7 +660,7 @@ public static class WireGuardTunnelManager
         return _capturedIPv6RouteTableBeforeTunnel;
     }
 
-    internal static bool AreIpv4RouteTablesEquivalent(string? before, string? after)
+    public static bool AreIpv4RouteTablesEquivalent(string? before, string? after)
     {
         if (string.IsNullOrWhiteSpace(before) || string.IsNullOrWhiteSpace(after))
             return false;
@@ -670,7 +670,7 @@ public static class WireGuardTunnelManager
         return beforeRoutes.Count > 0 && afterRoutes.Count > 0 && beforeRoutes.SetEquals(afterRoutes);
     }
 
-    internal static bool AreIpv6RouteTablesEquivalent(string? before, string? after)
+    public static bool AreIpv6RouteTablesEquivalent(string? before, string? after)
     {
         if (string.IsNullOrWhiteSpace(before) || string.IsNullOrWhiteSpace(after))
             return false;
