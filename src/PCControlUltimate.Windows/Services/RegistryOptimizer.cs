@@ -1289,6 +1289,9 @@ public static class RegistryOptimizer
 
             if (!snapshot.KeyExists || !snapshot.ValueExists)
             {
+                if (string.Equals(def.RecommendedValue, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
+                    return new RegistryTweakInspectionResult("Sem Alteração Necessária", false);
+
                 string absentState = def.DefaultBehavior switch
                 {
                     TweakDefaultBehaviorKind.KnownDocumentedValue or TweakDefaultBehaviorKind.AbsentWithKnownDefault =>
@@ -1306,6 +1309,10 @@ public static class RegistryOptimizer
                 return new RegistryTweakInspectionResult("Tipo Incorreto", true, snapshot.Value?.ToString(), snapshot.Kind);
 
             string? serialized = SerializeRegistryValue(snapshot.Value, snapshot.Kind);
+            if (string.Equals(def.RecommendedValue, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
+                return new RegistryTweakInspectionResult("Sem Alteração Necessária", false, serialized, snapshot.Kind);
+
             if (string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
                 return new RegistryTweakInspectionResult("Ativo", false, serialized, snapshot.Kind);
             if (string.Equals(serialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
