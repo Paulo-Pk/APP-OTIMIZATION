@@ -511,6 +511,7 @@ public static class RegistryStateLedger
         string backupPath = LedgerFilePath + "." + Guid.NewGuid().ToString("N") + ".bak";
         bool originalExisted = File.Exists(LedgerFilePath);
         bool replaced = false;
+        bool preserveBackupForRecovery = false;
         try
         {
             TokenProtectionResult protection = ProtectedTokenWriter(tempPath, json);
@@ -531,7 +532,8 @@ public static class RegistryStateLedger
         {
             if (replaced && originalExisted && File.Exists(backupPath))
             {
-                try { File.Replace(backupPath, LedgerFilePath, null, ignoreMetadataErrors: true); } catch { }
+                try { File.Replace(backupPath, LedgerFilePath, null, ignoreMetadataErrors: true); }
+                catch { preserveBackupForRecovery = true; }
             }
             else if (replaced && !originalExisted)
             {
@@ -542,7 +544,10 @@ public static class RegistryStateLedger
         finally
         {
             try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
-            try { if (File.Exists(backupPath)) File.Delete(backupPath); } catch { }
+            if (!preserveBackupForRecovery)
+            {
+                try { if (File.Exists(backupPath)) File.Delete(backupPath); } catch { }
+            }
         }
     }
 }
