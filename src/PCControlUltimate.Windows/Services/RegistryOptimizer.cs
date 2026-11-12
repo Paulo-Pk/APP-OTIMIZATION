@@ -26,7 +26,9 @@ public record RegistryTweakInspectionResult(
     string State,
     bool IsUndeterminable,
     string? CurrentValue = null,
-    RegistryValueKind? ActualValueKind = null);
+    RegistryValueKind? ActualValueKind = null,
+    string? AbsenceKind = null,
+    string? DiagnosticDetail = null);
 
 public record TweakDefinition(
     string TweakId,
@@ -1355,8 +1357,23 @@ public static class RegistryOptimizer
 
             if (!snapshot.KeyExists || !snapshot.ValueExists)
             {
+                // Preserve the three materially different absence cases. A missing key,
+                // an empty existing key, and a key containing other values must not look identical.
+                string absenceKind = !snapshot.KeyExists
+                    ? "ChaveAusente"
+                    : snapshot.ValueCount == 0 && snapshot.SubKeyCount == 0
+                        ? "ValorAusenteChaveVazia"
+                        : "ValorAusenteChaveComConteudo";
+                string absenceDetail = absenceKind switch
+                {
+                    "ChaveAusente" => $"A chave do Registro não existe: {def.Hive}\\{def.SubKeyPath}.",
+                    "ValorAusenteChaveVazia" => $"A chave existe, mas está vazia; o valor '{def.ValueName}' não foi encontrado.",
+                    _ => $"A chave existe e contém {snapshot.ValueCount} outro(s) valor(es) e {snapshot.SubKeyCount} subchave(s), mas '{def.ValueName}' está ausente."
+                };
+
                 if (string.Equals(def.RecommendedValue, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
-                    return new RegistryTweakInspectionResult("Sem Alteração Necessária", false);
+                    return new RegistryTweakInspectionResult(
+                        "Sem Alteração Necessária", false, AbsenceKind: absenceKind, DiagnosticDetail: absenceDetail);
 
                 string absentState = def.DefaultBehavior switch
                 {
@@ -1366,13 +1383,19 @@ public static class RegistryOptimizer
                     _ => "Estado Não Determinável"
                 };
                 bool absentIsUndeterminable = absentState is "Padrão Dependente" or "Estado Não Determinável";
-                return new RegistryTweakInspectionResult(absentState, absentIsUndeterminable);
+                return new RegistryTweakInspectionResult(
+                    absentState, absentIsUndeterminable, AbsenceKind: absenceKind, DiagnosticDetail: absenceDetail);
             }
 
             // A value with a different Registry type is incompatible, not a custom value.
             // Inspection is read-only: never rewrite or coerce an unexpected value.
             if (snapshot.Kind != def.ValueKind)
-                return new RegistryTweakInspectionResult("Tipo Incorreto", true, snapshot.Value?.ToString(), snapshot.Kind);
+                return new RegistryTweakInspectionResult(
+                    "Tipo Incorreto",
+                    true,
+                    snapshot.Value?.ToString(),
+                    snapshot.Kind,
+                    DiagnosticDetail: $"Tipo esperado: {def.ValueKind}; tipo encontrado: {snapshot.Kind}. O valor não foi alterado.");
 
             string? serialized = SerializeRegistryValue(snapshot.Value, snapshot.Kind);
             if (string.Equals(def.RecommendedValue, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase) &&
@@ -1386,17 +1409,17 @@ public static class RegistryOptimizer
 
             return new RegistryTweakInspectionResult("Personalizado", false, serialized, snapshot.Kind);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            return new RegistryTweakInspectionResult("Acesso Negado", true);
+            return new RegistryTweakInspectionResult("Acesso Negado", true, DiagnosticDetail: ex.Message);
         }
-        catch (SecurityException)
+        catch (SecurityException ex)
         {
-            return new RegistryTweakInspectionResult("Acesso Negado", true);
+            return new RegistryTweakInspectionResult("Acesso Negado", true, DiagnosticDetail: ex.Message);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return new RegistryTweakInspectionResult("Erro de Leitura", true);
+            return new RegistryTweakInspectionResult("Erro de Leitura", true, DiagnosticDetail: ex.Message);
         }
     }
 

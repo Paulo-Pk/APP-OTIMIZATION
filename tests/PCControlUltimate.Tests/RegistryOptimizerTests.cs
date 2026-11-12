@@ -261,6 +261,26 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void InspectCatalogTweak_DistinguishesMissingKeyEmptyKeyAndPopulatedKeyWithoutWriting()
+    {
+        var def = RegistryOptimizer.Catalog["perf-mmcss"];
+
+        var missingKey = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+        Assert.Equal("ChaveAusente", missingKey.AbsenceKind);
+
+        _fakeRegistry.SeedKey(def.Hive, def.SubKeyPath);
+        var emptyKey = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+        Assert.Equal("ValorAusenteChaveVazia", emptyKey.AbsenceKind);
+
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, "UnrelatedValue", 123, RegistryValueKind.DWord);
+        var populatedKey = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+        Assert.Equal("ValorAusenteChaveComConteudo", populatedKey.AbsenceKind);
+        Assert.Contains("outro(s) valor(es)", populatedKey.DiagnosticDetail ?? string.Empty);
+
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
     public void InspectCatalogTweakCurrentState_KnownDocumentedAbsentValue_UsesDocumentedDefault()
     {
         string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss");
@@ -405,6 +425,8 @@ public class RegistryOptimizerTests : IDisposable
 
         private static string Key(string hive, string path) => $"{hive}|{path}";
         private static string ValueKey(string hive, string path, string name) => $"{Key(hive, path)}|{name}";
+
+        public void SeedKey(string hive, string path) => _keys.Add(Key(hive, path));
 
         public void Seed(string hive, string path, string name, object value, RegistryValueKind kind)
         {

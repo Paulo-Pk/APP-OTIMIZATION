@@ -69,6 +69,9 @@ public class TweakItemViewModel : INotifyPropertyChanged
     private bool _isApplied;
     private string _verificationState = "Não verificado";
     private string? _lastOperationId;
+    private string _currentValueText = "N/D";
+    private string _registryTypeText = "N/D";
+    private string _diagnosticDetailText = "Aguardando leitura do Registro.";
 
     public string TweakId { get; init; } = string.Empty;
     public string NamePt { get; init; } = string.Empty;
@@ -116,6 +119,24 @@ public class TweakItemViewModel : INotifyPropertyChanged
         !IsApplied &&
         (VerificationState.StartsWith("Padrão/inativo — leitura confirmada", StringComparison.OrdinalIgnoreCase) ||
          VerificationState.StartsWith("Default/inactive — read-back confirmed", StringComparison.OrdinalIgnoreCase));
+
+    public string CurrentValueText
+    {
+        get => _currentValueText;
+        set { _currentValueText = value; OnPropertyChanged(); }
+    }
+
+    public string RegistryTypeText
+    {
+        get => _registryTypeText;
+        set { _registryTypeText = value; OnPropertyChanged(); }
+    }
+
+    public string DiagnosticDetailText
+    {
+        get => _diagnosticDetailText;
+        set { _diagnosticDetailText = value; OnPropertyChanged(); }
+    }
 
     public string? LastOperationId
     {
@@ -718,30 +739,38 @@ public class MainViewModel : INotifyPropertyChanged
         {
             var states = await Task.Run(() =>
                 RegistryOptimizer.Catalog.Keys
-                    .Select(id => (TweakId: id, State: RegistryOptimizer.InspectCatalogTweakCurrentState(id)))
+                    .Select(id => (TweakId: id, Inspection: RegistryOptimizer.InspectCatalogTweak(id)))
                     .ToArray());
 
-            var byId = states.ToDictionary(x => x.TweakId, x => x.State, StringComparer.OrdinalIgnoreCase);
+            var byId = states.ToDictionary(x => x.TweakId, x => x.Inspection, StringComparer.OrdinalIgnoreCase);
             foreach (var tweak in CatalogTweaks)
             {
-                if (!byId.TryGetValue(tweak.TweakId, out string? state))
+                if (!byId.TryGetValue(tweak.TweakId, out RegistryTweakInspectionResult? inspection))
                     continue;
 
-                tweak.IsApplied = string.Equals(state, "Ativo", StringComparison.OrdinalIgnoreCase);
-                tweak.VerificationState = GetTweakStateDisplay(state, Loc.CurrentCulture == "pt-BR");
+                tweak.IsApplied = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase);
+                tweak.VerificationState = GetTweakStateDisplay(inspection.State, Loc.CurrentCulture == "pt-BR");
+                tweak.CurrentValueText = inspection.CurrentValue ?? "—";
+                tweak.RegistryTypeText = inspection.ActualValueKind?.ToString() ?? "N/D";
+                tweak.DiagnosticDetailText = inspection.DiagnosticDetail ??
+                    (inspection.AbsenceKind ?? (inspection.IsUndeterminable ? "Estado não determinável." : "Leitura confirmada."));
             }
 
-            int active = states.Count(x => x.State == "Ativo");
-            int inactive = states.Count(x => x.State == "Inativo");
-            int noChange = states.Count(x => x.State == "Sem Alteração Necessária");
-            int custom = states.Count(x => x.State == "Personalizado");
-            int denied = states.Count(x => x.State == "Acesso Negado");
-            int readErrors = states.Count(x => x.State == "Erro de Leitura");
-            int wrongType = states.Count(x => x.State == "Tipo Incorreto");
-            int undetermined = states.Count(x => x.State == "Estado Não Determinável" || x.State == "Padrão Dependente");
+            int active = states.Count(x => x.Inspection.State == "Ativo");
+            int inactive = states.Count(x => x.Inspection.State == "Inativo");
+            int noChange = states.Count(x => x.Inspection.State == "Sem Alteração Necessária");
+            int custom = states.Count(x => x.Inspection.State == "Personalizado");
+            int denied = states.Count(x => x.Inspection.State == "Acesso Negado");
+            int readErrors = states.Count(x => x.Inspection.State == "Erro de Leitura");
+            int wrongType = states.Count(x => x.Inspection.State == "Tipo Incorreto");
+            int undetermined = states.Count(x => x.Inspection.State == "Estado Não Determinável" || x.Inspection.State == "Padrão Dependente");
+            int missingKeys = states.Count(x => x.Inspection.AbsenceKind == "ChaveAusente");
+            int missingValuesInEmptyKeys = states.Count(x => x.Inspection.AbsenceKind == "ValorAusenteChaveVazia");
+            int missingValuesInPopulatedKeys = states.Count(x => x.Inspection.AbsenceKind == "ValorAusenteChaveComConteudo");
 
-            TweakStatesSummaryText = $"Leitura concluída: {states.Length} ajustes — {active} ativos, {inactive} inativos, {noChange} sem alteração necessária, {custom} personalizados, {wrongType} com tipo incorreto, {denied} sem acesso, {readErrors} erros de leitura e {undetermined} não determináveis.";
-            StatusMessage = TweakStatesSummaryText;
+            TweakStatesSummaryText = Loc.CurrentCulture == "pt-BR"
+                ? $"Leitura concluída: {states.Length} ajustes — {active} ativos, {inactive} inativos, {noChange} sem alteração necessária, {custom} personalizados, {wrongType} com tipo incorreto, {denied} sem acesso, {readErrors} erros de leitura e {undetermined} não determináveis. Ausências: {missingKeys} chaves inexistentes, {missingValuesInEmptyKeys} valores ausentes em chaves vazias e {missingValuesInPopulatedKeys} valores ausentes em chaves com outros dados."
+                : $"Read complete: {states.Length} tweaks — {active} active, {inactive} inactive, {noChange} no change needed, {custom} custom, {wrongType} wrong type, {denied} access denied, {readErrors} read errors and {undetermined} undetermined. Missing entries: {missingKeys} keys, {missingValuesInEmptyKeys} values in empty keys and {missingValuesInPopulatedKeys} values in populated keys.";
             OnPropertyChanged(nameof(AppliedTweaksCount));
             OnPropertyChanged(nameof(AppliedTweaksBadgeText));
         }
@@ -797,6 +826,7 @@ public class MainViewModel : INotifyPropertyChanged
             "Acesso Negado" => isPortuguese ? "Acesso negado — requer permissão" : "Access denied — permission required",
             "Tipo Incorreto" => isPortuguese ? "Tipo incorreto — esperado diferente do encontrado" : "Wrong Registry type — expected type mismatch",
             "Estado Não Determinável" => isPortuguese ? "Estado não determinável — valor ausente sem padrão confirmado" : "Undetermined — absent value has no confirmed default",
+            "Não Suportado" => isPortuguese ? "Ajuste não reconhecido pelo catálogo" : "Tweak is not in the supported catalog",
             "Padrão Dependente" => isPortuguese ? "Padrão depende da edição/configuração do Windows" : "Default depends on Windows edition/configuration",
             "Erro de Leitura" => isPortuguese ? "Erro de leitura — estado não determinável" : "Read error — state undetermined",
             "Não Disponível Neste Sistema" => isPortuguese ? "Consulta disponível somente no Windows" : "Inspection is available on Windows only",
@@ -826,8 +856,9 @@ public class MainViewModel : INotifyPropertyChanged
 
         foreach (var def in RegistryOptimizer.Catalog.Values)
         {
-            // One read per tweak during startup; use the same result for both UI fields.
-            string initialState = RegistryOptimizer.InspectCatalogTweakCurrentState(def.TweakId);
+            // One read per tweak during startup; reuse the full result for all displayed diagnostics.
+            RegistryTweakInspectionResult initialInspection = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+            string initialState = initialInspection.State;
             CatalogTweaks.Add(new TweakItemViewModel
             {
                 TweakId = def.TweakId,
@@ -841,7 +872,11 @@ public class MainViewModel : INotifyPropertyChanged
                 RecommendedValue = def.RecommendedValue,
                 RiskLevel = def.RiskLevel,
                 IsApplied = string.Equals(initialState, "Ativo", StringComparison.OrdinalIgnoreCase),
-                VerificationState = GetTweakStateDisplay(initialState, Loc.CurrentCulture == "pt-BR")
+                VerificationState = GetTweakStateDisplay(initialState, Loc.CurrentCulture == "pt-BR"),
+                CurrentValueText = initialInspection.CurrentValue ?? "—",
+                RegistryTypeText = initialInspection.ActualValueKind?.ToString() ?? "N/D",
+                DiagnosticDetailText = initialInspection.DiagnosticDetail ??
+                    (initialInspection.AbsenceKind ?? (initialInspection.IsUndeterminable ? "Estado não determinável." : "Leitura inicial confirmada."))
             });
         }
 

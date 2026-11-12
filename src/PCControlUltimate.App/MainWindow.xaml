@@ -1071,6 +1071,9 @@
                             <DataGridTextColumn Header="Valor" Binding="{Binding ValueName}" Width="130"/>
                             <DataGridTextColumn Header="Recomendado" Binding="{Binding RecommendedValue}" Width="95"/>
                             <DataGridTextColumn Header="Status" Binding="{Binding VerificationState}" Width="155"/>
+                            <DataGridTextColumn Header="Valor atual" Binding="{Binding CurrentValueText}" Width="110"/>
+                            <DataGridTextColumn Header="Tipo encontrado" Binding="{Binding RegistryTypeText}" Width="110"/>
+                            <DataGridTextColumn Header="Detalhe da leitura" Binding="{Binding DiagnosticDetailText}" Width="280"/>
                             <DataGridTemplateColumn Header="Ações" Width="195">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
