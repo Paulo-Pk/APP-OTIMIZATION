@@ -291,6 +291,26 @@ public class GameNetworkAcceleratorTests
     }
 
     [Fact]
+    public void WireGuardTunnelManager_ShouldRejectGlobalDnsOverrideInGameTunnelConfig()
+    {
+        string config = """
+            [Interface]
+            PrivateKey = wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=
+            Address = 10.66.66.2/32
+            DNS = 1.1.1.1
+            [Peer]
+            PublicKey = mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=
+            Endpoint = 203.0.113.10:51820
+            AllowedIPs = 155.133.248.0/24
+            """;
+
+        var audit = WireGuardTunnelManager.ValidateAndAuditConfig(config);
+
+        Assert.False(audit.IsValid);
+        Assert.Contains("GLOBAL_DNS_OVERRIDE_BLOCKED", audit.ErrorReason);
+    }
+
+    [Fact]
     public void WireGuardTunnelManager_ShouldBlockMaliciousPreUpPostUpScriptHooks()
     {
         string maliciousConfig = """
