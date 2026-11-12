@@ -1171,27 +1171,38 @@ public static class RegistryOptimizer
             return "Não Suportado";
 
         if (!OperatingSystem.IsWindows())
-            return "Inativo";
+            return "Não Disponível Neste Sistema";
 
         try
         {
             RegistryKey root = GetRootKey(def.Hive);
             using var key = root.OpenSubKey(def.SubKeyPath, false);
-            if (key == null) return "Inativo";
+            if (key == null)
+                return "Chave Ausente";
 
             object? raw = key.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-            if (raw == null) return "Inativo";
+            if (raw == null)
+                return "Valor Ausente";
 
             string? serialized = SerializeRegistryValue(raw, key.GetValueKind(def.ValueName));
             if (string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
                 return "Ativo";
             if (string.Equals(serialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
                 return "Inativo";
-            return "Parcial";
+
+            return "Personalizado";
         }
-        catch
+        catch (UnauthorizedAccessException)
         {
-            return "Não Suportado";
+            return "Acesso Negado";
+        }
+        catch (SecurityException)
+        {
+            return "Acesso Negado";
+        }
+        catch (Exception)
+        {
+            return "Erro de Leitura";
         }
     }
 
