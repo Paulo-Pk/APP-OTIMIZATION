@@ -680,7 +680,7 @@
                         <Grid Margin="0,0,0,10">
                             <StackPanel>
                                 <TextBlock Text="BIBLIOTECA DETECTADA AUTOMATICAMENTE" FontSize="10" FontWeight="Bold" Foreground="#C084FC"/>
-                                <TextBlock Text="Jogos Instalados (Steam, Epic, GOG, Ubisoft e EA)" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,3,0,0"/>
+                                <TextBlock Text="Jogos Instalados (Steam, Epic, GOG, Ubisoft, EA e Xbox / Microsoft Store)" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,3,0,0"/>
                                 <TextBlock Text="Leitura dos catálogos e registros dos launchers compatíveis; não varre o disco inteiro nem inicia jogos." FontSize="11" Foreground="#94A3B8" Margin="0,3,0,0"/>
                             </StackPanel>
                             <TextBlock Text="{Binding InstalledGames.Count, StringFormat='Jogos encontrados: {0}'}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#A78BFA" FontSize="11" FontWeight="SemiBold"/>
