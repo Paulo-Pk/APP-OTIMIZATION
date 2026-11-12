@@ -1106,36 +1106,65 @@ public class MainViewModel : INotifyPropertyChanged
             _isCleanerBusy = true;
             OnPropertyChanged(nameof(CanRunCleanerOperation));
             CommandManager.InvalidateRequerySuggested();
-            DebloatSummaryText = "Analisando os diretórios autorizados em segundo plano...";
+            DebloatSummaryText = "Consultando o agente privilegiado e analisando os diretórios autorizados...";
 
             try
             {
-                var results = await Task.Run(() => targets
-                    .Select(cat => (Category: cat, Report: DiskCleanerEngine.SimulateCategoryDryRun(cat.CategoryKey)))
-                    .ToList());
+                var (scanOk, scanDetails) = await _agentClient.ScanCleanerCategoriesAsync();
+                if (!scanOk)
+                    throw new InvalidOperationException(scanDetails);
+
+                using var scanDocument = JsonDocument.Parse(scanDetails);
+                if (!scanDocument.RootElement.TryGetProperty("categories", out var categoriesElement) ||
+                    categoriesElement.ValueKind != JsonValueKind.Array)
+                    throw new InvalidOperationException("O agente não retornou a lista de categorias da simulação.");
 
                 long totalEstimated = 0;
                 int totalFiles = 0;
-                foreach (var result in results)
+                int failedCategories = 0;
+                foreach (var cat in targets)
                 {
-                    var cat = result.Category;
-                    var dryRun = result.Report;
-                    totalEstimated += dryRun.EstimatedBytes;
-                    totalFiles += dryRun.CandidateFilesCount;
-                    double mb = dryRun.EstimatedBytes / (1024.0 * 1024.0);
-                    cat.ScannedFilesCount = dryRun.CandidateFilesCount;
+                    var report = categoriesElement.EnumerateArray().FirstOrDefault(item =>
+                        item.TryGetProperty("categoryKey", out var key) &&
+                        string.Equals(key.GetString(), cat.CategoryKey, StringComparison.OrdinalIgnoreCase));
+
+                    if (report.ValueKind != JsonValueKind.Object)
+                    {
+                        cat.LastOperationStatus = "Sem resultado do agente";
+                        failedCategories++;
+                        continue;
+                    }
+
+                    long estimatedBytes = report.TryGetProperty("estimatedBytes", out var bytesEl) && bytesEl.TryGetInt64(out var bytes)
+                        ? bytes : 0;
+                    int candidateFiles = report.TryGetProperty("candidateFilesCount", out var filesEl) && filesEl.TryGetInt32(out var files)
+                        ? files : 0;
+                    int skippedLinks = report.TryGetProperty("skippedSymlinksCount", out var linksEl) && linksEl.TryGetInt32(out var links)
+                        ? links : 0;
+                    bool success = report.TryGetProperty("success", out var successEl) && successEl.ValueKind == JsonValueKind.True;
+                    totalEstimated += estimatedBytes;
+                    totalFiles += candidateFiles;
+
+                    double mb = estimatedBytes / (1024.0 * 1024.0);
+                    cat.ScannedFilesCount = candidateFiles;
                     cat.EstimatedBytesFormatted = $"{mb:F2} MB";
-                    cat.DryRunEstimateText = $"Estimativa: {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos; {dryRun.SkippedSymlinksCount} links ignorados)";
-                    cat.LastOperationStatus = dryRun.Success ? "Simulação concluída" : "Falha na simulação";
-                    if (!dryRun.Success && dryRun.Errors is { Count: > 0 })
-                        cat.LastOperationStatus += $": {dryRun.Errors[0]}";
+                    cat.DryRunEstimateText = $"Estimativa: {mb:F2} MB ({candidateFiles} arquivos; {skippedLinks} links ignorados)";
+                    cat.LastOperationStatus = success ? "Simulação concluída pelo agente" : "Leitura parcial / falha";
+                    if (!success)
+                    {
+                        failedCategories++;
+                        if (report.TryGetProperty("errors", out var errorsEl) && errorsEl.ValueKind == JsonValueKind.Array &&
+                            errorsEl.GetArrayLength() > 0)
+                            cat.LastOperationStatus += $": {errorsEl[0].GetString()}";
+                    }
                 }
 
-                DebloatSummaryText = $"Simulação concluída — SOMENTE ESTIMATIVA: {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos. Nenhum arquivo foi excluído.";
+                DebloatSummaryText = $"Simulação concluída pelo agente — SOMENTE ESTIMATIVA: {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos. " +
+                    $"{failedCategories} categoria(s) com leitura parcial/falha. Nenhum arquivo foi excluído.";
             }
             catch (Exception ex)
             {
-                DebloatSummaryText = $"Falha ao analisar os diretórios autorizados: {ex.Message}";
+                DebloatSummaryText = $"Falha ao analisar pelo agente privilegiado: {ex.Message}";
             }
             finally
             {
@@ -1151,9 +1180,7 @@ public class MainViewModel : INotifyPropertyChanged
 
             if (!ConfirmCleanerDeletion)
             {
-                DebloatSummaryText = Loc.CurrentCulture == "pt-BR"
-                    ? "Ação bloqueada: marque a caixa de confirmação explícita antes de excluir arquivos."
-                    : "Action blocked: check the explicit confirmation box before deleting files.";
+                DebloatSummaryText = "Ação bloqueada: marque a confirmação explícita antes de excluir arquivos.";
                 return;
             }
 
@@ -1162,45 +1189,66 @@ public class MainViewModel : INotifyPropertyChanged
             _isCleanerBusy = true;
             OnPropertyChanged(nameof(CanRunCleanerOperation));
             CommandManager.InvalidateRequerySuggested();
-            DebloatSummaryText = $"Executando limpeza autorizada em '{cat.CategoryKey}' em segundo plano...";
+            DebloatSummaryText = $"Solicitando ao agente privilegiado a limpeza autorizada de '{cat.CategoryKey}'...";
 
             try
             {
-                var report = await Task.Run(() =>
-                    DiskCleanerEngine.PurgeCategoryWithReport(cat.CategoryKey, confirmServiceStop: ConfirmCleanerDeletion));
-                double freedMb = report.FreedBytes / (1024.0 * 1024.0);
-                cat.RealFreedText = $"Liberado real: {freedMb:F2} MB ({report.DeletedFilesCount} arquivos removidos; {report.SkippedLockedCount} em uso; {report.SkippedSymlinksCount} links preservados)";
-                cat.LastOperationStatus = report.Status switch
+                var (requestOk, responseText) = await _agentClient.PurgeCleanerCategoryAsync(
+                    cat.CategoryKey,
+                    confirmUpdateCache: string.Equals(cat.CategoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) &&
+                        ConfirmCleanerDeletion);
+                if (!requestOk)
+                    throw new InvalidOperationException(responseText);
+
+                using var report = JsonDocument.Parse(responseText);
+                var root = report.RootElement;
+                bool success = root.TryGetProperty("success", out var successEl) && successEl.ValueKind == JsonValueKind.True;
+                bool partial = root.TryGetProperty("partialSuccess", out var partialEl) && partialEl.ValueKind == JsonValueKind.True;
+                long freedBytes = root.TryGetProperty("freedBytes", out var bytesEl) && bytesEl.TryGetInt64(out var bytes) ? bytes : 0;
+                int deletedFiles = root.TryGetProperty("deletedFilesCount", out var deletedEl) && deletedEl.TryGetInt32(out var deleted) ? deleted : 0;
+                int skippedLocked = root.TryGetProperty("skippedLockedCount", out var lockedEl) && lockedEl.TryGetInt32(out var locked) ? locked : 0;
+                int skippedLinks = root.TryGetProperty("skippedSymlinksCount", out var linksEl) && linksEl.TryGetInt32(out var links) ? links : 0;
+                string status = root.TryGetProperty("status", out var statusEl) ? statusEl.GetString() ?? "Failed" : "Failed";
+                double freedMb = freedBytes / (1024.0 * 1024.0);
+
+                cat.RealFreedText = $"Liberado real: {freedMb:F2} MB ({deletedFiles} arquivos removidos; {skippedLocked} em uso; {skippedLinks} links preservados)";
+                cat.LastOperationStatus = status switch
                 {
-                    "Completed" => "Limpeza concluída",
+                    "Completed" => "Limpeza concluída pelo agente",
                     "NothingToClean" => "Nada para limpar",
-                    "Partial" => "Limpeza parcial",
+                    "Partial" => "Limpeza parcial pelo agente",
                     "DirectoryMissing" => "Diretório inexistente",
-                    _ => "Falha na limpeza"
+                    _ => "Falha na limpeza pelo agente"
                 };
 
                 CleanerAffectedFilesLog.Clear();
-                foreach (var logLine in report.AffectedItemsLog)
-                    CleanerAffectedFilesLog.Add(logLine);
-                foreach (var error in report.Errors)
-                    CleanerAffectedFilesLog.Add($"[ERRO] {error}");
-                foreach (var warning in report.Warnings ?? Array.Empty<string>())
-                    CleanerAffectedFilesLog.Add($"[AVISO] {warning}");
+                if (root.TryGetProperty("affectedItemsLog", out var affectedEl) && affectedEl.ValueKind == JsonValueKind.Array)
+                    foreach (var item in affectedEl.EnumerateArray())
+                        CleanerAffectedFilesLog.Add(item.GetString() ?? item.ToString());
+                if (root.TryGetProperty("errors", out var errorsEl) && errorsEl.ValueKind == JsonValueKind.Array)
+                    foreach (var error in errorsEl.EnumerateArray())
+                        CleanerAffectedFilesLog.Add($"[ERRO] {error.GetString() ?? error.ToString()}");
+                if (root.TryGetProperty("warnings", out var warningsEl) && warningsEl.ValueKind == JsonValueKind.Array)
+                    foreach (var warning in warningsEl.EnumerateArray())
+                        CleanerAffectedFilesLog.Add($"[AVISO] {warning.GetString() ?? warning.ToString()}");
 
-                DebloatSummaryText = report.Status switch
+                DebloatSummaryText = status switch
                 {
-                    "Completed" => $"Limpeza concluída em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados em {report.DeletedFilesCount} arquivos.",
+                    "Completed" => $"Limpeza concluída pelo agente em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados em {deletedFiles} arquivos.",
                     "NothingToClean" => $"Nada para limpar em '{cat.CategoryKey}': a pasta existe, mas não há arquivos elegíveis.",
-                    "Partial" => $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados; {report.DeletedFilesCount} arquivos removidos e itens preservados por bloqueio, erro ou segurança.",
+                    "Partial" => $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados; {deletedFiles} arquivos removidos, {skippedLocked} em uso e {skippedLinks} links preservados.",
                     "DirectoryMissing" => $"Limpeza não executada em '{cat.CategoryKey}': o diretório autorizado não existe.",
-                    _ => $"Falha na limpeza de '{cat.CategoryKey}': nenhum resultado completo foi confirmado. {report.Errors.FirstOrDefault() ?? "Verifique permissões e se os arquivos estão em uso."}"
+                    _ => $"Falha na limpeza de '{cat.CategoryKey}'. {(root.TryGetProperty("errors", out var err) && err.ValueKind == JsonValueKind.Array && err.GetArrayLength() > 0 ? err[0].GetString() : "Nenhum resultado completo foi confirmado.")}"
                 };
+
+                if (!success && !partial && status == "Failed")
+                    cat.RealFreedText = "Nenhuma limpeza confirmada pelo agente.";
             }
             catch (Exception ex)
             {
                 cat.LastOperationStatus = "Falha na limpeza";
                 cat.RealFreedText = "Nenhum resultado confirmado.";
-                DebloatSummaryText = $"Falha ao limpar '{cat.CategoryKey}': {ex.Message}";
+                DebloatSummaryText = $"Falha ao limpar '{cat.CategoryKey}' pelo agente privilegiado: {ex.Message}";
                 CleanerAffectedFilesLog.Clear();
                 CleanerAffectedFilesLog.Add($"[ERRO] {ex.Message}");
             }
