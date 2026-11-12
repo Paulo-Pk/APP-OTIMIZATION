@@ -22,6 +22,12 @@ public enum TweakDefaultBehaviorKind
     UndeterminedWhenAbsent
 }
 
+public record RegistryTweakInspectionResult(
+    string State,
+    bool IsUndeterminable,
+    string? CurrentValue = null,
+    RegistryValueKind? ActualValueKind = null);
+
 public record TweakDefinition(
     string TweakId,
     string Hive,
@@ -245,10 +251,10 @@ public static class RegistryOptimizer
             "mem-standby-clean", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
             "LargeSystemCache", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
+            "0", "0", new[] { "0", "1" },
             "Prioriza memória RAM física para aplicativos e jogos em primeiro plano (LargeSystemCache=0).",
             "Prioritizes physical RAM for foreground applications and games (LargeSystemCache=0).",
-            "Memory", "Baixo"
+            "Memory", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["mem-lock-executive"] = new(
             "mem-lock-executive", "HKLM",
@@ -1204,13 +1210,13 @@ public static class RegistryOptimizer
     public static IReadOnlyList<RegistryAuditLogEntry> GetRecentAuditLogs(int maxCount = 50) =>
         _auditHistory.Reverse().Take(maxCount).ToList();
 
-    public static string InspectCatalogTweakCurrentState(string tweakId)
+    public static RegistryTweakInspectionResult InspectCatalogTweak(string tweakId)
     {
         if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
-            return "Não Suportado";
+            return new RegistryTweakInspectionResult("Não Suportado", true);
 
         if (!OperatingSystem.IsWindows())
-            return "Não Disponível Neste Sistema";
+            return new RegistryTweakInspectionResult("Não Disponível Neste Sistema", true);
 
         try
         {
@@ -1218,41 +1224,46 @@ public static class RegistryOptimizer
 
             if (!snapshot.KeyExists || !snapshot.ValueExists)
             {
-                return def.DefaultBehavior switch
+                string absentState = def.DefaultBehavior switch
                 {
-                    TweakDefaultBehaviorKind.KnownDocumentedValue => "Inativo",
-                    TweakDefaultBehaviorKind.AbsentWithKnownDefault => "Inativo",
+                    TweakDefaultBehaviorKind.KnownDocumentedValue or TweakDefaultBehaviorKind.AbsentWithKnownDefault =>
+                        string.Equals(def.DefaultOriginValue, def.RecommendedValue, StringComparison.OrdinalIgnoreCase) ? "Ativo" : "Inativo",
                     TweakDefaultBehaviorKind.EditionOrConfigDependent => "Padrão Dependente",
                     _ => "Estado Não Determinável"
                 };
+                bool absentIsUndeterminable = absentState is "Padrão Dependente" or "Estado Não Determinável";
+                return new RegistryTweakInspectionResult(absentState, absentIsUndeterminable);
             }
 
             // A value with a different Registry type is incompatible, not a custom value.
             // Inspection is read-only: never rewrite or coerce an unexpected value.
             if (snapshot.Kind != def.ValueKind)
-                return "Tipo Incorreto";
+                return new RegistryTweakInspectionResult("Tipo Incorreto", true, snapshot.Value?.ToString(), snapshot.Kind);
 
             string? serialized = SerializeRegistryValue(snapshot.Value, snapshot.Kind);
             if (string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
-                return "Ativo";
+                return new RegistryTweakInspectionResult("Ativo", false, serialized, snapshot.Kind);
             if (string.Equals(serialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
-                return "Inativo";
+                return new RegistryTweakInspectionResult("Inativo", false, serialized, snapshot.Kind);
 
-            return "Personalizado";
+            return new RegistryTweakInspectionResult("Personalizado", false, serialized, snapshot.Kind);
         }
         catch (UnauthorizedAccessException)
         {
-            return "Acesso Negado";
+            return new RegistryTweakInspectionResult("Acesso Negado", true);
         }
         catch (SecurityException)
         {
-            return "Acesso Negado";
+            return new RegistryTweakInspectionResult("Acesso Negado", true);
         }
         catch (Exception)
         {
-            return "Erro de Leitura";
+            return new RegistryTweakInspectionResult("Erro de Leitura", true);
         }
     }
+
+    public static string InspectCatalogTweakCurrentState(string tweakId) =>
+        InspectCatalogTweak(tweakId).State;
 
 
     private static string GetCurrentWindowsUser()

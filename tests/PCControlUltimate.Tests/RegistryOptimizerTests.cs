@@ -242,6 +242,27 @@ public class RegistryOptimizerTests : IDisposable
         Assert.Equal(0, _fakeRegistry.WriteCalls);
     }
 
+    [Fact]
+    public void InspectCatalogTweak_WrongRegistryType_MarksInspectionUndeterminable()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, "0", RegistryValueKind.String);
+        var result = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+        Assert.Equal("Tipo Incorreto", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Equal(RegistryValueKind.String, result.ActualValueKind);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_LargeSystemCacheAbsent_UsesKnownZeroDefault()
+    {
+        var result = RegistryOptimizer.InspectCatalogTweak("mem-standby-clean");
+        Assert.Equal("Ativo", result.State);
+        Assert.False(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
     private sealed class FakeRegistryBackend : IRegistryBackend
     {
         private readonly Dictionary<string, (object Value, RegistryValueKind Kind)> _values = new(StringComparer.OrdinalIgnoreCase);
