@@ -979,7 +979,7 @@ public static class RegistryOptimizer
             return new RegistryOperationResult(false, null, null, previousState.ValueKind,
                 previousState.WasInitiallyAbsent, previousState.KeyCreatedByApp,
                 "Rollback bloqueado: os estados capturados não correspondem ao ajuste autorizado.", def.TweakId,
-                errorCode: "ROLLBACK_TARGET_MISMATCH");
+                ErrorCode: "ROLLBACK_TARGET_MISMATCH");
         }
 
         var validation = ValidateTrustedRestoreState(
@@ -990,7 +990,7 @@ public static class RegistryOptimizer
         {
             return new RegistryOperationResult(false, null, null, previousState.ValueKind,
                 previousState.WasInitiallyAbsent, previousState.KeyCreatedByApp,
-                validation.errorMessage, def.TweakId, errorCode: "ROLLBACK_STATE_INVALID");
+                validation.errorMessage, def.TweakId, ErrorCode: "ROLLBACK_STATE_INVALID");
         }
 
         return ValidateAndExecuteRestore(
