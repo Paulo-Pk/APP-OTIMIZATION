@@ -807,6 +807,24 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void RegistryStateLedger_MarkOperationRestored_RejectsDuplicateCompletion()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var entry = RegistryStateLedger.RecordAppliedTweakState(
+            def, "1", RegistryValueKind.DWord, false, false, "0");
+
+        Assert.True(RegistryStateLedger.MarkOperationRestored(entry.OperationId));
+        var firstPersisted = Assert.Single(RegistryStateLedger.GetAllEntries());
+        string? firstRestoredAt = firstPersisted.RestoredAtUtc;
+
+        Assert.False(RegistryStateLedger.MarkOperationRestored(entry.OperationId));
+
+        var afterDuplicate = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.True(afterDuplicate.IsRestored);
+        Assert.Equal(firstRestoredAt, afterDuplicate.RestoredAtUtc);
+    }
+
+    [Fact]
     public void RegistryStateLedger_RestoredAtUtc_IsCoveredByEntryHmac()
     {
         RegistryStateLedger.ClearLedgerForTesting();
