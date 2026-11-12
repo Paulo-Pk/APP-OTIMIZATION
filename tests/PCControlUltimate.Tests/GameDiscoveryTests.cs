@@ -12,7 +12,9 @@ namespace PCControlUltimate.Tests;
 public sealed class GameDiscoveryTests : IDisposable
 {
     private const string CatalogPath = @"Software\GOG.com\Games";
-    private readonly string _registryRoot = $@"{CatalogPath}\PCControlTest_{Guid.NewGuid():N}";
+    private readonly string _testPrefix = $"PCControlTest_{Guid.NewGuid():N}";
+    private string ValidEntryPath => $@"{CatalogPath}\{_testPrefix}_ValidGame";
+    private string InvalidEntryPath => $@"{CatalogPath}\{_testPrefix}_ExternalExeGame";
     private readonly string _installRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-game-tests-{Guid.NewGuid():N}");
 
     [Fact]
@@ -28,14 +30,14 @@ public sealed class GameDiscoveryTests : IDisposable
 
         using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry32))
         {
-            using (RegistryKey validEntry = baseKey.CreateSubKey($@"{_registryRoot}\ValidGame")!)
+            using (RegistryKey validEntry = baseKey.CreateSubKey(ValidEntryPath)!)
             {
                 validEntry.SetValue("path", _installRoot);
                 validEntry.SetValue("gameName", "PC Control Test Game");
                 validEntry.SetValue("exe", "game.exe");
             }
 
-            using (RegistryKey invalidEntry = baseKey.CreateSubKey($@"{_registryRoot}\ExternalExeGame")!)
+            using (RegistryKey invalidEntry = baseKey.CreateSubKey(InvalidEntryPath)!)
             {
                 invalidEntry.SetValue("path", _installRoot);
                 invalidEntry.SetValue("gameName", "PC Control External Executable Test");
