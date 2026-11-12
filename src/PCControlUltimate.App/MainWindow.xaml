@@ -621,7 +621,7 @@
                         <TextBlock Text="Cada aplicação grava o valor original real no Ledger DPAPI antes de modificar a chave e confirma o valor por releitura." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,14"/>
                         <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" MaxHeight="420">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="ID" Binding="{Binding TweakId}" Width="160"/>
+                                <DataGridTextColumn Header="ID interno" Binding="{Binding TweakId}" Width="160"/>
                                 <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="120"/>
                                 <DataGridTextColumn Header="Descrição" Binding="{Binding Name}" Width="*"/>
                                 <DataGridTextColumn Header="Risco" Binding="{Binding RiskLevel}" Width="95"/>
@@ -1064,7 +1064,7 @@
                 <Border Style="{StaticResource CardBorderStyle}">
                     <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="520">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="ID" Binding="{Binding TweakId}" Width="155"/>
+                            <DataGridTextColumn Header="ID interno" Binding="{Binding TweakId}" Width="155"/>
                             <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="115"/>
                             <DataGridTextColumn Header="Descrição" Binding="{Binding Name}" Width="*"/>
                             <DataGridTextColumn Header="Caminho do Registro" Binding="{Binding RegistryPath}" Width="250"/>
