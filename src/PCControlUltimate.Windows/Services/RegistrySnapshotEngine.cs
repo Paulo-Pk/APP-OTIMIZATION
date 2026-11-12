@@ -585,8 +585,46 @@ public static class RegistrySnapshotEngine
                 }
             }
 
-            // Capture current state before restoration to enable transactional rollback
-            var preRestoreState = CaptureCurrentStateForRollback(targetEntries);
+            // Transactional rollback is only safe when every authorized target has a verified
+            // pre-restore state captured before the first Registry write.
+            var preRestoreState = new Dictionary<string, RegistryValueEntry>(StringComparer.OrdinalIgnoreCase);
+            if (rollbackOnPartialFailure)
+            {
+                if (!OperatingSystem.IsWindows())
+                {
+                    return new SnapshotRestoreResult(false, false, false, 0, 0,
+                        "Rollback transacional exige Windows nativo; nenhuma alteração foi aplicada.");
+                }
+
+                preRestoreState = CaptureCurrentStateForRollback(targetEntries, out var captureFailures);
+                var expectedRollbackIds = targetEntries
+                    .Select(entry =>
+                    {
+                        var byPath = RegistryOptimizer.FindAuthorizedCatalogEntry(entry.KeyPath, entry.ValueName);
+                        var byId = !string.IsNullOrWhiteSpace(entry.TweakId) && RegistryOptimizer.Catalog.TryGetValue(entry.TweakId, out var catalogDef)
+                            ? catalogDef
+                            : null;
+                        return byPath != null && (byId == null || string.Equals(byPath.TweakId, byId.TweakId, StringComparison.OrdinalIgnoreCase))
+                            ? byPath.TweakId
+                            : null;
+                    })
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var missingRollbackStates = expectedRollbackIds
+                    .Where(id => !preRestoreState.ContainsKey(id!))
+                    .ToList();
+                if (captureFailures.Count > 0 || missingRollbackStates.Count > 0)
+                {
+                    string details = string.Join("; ", captureFailures.Select(f => $"{f.TweakId}: {f.Reason}"));
+                    if (missingRollbackStates.Count > 0)
+                        details = string.Join("; ", new[] { details, $"Estado anterior não capturado: {string.Join(", ", missingRollbackStates)}" }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                    return new SnapshotRestoreResult(false, false, false, 0, 0,
+                        $"Rollback transacional cancelado antes de qualquer alteração: não foi possível capturar e validar todos os estados anteriores. {details}");
+                }
+            }
+
             var appliedBeforeFailure = new List<RegistryValueEntry>();
             var itemReports = new List<SnapshotItemRestoreReport>();
 
@@ -648,26 +686,49 @@ public static class RegistrySnapshotEngine
                 }
             }
 
-            // Execute rollback if requested and a partial failure occurred
+            // Execute and verify every rollback operation. Never report rollback success merely
+            // because rollback was attempted.
             bool rolledBack = false;
             if (failed > 0 && restored > 0 && rollbackOnPartialFailure)
             {
+                var rollbackFailures = new List<SnapshotItemRestoreReport>();
                 foreach (var rollbackEntry in appliedBeforeFailure)
                 {
-                    if (RegistryOptimizer.Catalog.TryGetValue(rollbackEntry.TweakId, out var rDef))
+                    if (!RegistryOptimizer.Catalog.TryGetValue(rollbackEntry.TweakId, out var rDef))
                     {
-                        RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(rDef, rollbackEntry);
+                        rollbackFailures.Add(new SnapshotItemRestoreReport(
+                            rollbackEntry.TweakId, rollbackEntry.KeyPath, rollbackEntry.ValueName, false, null,
+                            "Rollback falhou: ajuste não encontrado no catálogo fechado."));
+                        continue;
+                    }
+
+                    var rollbackResult = RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(rDef, rollbackEntry);
+                    if (!rollbackResult.Success)
+                    {
+                        rollbackFailures.Add(new SnapshotItemRestoreReport(
+                            rollbackEntry.TweakId, rollbackEntry.KeyPath, rollbackEntry.ValueName, false, null,
+                            $"Rollback falhou: {rollbackResult.ErrorMessage ?? "restauração do estado anterior não confirmada."}"));
                     }
                 }
-                rolledBack = true;
+
+                rolledBack = rollbackFailures.Count == 0;
+                var rollbackReports = itemReports
+                    .Select(report => report.Success
+                        ? report with { Success = false, ErrorMessage = "A restauração do snapshot foi revertida para o estado anterior." }
+                        : report)
+                    .Concat(rollbackFailures)
+                    .ToList();
+
                 return new SnapshotRestoreResult(
                     Success: false,
-                    PartialSuccess: false,
-                    RolledBack: true,
-                    RestoredCount: 0,
-                    FailedCount: failed,
-                    ErrorMessage: $"Restauração abortada com {failed} falha(s). Rollback transacional executado para manter consistência.",
-                    ItemReports: itemReports
+                    PartialSuccess: !rolledBack,
+                    RolledBack: rolledBack,
+                    RestoredCount: rollbackFailures.Count,
+                    FailedCount: failed + rollbackFailures.Count,
+                    ErrorMessage: rolledBack
+                        ? $"Restauração abortada após {failed} falha(s). Todos os {appliedBeforeFailure.Count} item(ns) alterados foram revertidos e verificados."
+                        : $"Restauração abortada após {failed} falha(s). O rollback também falhou em {rollbackFailures.Count} item(ns); verifique os itens e erros individualmente.",
+                    ItemReports: rollbackReports
                 );
             }
 
@@ -690,19 +751,28 @@ public static class RegistrySnapshotEngine
         }
     }
 
-    private static Dictionary<string, RegistryValueEntry> CaptureCurrentStateForRollback(IEnumerable<RegistryValueEntry> targetEntries)
+    private static Dictionary<string, RegistryValueEntry> CaptureCurrentStateForRollback(
+        IEnumerable<RegistryValueEntry> targetEntries,
+        out List<RegistryReadFailure> captureFailures)
     {
         var map = new Dictionary<string, RegistryValueEntry>(StringComparer.OrdinalIgnoreCase);
+        captureFailures = new List<RegistryReadFailure>();
+
         if (!OperatingSystem.IsWindows())
             return map;
 
         foreach (var entry in targetEntries)
         {
-            var def = !string.IsNullOrWhiteSpace(entry.TweakId) && RegistryOptimizer.Catalog.TryGetValue(entry.TweakId, out var d)
+            // Resolve by the actual Registry path first; a snapshot-supplied TweakId is never
+            // allowed to redirect rollback capture to a different catalog entry.
+            var def = RegistryOptimizer.FindAuthorizedCatalogEntry(entry.KeyPath, entry.ValueName);
+            var defById = !string.IsNullOrWhiteSpace(entry.TweakId) && RegistryOptimizer.Catalog.TryGetValue(entry.TweakId, out var d)
                 ? d
-                : RegistryOptimizer.FindAuthorizedCatalogEntry(entry.KeyPath, entry.ValueName);
-
-            if (def == null || map.ContainsKey(def.TweakId)) continue;
+                : null;
+            if (def == null ||
+                (defById != null && !string.Equals(def.TweakId, defById.TweakId, StringComparison.OrdinalIgnoreCase)) ||
+                map.ContainsKey(def.TweakId))
+                continue;
 
             var captured = new List<RegistryValueEntry>();
             var failures = new List<RegistryReadFailure>();
@@ -712,9 +782,13 @@ public static class RegistrySnapshotEngine
 
             CaptureSingleCatalogValue(root, def, captured, failures);
             if (captured.Count > 0)
-            {
                 map[def.TweakId] = captured[0];
-            }
+            if (failures.Count > 0)
+                captureFailures.AddRange(failures);
+            else if (captured.Count == 0)
+                captureFailures.Add(new RegistryReadFailure(
+                    def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
+                    "A captura do estado anterior não retornou valor nem ausência confirmada."));
         }
 
         return map;
