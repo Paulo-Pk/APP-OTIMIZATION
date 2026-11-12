@@ -306,7 +306,8 @@ public static class DiskCleanerEngine
 
         bool hasSkippedItems = skippedLocked > 0 || skippedSymlinks > 0;
         bool fullSuccess = errors.Count == 0 && !hasSkippedItems && deletedFiles > 0;
-        bool partialSuccess = deletedFiles > 0 && (hasSkippedItems || errors.Count > 0);
+        bool partialSuccess = (deletedFiles > 0 && (hasSkippedItems || errors.Count > 0)) ||
+                              (deletedFiles == 0 && hasSkippedItems && errors.Count == 0);
         bool nothingToClean = deletedFiles == 0 && skippedLocked == 0 && skippedSymlinks == 0 && errors.Count == 0;
         string status = fullSuccess ? "Completed" :
             partialSuccess ? "Partial" :
