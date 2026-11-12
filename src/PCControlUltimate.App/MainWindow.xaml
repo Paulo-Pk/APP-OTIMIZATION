@@ -1123,10 +1123,12 @@
                                         <StackPanel Orientation="Horizontal" Margin="4,2">
                                             <Button Content="Simular (Dry-Run)" Style="{StaticResource ActionSecondaryButton}" Padding="8,4" Margin="0,0,6,0"
                                                     Command="{Binding DataContext.SimulateDryRunCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                    CommandParameter="{Binding}"/>
+                                                    CommandParameter="{Binding}"
+                                                    IsEnabled="{Binding DataContext.CanRunCleanerOperation, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
                                             <Button Content="Limpar" Style="{StaticResource ActionPrimaryButton}" Padding="10,4"
                                                     Command="{Binding DataContext.PurgeCategoryCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                    CommandParameter="{Binding}"/>
+                                                    CommandParameter="{Binding}"
+                                                    IsEnabled="{Binding DataContext.CanRunCleanerOperation, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
                                         </StackPanel>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
