@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using PCControlUltimate.Windows.Services;
 using Xunit;
@@ -7,6 +8,13 @@ namespace PCControlUltimate.Tests;
 
 public class DiskCleanerTests
 {
+    private static string CreateIsolatedTempFolder(string suffix)
+    {
+        string folder = Path.Combine(Path.GetTempPath(), $"pccontrol_clean_test_{suffix}_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        return folder;
+    }
+
     [Theory]
     [InlineData("cache-dx-shaders")]
     [InlineData("temp-windows")]
@@ -57,8 +65,7 @@ public class DiskCleanerTests
     [Fact]
     public void IsReparsePointOrSymlink_RegularDirectory_ReturnsFalse()
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), $"pccontrol_clean_test_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
+        string tempDir = CreateIsolatedTempFolder("regular");
         try
         {
             var dirInfo = new DirectoryInfo(tempDir);
@@ -82,6 +89,7 @@ public class DiskCleanerTests
     {
         var report = DiskCleanerEngine.PurgeCategoryWithReport("update-cache", confirmServiceStop: false);
         Assert.False(report.Success);
+        Assert.Equal(DiskPurgeStatus.Failed, report.Status);
         Assert.Equal(0, report.BytesFreed);
     }
 
@@ -90,17 +98,341 @@ public class DiskCleanerTests
     {
         var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("forbidden-category");
         Assert.False(dryRun.Success);
+        Assert.Equal(DiskPurgeStatus.Failed, dryRun.Status);
         Assert.Equal(0, dryRun.EstimatedBytes);
         Assert.Equal(0, dryRun.EstimatedFilesCount);
     }
 
     [Fact]
-    public void SimulateCategoryDryRun_WithValidCategory_ReturnsNonNegativeEstimateAndLeavesFilesIntact()
+    public void SimulateCategoryDryRun_WithValidCategory_ReturnsAccurateEstimateAndLeavesFilesIntact()
     {
-        var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
-        Assert.True(dryRun.Success);
-        Assert.True(dryRun.EstimatedBytes >= 0);
-        Assert.True(dryRun.EstimatedFilesCount >= 0);
+        string tempDir = CreateIsolatedTempFolder("dryrun_valid");
+        try
+        {
+            string fileA = Path.Combine(tempDir, "shader_a.bin");
+            byte[] payload = new byte[2048];
+            File.WriteAllBytes(fileA, payload);
+
+            using var scope = DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir }
+            );
+
+            var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
+            Assert.True(dryRun.Success);
+            Assert.Equal(DiskPurgeStatus.Completed, dryRun.Status);
+            Assert.Equal(2048, dryRun.EstimatedBytes);
+            Assert.Equal(1, dryRun.EstimatedFilesCount);
+            Assert.True(File.Exists(fileA));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void NonExistentDirectory_DryRunAndPurge_ReturnNothingToCleanAndSuccessFalse()
+    {
+        string missingDir = Path.Combine(Path.GetTempPath(), $"pccontrol_nonexistent_{Guid.NewGuid():N}");
+        if (Directory.Exists(missingDir)) Directory.Delete(missingDir, true);
+
+        using var scope = DiskCleanerEngine.UseCategoryPathOverrideScope(
+            new Dictionary<string, string> { ["cache-dx-shaders"] = missingDir }
+        );
+
+        var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("cache-dx-shaders");
+        Assert.Equal(DiskPurgeStatus.NothingToClean, dryRun.Status);
+        Assert.False(dryRun.Success);
+        Assert.Equal(0, dryRun.CandidateFilesCount);
+        Assert.Equal(0, dryRun.EstimatedBytes);
+
+        var purge = DiskCleanerEngine.PurgeCategoryWithReport("cache-dx-shaders");
+        Assert.Equal(DiskPurgeStatus.NothingToClean, purge.Status);
+        Assert.False(purge.Success);
+        Assert.False(purge.PartialSuccess);
+        Assert.Equal(0, purge.DeletedFilesCount);
+        Assert.Equal(0, purge.FreedBytes);
+        Assert.Empty(purge.Errors);
+    }
+
+    [Fact]
+    public void EmptyDirectory_DryRunAndPurge_ReturnNothingToCleanAndSuccessFalse()
+    {
+        string emptyDir = CreateIsolatedTempFolder("empty");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(emptyDir, "EmptySubfolder"));
+
+            using var scope = DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = emptyDir }
+            );
+
+            var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
+            Assert.Equal(DiskPurgeStatus.NothingToClean, dryRun.Status);
+            Assert.False(dryRun.Success);
+            Assert.Equal(0, dryRun.CandidateFilesCount);
+            Assert.Equal(0, dryRun.EstimatedBytes);
+
+            var purge = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+            Assert.Equal(DiskPurgeStatus.NothingToClean, purge.Status);
+            Assert.False(purge.Success);
+            Assert.False(purge.PartialSuccess);
+            Assert.Equal(0, purge.DeletedFilesCount);
+            Assert.Equal(0, purge.FreedBytes);
+        }
+        finally
+        {
+            if (Directory.Exists(emptyDir)) Directory.Delete(emptyDir, true);
+        }
+    }
+
+    [Fact]
+    public void CompletedCleaning_RemovesAllEligibleFiles_AndCalculatesExactCountAndFreedBytes()
+    {
+        string tempDir = CreateIsolatedTempFolder("completed");
+        try
+        {
+            string subDir = Path.Combine(tempDir, "Nested");
+            Directory.CreateDirectory(subDir);
+
+            string file1 = Path.Combine(tempDir, "cache1.tmp");
+            string file2 = Path.Combine(subDir, "cache2.tmp");
+            string file3 = Path.Combine(subDir, "cache3.tmp");
+
+            File.WriteAllBytes(file1, new byte[1500]);
+            File.WriteAllBytes(file2, new byte[2500]);
+            File.WriteAllBytes(file3, new byte[4096]);
+
+            using var scope = DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir }
+            );
+
+            var report = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+
+            Assert.Equal(DiskPurgeStatus.Completed, report.Status);
+            Assert.True(report.Success);
+            Assert.False(report.PartialSuccess);
+            Assert.Equal(3, report.DeletedFilesCount);
+            Assert.Equal(1500 + 2500 + 4096, report.FreedBytes);
+            Assert.Equal(0, report.SkippedLockedCount);
+            Assert.Equal(0, report.SkippedSymlinksCount);
+            Assert.Empty(report.Errors);
+
+            Assert.False(File.Exists(file1));
+            Assert.False(File.Exists(file2));
+            Assert.False(File.Exists(file3));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LockedFile_WithUnlockedFiles_ReturnsPartialSuccessAndPreservesLockedFile()
+    {
+        string tempDir = CreateIsolatedTempFolder("locked_partial");
+        try
+        {
+            string unlockedFile = Path.Combine(tempDir, "unlocked.tmp");
+            string lockedFile = Path.Combine(tempDir, "locked.tmp");
+            File.WriteAllBytes(unlockedFile, new byte[1024]);
+            File.WriteAllBytes(lockedFile, new byte[2048]);
+
+            using var scope = DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir },
+                simulatedFileFailureHook: path =>
+                {
+                    if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(lockedFile), StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new IOException("The process cannot access the file because it is being used by another process.");
+                    }
+                    return null;
+                }
+            );
+
+            var report = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+
+            Assert.Equal(DiskPurgeStatus.Partial, report.Status);
+            Assert.True(report.Success);
+            Assert.True(report.PartialSuccess);
+            Assert.Equal(1, report.DeletedFilesCount);
+            Assert.Equal(1024, report.FreedBytes);
+            Assert.Equal(1, report.SkippedLockedCount);
+            Assert.False(File.Exists(unlockedFile));
+            Assert.True(File.Exists(lockedFile));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LockedFile_WhenOnlyLockedFileExists_ReturnsFailedStatusAndSuccessFalse()
+    {
+        string tempDir = CreateIsolatedTempFolder("locked_only");
+        try
+        {
+            string lockedFile = Path.Combine(tempDir, "locked_only.tmp");
+            File.WriteAllBytes(lockedFile, new byte[4096]);
+
+            using var scope = DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir },
+                simulatedFileFailureHook: _ => new IOException("Sharing violation: file in use.")
+            );
+
+            var report = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+
+            Assert.Equal(DiskPurgeStatus.Failed, report.Status);
+            Assert.False(report.Success);
+            Assert.False(report.PartialSuccess);
+            Assert.Equal(0, report.DeletedFilesCount);
+            Assert.Equal(0, report.FreedBytes);
+            Assert.Equal(1, report.SkippedLockedCount);
+            Assert.True(File.Exists(lockedFile));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void AccessError_DuringPurge_RecordsErrorAndClassifiesPartialOrFailedAccurately()
+    {
+        string tempDir = CreateIsolatedTempFolder("access_error");
+        try
+        {
+            string normalFile = Path.Combine(tempDir, "normal.tmp");
+            string deniedFile = Path.Combine(tempDir, "denied.tmp");
+            File.WriteAllBytes(normalFile, new byte[512]);
+            File.WriteAllBytes(deniedFile, new byte[1024]);
+
+            using var scope = DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir },
+                simulatedFileFailureHook: path =>
+                {
+                    if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(deniedFile), StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new UnauthorizedAccessException("Access to the path is denied.");
+                    }
+                    return null;
+                }
+            );
+
+            var report = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+
+            Assert.Equal(DiskPurgeStatus.Partial, report.Status);
+            Assert.True(report.Success);
+            Assert.True(report.PartialSuccess);
+            Assert.Equal(1, report.DeletedFilesCount);
+            Assert.Equal(512, report.FreedBytes);
+            Assert.Single(report.Errors);
+            Assert.Contains("Acesso negado", report.Errors[0], StringComparison.OrdinalIgnoreCase);
+            Assert.True(File.Exists(deniedFile));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void PreservedSymlink_NeverFollowedOrDeleted_AndIncludedInPartialOrNothingToCleanClassification()
+    {
+        string tempDir = CreateIsolatedTempFolder("symlink_test");
+        string externalTargetDir = CreateIsolatedTempFolder("symlink_external_target");
+        try
+        {
+            string regularFile = Path.Combine(tempDir, "regular.tmp");
+            File.WriteAllBytes(regularFile, new byte[768]);
+
+            string externalProtectedFile = Path.Combine(externalTargetDir, "do_not_delete.txt");
+            File.WriteAllBytes(externalProtectedFile, new byte[1024]);
+
+            string symlinkPath = Path.Combine(tempDir, "linked_file.tmp");
+            bool symlinkCreated = false;
+            try
+            {
+                File.CreateSymbolicLink(symlinkPath, externalProtectedFile);
+                symlinkCreated = true;
+            }
+            catch
+            {
+                // Fallback if OS privilege blocks symlink creation: mark ReparsePoint attribute if supported
+                File.WriteAllBytes(symlinkPath, new byte[128]);
+                try
+                {
+                    File.SetAttributes(symlinkPath, File.GetAttributes(symlinkPath) | FileAttributes.ReparsePoint);
+                    symlinkCreated = (File.GetAttributes(symlinkPath) & FileAttributes.ReparsePoint) != 0;
+                }
+                catch
+                {
+                    symlinkCreated = false;
+                }
+            }
+
+            if (!symlinkCreated)
+            {
+                return;
+            }
+
+            using var scope = DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir }
+            );
+
+            // 1. Purge when regularFile + symlink exist -> regularFile deleted, symlink preserved -> Partial
+            var partialReport = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+            Assert.Equal(DiskPurgeStatus.Partial, partialReport.Status);
+            Assert.True(partialReport.Success);
+            Assert.True(partialReport.PartialSuccess);
+            Assert.Equal(1, partialReport.DeletedFilesCount);
+            Assert.Equal(768, partialReport.FreedBytes);
+            Assert.Equal(1, partialReport.SkippedSymlinksCount);
+            Assert.True(File.Exists(externalProtectedFile));
+
+            // 2. Purge again when only the preserved symlink remains -> 0 deleted -> NothingToClean (Success = false)
+            var secondReport = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+            Assert.Equal(DiskPurgeStatus.NothingToClean, secondReport.Status);
+            Assert.False(secondReport.Success);
+            Assert.Equal(0, secondReport.DeletedFilesCount);
+            Assert.Equal(1, secondReport.SkippedSymlinksCount);
+            Assert.True(File.Exists(externalProtectedFile));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+            if (Directory.Exists(externalTargetDir)) Directory.Delete(externalTargetDir, true);
+        }
+    }
+
+    [Fact]
+    public void CategoryPathOverrideScope_DisposesCleanly_AndDoesNotBypassAllowedCategoryWhitelist()
+    {
+        string tempDir = CreateIsolatedTempFolder("scope_guard");
+        try
+        {
+            string originalPath = DiskCleanerEngine.GetCategoryPath("temp-user")!;
+
+            using (DiskCleanerEngine.UseCategoryPathOverrideScope(new Dictionary<string, string>
+            {
+                ["temp-user"] = tempDir,
+                ["unlisted-category"] = tempDir
+            }))
+            {
+                Assert.Equal(tempDir, DiskCleanerEngine.GetCategoryPath("temp-user"));
+                // Unlisted category must still return null even if passed to override dictionary
+                Assert.Null(DiskCleanerEngine.GetCategoryPath("unlisted-category"));
+            }
+
+            // Disposing the scope must restore the production path immediately
+            Assert.Equal(originalPath, DiskCleanerEngine.GetCategoryPath("temp-user"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
     }
 }
 

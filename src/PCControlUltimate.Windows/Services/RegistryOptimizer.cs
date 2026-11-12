@@ -286,16 +286,22 @@ public sealed class SimulatedRegistryKeyProbe : IRegistryKeyProbe
     private readonly HashSet<string> _accessDeniedTargets = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _readErrorTargets = new(StringComparer.OrdinalIgnoreCase);
 
+    private bool _triggerReadFailureOnNextRead;
+
     public bool IsSupportedPlatform { get; set; } = true;
     public int CurrentWindowsBuild { get; set; } = 22631; // Windows 11 23H2 default for simulation
     public bool SimulateWriteIgnore { get; set; }
     public bool SimulateDeleteIgnore { get; set; }
+    public RegistryProbeReadOutcome? SimulateReadFailureAfterMutation { get; set; }
 
     private static string NormalizeKeyId(string hive, string subKeyPath) =>
         $"{hive.Trim().ToUpperInvariant()}\\{RegistryOptimizer.NormalizeSubKeyPath(subKeyPath)}";
 
     private static string NormalizeValueId(string hive, string subKeyPath, string valueName) =>
         $"{NormalizeKeyId(hive, subKeyPath)}::{valueName.Trim()}";
+
+    public bool SubKeyExists(string hive, string subKeyPath) =>
+        _keys.ContainsKey(NormalizeKeyId(hive, subKeyPath));
 
     public void EnsureSubKeyExists(string hive, string subKeyPath)
     {
@@ -349,6 +355,15 @@ public sealed class SimulatedRegistryKeyProbe : IRegistryKeyProbe
 
     public RegistryProbeReadResult ReadValue(string hive, string subKeyPath, string valueName)
     {
+        if (_triggerReadFailureOnNextRead && SimulateReadFailureAfterMutation.HasValue)
+        {
+            _triggerReadFailureOnNextRead = false;
+            return new RegistryProbeReadResult(
+                SimulateReadFailureAfterMutation.Value,
+                ErrorMessage: $"Falha simulada ({SimulateReadFailureAfterMutation.Value}) na releitura pós-operação."
+            );
+        }
+
         if (!IsSupportedPlatform)
         {
             return new RegistryProbeReadResult(
@@ -429,6 +444,11 @@ public sealed class SimulatedRegistryKeyProbe : IRegistryKeyProbe
             SetValue(hive, subKeyPath, valueName, typedValue, valueKind);
         }
 
+        if (SimulateReadFailureAfterMutation.HasValue)
+        {
+            _triggerReadFailureOnNextRead = true;
+        }
+
         return true;
     }
 
@@ -458,8 +478,18 @@ public sealed class SimulatedRegistryKeyProbe : IRegistryKeyProbe
             values.Remove(valueName.Trim());
             if (deleteEmptyKeyIfCreatedByApp && values.Count == 0)
             {
-                _keys.Remove(keyId);
+                bool hasChildSubKeys = _keys.Keys.Any(k =>
+                    k.StartsWith(keyId + "\\", StringComparison.OrdinalIgnoreCase));
+                if (!hasChildSubKeys)
+                {
+                    _keys.Remove(keyId);
+                }
             }
+        }
+
+        if (SimulateReadFailureAfterMutation.HasValue)
+        {
+            _triggerReadFailureOnNextRead = true;
         }
 
         return true;
@@ -1498,20 +1528,110 @@ public static class RegistryOptimizer
         }
     }
 
+    public static bool TryDeserializeRegistryValue(
+        string? serialized,
+        RegistryValueKind kind,
+        out object? typedValue,
+        out string? errorMessage)
+    {
+        typedValue = null;
+        errorMessage = null;
+
+        if (serialized == null)
+        {
+            errorMessage = "Valor serializado nulo.";
+            return false;
+        }
+
+        try
+        {
+            switch (kind)
+            {
+                case RegistryValueKind.DWord:
+                {
+                    string s = serialized.Trim();
+                    if (int.TryParse(s, out int signedVal))
+                    {
+                        typedValue = signedVal;
+                        return true;
+                    }
+                    if (uint.TryParse(s, out uint unsignedVal))
+                    {
+                        typedValue = unchecked((int)unsignedVal);
+                        return true;
+                    }
+                    errorMessage = $"Valor '{serialized}' não é um inteiro de 32 bits válido para REG_DWORD.";
+                    return false;
+                }
+                case RegistryValueKind.QWord:
+                {
+                    string s = serialized.Trim();
+                    if (long.TryParse(s, out long signedQ))
+                    {
+                        typedValue = signedQ;
+                        return true;
+                    }
+                    if (ulong.TryParse(s, out ulong unsignedQ))
+                    {
+                        typedValue = unchecked((long)unsignedQ);
+                        return true;
+                    }
+                    errorMessage = $"Valor '{serialized}' não é um inteiro de 64 bits válido para REG_QWORD.";
+                    return false;
+                }
+                case RegistryValueKind.String:
+                case RegistryValueKind.ExpandString:
+                    typedValue = serialized;
+                    return true;
+                case RegistryValueKind.MultiString:
+                {
+                    string trimmed = serialized.Trim();
+                    if (trimmed.StartsWith("[", StringComparison.Ordinal))
+                    {
+                        string[]? arr = JsonSerializer.Deserialize<string[]>(trimmed);
+                        if (arr == null)
+                        {
+                            errorMessage = "Array JSON inválido para REG_MULTI_SZ.";
+                            return false;
+                        }
+                        typedValue = arr;
+                        return true;
+                    }
+                    typedValue = new[] { serialized };
+                    return true;
+                }
+                case RegistryValueKind.Binary:
+                {
+                    typedValue = Convert.FromBase64String(serialized.Trim());
+                    return true;
+                }
+                default:
+                    errorMessage = $"Tipo de Registro '{kind}' não suportado.";
+                    return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Falha ao converter valor para '{kind}': {ex.Message}";
+            return false;
+        }
+    }
+
     public static object DeserializeRegistryValue(string? serialized, RegistryValueKind kind)
     {
+        if (TryDeserializeRegistryValue(serialized, kind, out object? val, out _) && val != null)
+        {
+            return val;
+        }
+
         return kind switch
         {
             RegistryValueKind.DWord => ParseDWordString(serialized),
             RegistryValueKind.QWord => long.TryParse(serialized, out long q) ? q : 0L,
             RegistryValueKind.String => serialized ?? string.Empty,
             RegistryValueKind.ExpandString => serialized ?? string.Empty,
-            RegistryValueKind.MultiString => !string.IsNullOrWhiteSpace(serialized) && serialized.TrimStart().StartsWith("[")
-                ? (JsonSerializer.Deserialize<string[]>(serialized) ?? Array.Empty<string>())
-                : (serialized != null ? new[] { serialized } : Array.Empty<string>()),
-            RegistryValueKind.Binary => !string.IsNullOrWhiteSpace(serialized)
-                ? Convert.FromBase64String(serialized)
-                : Array.Empty<byte>(),
+            RegistryValueKind.MultiString => Array.Empty<string>(),
+            RegistryValueKind.Binary => Array.Empty<byte>(),
             _ => serialized ?? string.Empty
         };
     }
@@ -1865,7 +1985,8 @@ public static class RegistryOptimizer
             entry.WasInitiallyAbsent,
             entry.KeyCreatedByApp,
             entry.OperationId,
-            ActiveProbe
+            ActiveProbe,
+            isAuthenticatedLedgerEntry: true
         );
 
         if (restoreRes.Success)
@@ -1950,7 +2071,8 @@ public static class RegistryOptimizer
             verifiedEntry.WasInitiallyAbsent,
             verifiedEntry.KeyCreatedByApp,
             null,
-            ActiveProbe
+            ActiveProbe,
+            isAuthenticatedLedgerEntry: false
         );
     }
 
@@ -2072,15 +2194,54 @@ public static class RegistryOptimizer
         bool wasInitiallyAbsent,
         bool keyCreatedByApp,
         string? operationId = null,
-        IRegistryKeyProbe? probeOverride = null)
+        IRegistryKeyProbe? probeOverride = null,
+        bool isAuthenticatedLedgerEntry = false)
     {
-        var check = ValidateRestoreParametersAgainstCatalog(def, originalSerializedValue, originalValueKindStr, wasInitiallyAbsent);
-        if (!check.isValid)
+        RegistryValueKind originalKind = def.ValueKind;
+        object? typedOriginal = null;
+
+        if (isAuthenticatedLedgerEntry)
         {
-            RecordAudit("RESTORE_VALIDATION_FAILED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
-                originalValueKindStr ?? "Unknown", null, originalSerializedValue, null, false, check.errorMessage);
-            return new RegistryOperationResult(false, null, null, originalValueKindStr ?? "Unknown",
-                wasInitiallyAbsent, keyCreatedByApp, check.errorMessage, def.TweakId, operationId);
+            if (!string.IsNullOrWhiteSpace(originalValueKindStr))
+            {
+                if (!Enum.TryParse<RegistryValueKind>(originalValueKindStr.Trim(), true, out originalKind) ||
+                    !RegistryStateLedger.IsSupportedRegistryValueKind(originalKind))
+                {
+                    string err = $"INCOMPATIBLE_VALUE_KIND: Tipo de Registro '{originalValueKindStr}' inválido para '{def.TweakId}'.";
+                    RecordAudit("RESTORE_VALIDATION_FAILED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
+                        originalValueKindStr ?? "Unknown", null, originalSerializedValue, null, false, err);
+                    return new RegistryOperationResult(false, null, null, originalValueKindStr ?? "Unknown",
+                        wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId, operationId, "INCOMPATIBLE_VALUE_KIND");
+                }
+            }
+
+            if (!wasInitiallyAbsent)
+            {
+                if (!TryDeserializeRegistryValue(originalSerializedValue, originalKind, out typedOriginal, out string? convErr) || typedOriginal == null)
+                {
+                    string err = $"INVALID_ORIGINAL_VALUE_FORMAT: {convErr}";
+                    RecordAudit("RESTORE_VALIDATION_FAILED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
+                        originalKind.ToString(), null, originalSerializedValue, null, false, err);
+                    return new RegistryOperationResult(false, null, null, originalKind.ToString(),
+                        wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId, operationId, "INVALID_ORIGINAL_VALUE_FORMAT");
+                }
+            }
+        }
+        else
+        {
+            var check = ValidateRestoreParametersAgainstCatalog(def, originalSerializedValue, originalValueKindStr, wasInitiallyAbsent);
+            if (!check.isValid)
+            {
+                RecordAudit("RESTORE_VALIDATION_FAILED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
+                    originalValueKindStr ?? "Unknown", null, originalSerializedValue, null, false, check.errorMessage);
+                return new RegistryOperationResult(false, null, null, originalValueKindStr ?? "Unknown",
+                    wasInitiallyAbsent, keyCreatedByApp, check.errorMessage, def.TweakId, operationId);
+            }
+            originalKind = check.parsedKind;
+            if (!wasInitiallyAbsent)
+            {
+                typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
+            }
         }
 
         string fullKeyPath = $"{def.Hive}\\{def.SubKeyPath}";
@@ -2088,19 +2249,20 @@ public static class RegistryOptimizer
 
         if (!probe.IsSupportedPlatform)
         {
-            string simulatedVerified = wasInitiallyAbsent ? "REMOVED_ABSENT_VALUE" : (originalSerializedValue ?? string.Empty);
-            RecordAudit("RESTORE_VERIFIED_LOGICAL", def.TweakId, fullKeyPath, def.ValueName,
-                wasInitiallyAbsent ? "Deleted" : check.parsedKind.ToString(), null, originalSerializedValue, simulatedVerified, true, null);
+            string unsupportedErr = "Plataforma atual não suporta acesso nativo ao Registro do Windows para confirmar a restauração.";
+            RecordAudit("RESTORE_UNSUPPORTED_OS", def.TweakId, fullKeyPath, def.ValueName,
+                wasInitiallyAbsent ? "Deleted" : originalKind.ToString(), null, originalSerializedValue, null, false, unsupportedErr);
             return new RegistryOperationResult(
-                true,
+                false,
                 null,
-                simulatedVerified,
-                wasInitiallyAbsent ? "Deleted" : check.parsedKind.ToString(),
+                null,
+                wasInitiallyAbsent ? "Deleted" : originalKind.ToString(),
                 wasInitiallyAbsent,
                 keyCreatedByApp,
-                null,
+                unsupportedErr,
                 def.TweakId,
-                operationId
+                operationId,
+                "UNSUPPORTED_PLATFORM"
             );
         }
 
@@ -2120,6 +2282,7 @@ public static class RegistryOptimizer
             }
 
             // Re-read to verify that the value no longer exists (§4)
+            // ONLY KeyNotFound or ValueNotFound can confirm absence. AccessDenied or ReadError must NEVER be treated as absence.
             var postDelRead = probe.ReadValue(def.Hive, def.SubKeyPath, def.ValueName);
             if (postDelRead.Outcome == RegistryProbeReadOutcome.ValueFound)
             {
@@ -2130,6 +2293,16 @@ public static class RegistryOptimizer
                     true, keyCreatedByApp, err, def.TweakId, operationId, "RESTORE_NOT_CONFIRMED");
             }
 
+            if (postDelRead.Outcome != RegistryProbeReadOutcome.KeyNotFound &&
+                postDelRead.Outcome != RegistryProbeReadOutcome.ValueNotFound)
+            {
+                string err = $"Falha ao verificar ausência pós-restauração ({postDelRead.Outcome}): {postDelRead.ErrorMessage ?? "Não foi possível confirmar a remoção no Registro."}";
+                RecordAudit("RESTORE_READ_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
+                    currentBeforeRestore, "<DELETE>", null, false, err);
+                return new RegistryOperationResult(false, originalSerializedValue, null, "Deleted",
+                    true, keyCreatedByApp, err, def.TweakId, operationId, "RESTORE_READ_VERIFICATION_FAILED");
+            }
+
             RecordAudit("RESTORE_DELETED_ABSENT", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
                 currentBeforeRestore, "<DELETE>", "REMOVED_ABSENT_VALUE", true, null);
             return new RegistryOperationResult(true, currentBeforeRestore, "REMOVED_ABSENT_VALUE", "Deleted",
@@ -2137,8 +2310,7 @@ public static class RegistryOptimizer
         }
         else
         {
-            RegistryValueKind originalKind = check.parsedKind;
-            object typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
+            typedOriginal ??= DeserializeRegistryValue(originalSerializedValue, originalKind);
 
             if (!probe.TryWriteValue(def.Hive, def.SubKeyPath, def.ValueName, typedOriginal, originalKind, out _, out string? writeErr, out bool writeDenied))
             {
@@ -2150,11 +2322,22 @@ public static class RegistryOptimizer
 
             // Re-read to verify that the original value AND kind were restored (§4)
             var verifyRead = probe.ReadValue(def.Hive, def.SubKeyPath, def.ValueName);
+            if (verifyRead.Outcome != RegistryProbeReadOutcome.ValueFound)
+            {
+                string errCode = verifyRead.Outcome is RegistryProbeReadOutcome.AccessDenied or RegistryProbeReadOutcome.ReadError
+                    ? "RESTORE_READ_VERIFICATION_FAILED"
+                    : "RESTORE_NOT_CONFIRMED";
+                string err = $"Falha na releitura pós-restauração ({verifyRead.Outcome}): {verifyRead.ErrorMessage ?? "O valor restaurado não pôde ser lido."}";
+                RecordAudit("RESTORE_READ_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
+                    currentBeforeRestore, originalSerializedValue, null, false, err);
+                return new RegistryOperationResult(false, currentBeforeRestore,
+                    null, originalKind.ToString(), false, false, err, def.TweakId, operationId, errCode);
+            }
+
             string? verifiedStr = verifyRead.SerializedValue;
             RegistryValueKind verifiedKind = verifyRead.ActualValueKind;
 
-            if (verifyRead.Outcome == RegistryProbeReadOutcome.ValueFound &&
-                verifiedKind == originalKind &&
+            if (verifiedKind == originalKind &&
                 ValuesMatch(verifyRead.RawValue, typedOriginal, originalKind))
             {
                 RecordAudit("RESTORE_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
@@ -2172,11 +2355,11 @@ public static class RegistryOptimizer
                 );
             }
 
-            string err = $"Verificação pós-restauração não confirmada: valor atual '{verifiedStr ?? "<AUSENTE>"}' ({verifiedKind}) difere do original '{originalSerializedValue}' ({originalKind}).";
+            string mismatchErr = $"Verificação pós-restauração não confirmada: valor atual '{verifiedStr ?? "<AUSENTE>"}' ({verifiedKind}) difere do original '{originalSerializedValue}' ({originalKind}).";
             RecordAudit("RESTORE_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
-                currentBeforeRestore, originalSerializedValue, verifiedStr, false, err);
+                currentBeforeRestore, originalSerializedValue, verifiedStr, false, mismatchErr);
             return new RegistryOperationResult(false, currentBeforeRestore,
-                verifiedStr, verifiedKind.ToString(), false, false, err, def.TweakId, operationId, "RESTORE_NOT_CONFIRMED");
+                verifiedStr, verifiedKind.ToString(), false, false, mismatchErr, def.TweakId, operationId, "RESTORE_NOT_CONFIRMED");
         }
     }
 

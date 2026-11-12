@@ -310,6 +310,9 @@ public class CleanerCategoryViewModel : INotifyPropertyChanged
 {
     private string _dryRunEstimateText = "Execute Dry-Run para estimar";
     private string _realFreedText = "Nenhum arquivo removido nesta sessão";
+    private int _scannedFilesCount;
+    private string _estimatedBytesFormatted = "0.00 MB (Dry-Run)";
+    private string _lastOperationStatus = "Aguardando simulação (Dry-Run)";
 
     public string CategoryKey { get; init; } = string.Empty;
     public string NamePt { get; init; } = string.Empty;
@@ -322,6 +325,24 @@ public class CleanerCategoryViewModel : INotifyPropertyChanged
     {
         get => _displayName;
         set { _displayName = value; OnPropertyChanged(); }
+    }
+
+    public int ScannedFilesCount
+    {
+        get => _scannedFilesCount;
+        set { _scannedFilesCount = value; OnPropertyChanged(); }
+    }
+
+    public string EstimatedBytesFormatted
+    {
+        get => _estimatedBytesFormatted;
+        set { _estimatedBytesFormatted = value; OnPropertyChanged(); }
+    }
+
+    public string LastOperationStatus
+    {
+        get => _lastOperationStatus;
+        set { _lastOperationStatus = value; OnPropertyChanged(); }
     }
 
     public string DryRunEstimateText
@@ -684,8 +705,15 @@ public class MainViewModel : INotifyPropertyChanged
     public string DebloatSummaryText
     {
         get => _debloatSummaryText;
-        set { _debloatSummaryText = value; OnPropertyChanged(); }
+        set
+        {
+            _debloatSummaryText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CleanerSummaryText));
+        }
     }
+
+    public string CleanerSummaryText => _debloatSummaryText;
 
     public string NetworkSummaryText
     {
@@ -1034,6 +1062,10 @@ public class MainViewModel : INotifyPropertyChanged
                 UpdateTweakSummaryCounters();
                 RefreshAuditLogs();
 
+                bool isUnverifiable = postReport.State is TweakInspectionState.AccessDenied
+                    or TweakInspectionState.ReadError
+                    or TweakInspectionState.Incompatible;
+
                 if (ok && postReport.State == TweakInspectionState.Active)
                 {
                     await _databaseService.UpsertOptimizationActionAsync(
@@ -1042,14 +1074,23 @@ public class MainViewModel : INotifyPropertyChanged
                         tweak.Category,
                         tweak.RegistryPath,
                         tweak.ValueName,
-                        "Ledger-DPAPI",
+                        "VerifiedState",
                         tweak.RecommendedValue,
                         isApplied: true,
                         backupId: tweak.LastOperationId
                     );
                     StatusMessage = IsPortugueseActive
-                        ? $"Ajuste '{tweak.Name}' ({tweak.TweakId}) aplicado e confirmado por releitura real: {tweak.CurrentRawValueDisplay}."
-                        : $"Tweak '{tweak.Name}' ({tweak.TweakId}) applied and confirmed by real re-read: {tweak.CurrentRawValueDisplay}.";
+                        ? $"Ajuste aplicado: '{tweak.Name}' ({tweak.TweakId}) confirmado no Registro ({tweak.CurrentRawValueDisplay})."
+                        : $"Tweak applied: '{tweak.Name}' ({tweak.TweakId}) confirmed in Registry ({tweak.CurrentRawValueDisplay}).";
+                }
+                else if (isUnverifiable)
+                {
+                    tweak.IsApplied = false;
+                    OnPropertyChanged(nameof(AppliedTweaksCount));
+                    OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+                    StatusMessage = IsPortugueseActive
+                        ? $"Estado não verificável para '{tweak.Name}' ({tweak.TweakId}): {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
+                        : $"Unverifiable state for '{tweak.Name}' ({tweak.TweakId}): {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
                 }
                 else
                 {
@@ -1057,8 +1098,8 @@ public class MainViewModel : INotifyPropertyChanged
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     StatusMessage = IsPortugueseActive
-                        ? $"Aplicação não confirmada para '{tweak.Name}' ({tweak.TweakId}). Estado lido: {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay}). Detalhe: {details}"
-                        : $"Application unconfirmed for '{tweak.Name}' ({tweak.TweakId}). Read state: {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}). Detail: {details}";
+                        ? $"Aplicação não confirmada para '{tweak.Name}' ({tweak.TweakId}). Estado atual: {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
+                        : $"Application unconfirmed for '{tweak.Name}' ({tweak.TweakId}). Current state: {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
                 }
             }
         });
@@ -1090,41 +1131,74 @@ public class MainViewModel : INotifyPropertyChanged
                 UpdateTweakSummaryCounters();
                 RefreshAuditLogs();
 
-                if (postReport.State == TweakInspectionState.Active)
+                bool isUnverifiable = postReport.State is TweakInspectionState.AccessDenied
+                    or TweakInspectionState.ReadError
+                    or TweakInspectionState.Incompatible;
+
+                if (ok && !isUnverifiable)
                 {
-                    // Recommended value is still present in the Registry after restore attempt
-                    tweak.IsApplied = true;
+                    // Restoration succeeded and was verified by post-restore re-read against the original state.
+                    // Note: Even if the user's original state was Custom or already equal to RecommendedValue,
+                    // 'ok == true' guarantees the exact original state was verified in the Registry.
+                    tweak.IsApplied = postReport.State == TweakInspectionState.Active;
+                    if (postReport.State == TweakInspectionState.Inactive || postReport.State == TweakInspectionState.NotConfigured)
+                    {
+                        tweak.StateBadgeText = IsPortugueseActive ? "RESTAURADO AO ORIGINAL" : "RESTORED TO ORIGINAL";
+                    }
+                    else if (postReport.State == TweakInspectionState.Custom)
+                    {
+                        tweak.StateBadgeText = IsPortugueseActive ? "PERSONALIZADO (ORIGINAL)" : "CUSTOM (ORIGINAL)";
+                    }
+
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
-                    StatusMessage = IsPortugueseActive
-                        ? $"ALERTA: Reversão NÃO confirmada para '{tweak.Name}' ({tweak.TweakId}). O valor recomendado ({tweak.CurrentRawValueDisplay}) permanece ativo no Registro. Detalhe: {details}"
-                        : $"ALERT: Restoration NOT confirmed for '{tweak.Name}' ({tweak.TweakId}). The recommended value ({tweak.CurrentRawValueDisplay}) remains active in the Registry. Detail: {details}";
-                }
-                else if (ok)
-                {
-                    tweak.IsApplied = false;
-                    OnPropertyChanged(nameof(AppliedTweaksCount));
-                    OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+
                     await _databaseService.UpsertOptimizationActionAsync(
                         tweak.TweakId,
                         tweak.Name,
                         tweak.Category,
                         tweak.RegistryPath,
                         tweak.ValueName,
-                        "Ledger-DPAPI",
+                        "VerifiedState",
                         tweak.RecommendedValue,
                         isApplied: false,
                         backupId: tweak.LastOperationId
                     );
+
+                    if (postReport.State == TweakInspectionState.Custom)
+                    {
+                        StatusMessage = IsPortugueseActive
+                            ? $"Restaurado ao estado original (Estado personalizado): '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}."
+                            : $"Restored to original state (Custom state): '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}.";
+                    }
+                    else
+                    {
+                        StatusMessage = IsPortugueseActive
+                            ? $"Restaurado ao estado original: '{tweak.Name}' ({tweak.TweakId}) confirmado por releitura ({tweak.CurrentRawValueDisplay})."
+                            : $"Restored to original state: '{tweak.Name}' ({tweak.TweakId}) confirmed by re-read ({tweak.CurrentRawValueDisplay}).";
+                    }
+                }
+                else if (isUnverifiable)
+                {
                     StatusMessage = IsPortugueseActive
-                        ? $"Ajuste '{tweak.Name}' ({tweak.TweakId}) revertido e confirmado por releitura real: {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
-                        : $"Tweak '{tweak.Name}' ({tweak.TweakId}) reverted and confirmed by real re-read: {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
+                        ? $"Falha na restauração · Estado não verificável para '{tweak.Name}' ({tweak.TweakId}): {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
+                        : $"Restoration failed · Unverifiable state for '{tweak.Name}' ({tweak.TweakId}): {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
+                }
+                else if (postReport.State == TweakInspectionState.Active)
+                {
+                    // Recommended value remains active because restoration failed
+                    tweak.IsApplied = true;
+                    OnPropertyChanged(nameof(AppliedTweaksCount));
+                    OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+                    StatusMessage = IsPortugueseActive
+                        ? $"Falha na restauração de '{tweak.Name}' ({tweak.TweakId}): o ajuste aplicado ({tweak.CurrentRawValueDisplay}) permanece ativo no Registro."
+                        : $"Restoration failed for '{tweak.Name}' ({tweak.TweakId}): the applied tweak ({tweak.CurrentRawValueDisplay}) remains active in the Registry.";
                 }
                 else
                 {
                     StatusMessage = IsPortugueseActive
-                        ? $"Falha ao reverter '{tweak.Name}' ({tweak.TweakId}). Estado atual no Registro: {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay}). Detalhe: {details}"
-                        : $"Failed to revert '{tweak.Name}' ({tweak.TweakId}). Current state in Registry: {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}). Detail: {details}";
+                        ? $"Falha na restauração de '{tweak.Name}' ({tweak.TweakId}). Estado atual no Registro: {postReport.StateBadgePt} ({tweak.CurrentRawValueDisplay})."
+                        : $"Restoration failed for '{tweak.Name}' ({tweak.TweakId}). Current state in Registry: {postReport.StateBadgeEn} ({tweak.CurrentRawValueDisplay}).";
                 }
             }
         });
@@ -1244,16 +1318,53 @@ public class MainViewModel : INotifyPropertyChanged
 
             long totalEstimated = 0;
             int totalFiles = 0;
+            int totalSymlinks = 0;
+            int totalWarnings = 0;
+
+            CleanerAffectedFilesLog.Clear();
+
             foreach (var cat in targets)
             {
                 var dryRun = DiskCleanerEngine.SimulateCategoryDryRun(cat.CategoryKey);
                 totalEstimated += dryRun.EstimatedBytes;
                 totalFiles += dryRun.CandidateFilesCount;
+                totalSymlinks += dryRun.SkippedSymlinksCount;
+                totalWarnings += dryRun.WarningsOrErrors.Count;
+
                 double mb = dryRun.EstimatedBytes / (1024.0 * 1024.0);
-                cat.DryRunEstimateText = $"Estimativa (Dry-Run): {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos, {dryRun.SkippedSymlinksCount} symlinks ignorados)";
+                cat.ScannedFilesCount = dryRun.CandidateFilesCount;
+                cat.EstimatedBytesFormatted = $"{mb:F2} MB (Dry-Run)";
+
+                cat.LastOperationStatus = dryRun.Status switch
+                {
+                    DiskPurgeStatus.Completed => $"Estimativa (Dry-Run): {dryRun.CandidateFilesCount} elegíveis",
+                    DiskPurgeStatus.Partial => $"Estimativa parcial: {dryRun.SkippedSymlinksCount} symlinks / {dryRun.WarningsOrErrors.Count} avisos",
+                    DiskPurgeStatus.NothingToClean => "Nenhum item elegível (Dry-Run)",
+                    _ => "Falha ao inspecionar (Dry-Run)"
+                };
+
+                cat.DryRunEstimateText = dryRun.Status == DiskPurgeStatus.NothingToClean
+                    ? $"SOMENTE ESTIMATIVA (Dry-Run): Nenhum arquivo elegível para limpar ({dryRun.SkippedSymlinksCount} symlinks preservados)"
+                    : $"SOMENTE ESTIMATIVA (Dry-Run): {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos, {dryRun.SkippedSymlinksCount} symlinks preservados, {dryRun.WarningsOrErrors.Count} avisos/erros)";
+
+                foreach (var sample in dryRun.CandidateFileSamples)
+                {
+                    CleanerAffectedFilesLog.Add($"[DRY-RUN ESTIMATIVA] {cat.CategoryKey}: {sample}");
+                }
+                foreach (var warn in dryRun.WarningsOrErrors)
+                {
+                    CleanerAffectedFilesLog.Add($"[AVISO/ERRO DRY-RUN] {cat.CategoryKey}: {warn}");
+                }
             }
 
-            DebloatSummaryText = $"Simulação concluída (SOMENTE ESTIMATIVA): {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos.";
+            if (totalFiles == 0 && totalWarnings == 0)
+            {
+                DebloatSummaryText = $"SOMENTE ESTIMATIVA (Dry-Run): Nenhum arquivo elegível para limpeza encontrado ({totalSymlinks} symlinks/junctions preservados).";
+            }
+            else
+            {
+                DebloatSummaryText = $"SOMENTE ESTIMATIVA (Dry-Run): {(totalEstimated / (1024.0 * 1024.0)):F2} MB estimados em {totalFiles} arquivos elegíveis ({totalSymlinks} symlinks preservados, {totalWarnings} avisos/erros). Nenhum arquivo foi removido.";
+            }
         });
 
         PurgeCategoryCommand = new RelayCommand(param =>
@@ -1270,17 +1381,42 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 var report = DiskCleanerEngine.PurgeCategoryWithReport(cat.CategoryKey, confirmServiceStop: ConfirmCleanerDeletion);
                 double freedMb = report.FreedBytes / (1024.0 * 1024.0);
-                cat.RealFreedText = $"Liberado real: {freedMb:F2} MB ({report.DeletedFilesCount} removidos, {report.SkippedLockedCount} em uso, {report.SkippedSymlinksCount} symlinks bloqueados)";
+                cat.ScannedFilesCount = report.DeletedFilesCount;
+                cat.EstimatedBytesFormatted = $"{freedMb:F2} MB liberados";
+
+                string statusLabel = report.Status switch
+                {
+                    DiskPurgeStatus.Completed => "Limpeza concluída",
+                    DiskPurgeStatus.Partial => "Limpeza parcial",
+                    DiskPurgeStatus.NothingToClean => "Nenhum item encontrado",
+                    _ => "Falha na limpeza"
+                };
+
+                cat.LastOperationStatus = $"{statusLabel} ({report.DeletedFilesCount} removidos)";
+                cat.RealFreedText =
+                    $"{statusLabel}: {freedMb:F2} MB liberados ({report.DeletedFilesCount} removidos, {report.SkippedLockedCount} bloqueados, {report.SkippedSymlinksCount} symlinks preservados, {report.Errors.Count} erros)";
 
                 CleanerAffectedFilesLog.Clear();
                 foreach (var logLine in report.AffectedItemsLog)
                 {
                     CleanerAffectedFilesLog.Add(logLine);
                 }
+                foreach (var errLine in report.Errors)
+                {
+                    CleanerAffectedFilesLog.Add($"[ERRO] {errLine}");
+                }
 
-                DebloatSummaryText = report.PartialSuccess
-                    ? $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados ({report.SkippedLockedCount} arquivos bloqueados por processos em execução)."
-                    : $"Limpeza concluída em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados.";
+                DebloatSummaryText = report.Status switch
+                {
+                    DiskPurgeStatus.Completed =>
+                        $"Limpeza concluída em '{cat.CategoryKey}': {report.DeletedFilesCount} arquivos removidos ({freedMb:F2} MB liberados, 0 bloqueados, 0 erros).",
+                    DiskPurgeStatus.Partial =>
+                        $"Limpeza parcial em '{cat.CategoryKey}': {report.DeletedFilesCount} arquivos removidos ({freedMb:F2} MB liberados), {report.SkippedLockedCount} bloqueados, {report.SkippedSymlinksCount} symlinks preservados, {report.Errors.Count} erros.",
+                    DiskPurgeStatus.NothingToClean =>
+                        $"Nenhum item elegível para limpar em '{cat.CategoryKey}': 0 arquivos removidos (0.00 MB liberados, {report.SkippedSymlinksCount} symlinks preservados).",
+                    _ =>
+                        $"Falha ao limpar '{cat.CategoryKey}': 0 arquivos removidos ({report.SkippedLockedCount} bloqueados, {report.Errors.Count} erros). Detalhe: {report.Message}"
+                };
             }
         });
 

@@ -8,6 +8,9 @@
     <RootNamespace>PCControlUltimate.Windows</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="PCControlUltimate.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
     <ProjectReference Include="../PCControlUltimate.Hardware/PCControlUltimate.Hardware.csproj" />
     <ProjectReference Include="../PCControlUltimate.Gaming/PCControlUltimate.Gaming.csproj" />

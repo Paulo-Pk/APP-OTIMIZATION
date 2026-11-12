@@ -219,6 +219,7 @@ public class RegistryOptimizerTests
     [Fact]
     public void RegistryStateLedger_RestoreWithoutTrustedHistory_MustBeBlocked()
     {
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
         RegistryStateLedger.ClearLedgerForTesting();
 
         var validation = RegistryStateLedger.ResolveAndValidateRestore("perf-game-dvr");
@@ -235,6 +236,7 @@ public class RegistryOptimizerTests
     [Fact]
     public void RegistryStateLedger_CrossTweakOperationIdMismatch_MustBeRejected()
     {
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
         RegistryStateLedger.ClearLedgerForTesting();
         var def = RegistryOptimizer.Catalog["perf-game-dvr"];
 
@@ -254,8 +256,11 @@ public class RegistryOptimizerTests
     }
 
     [Fact]
-    public void RegistryStateLedger_TamperedEntryHmac_MustBeRejected()
+    public void RegistryStateLedger_TamperedEntryHmac_AndTamperedRestoredAtUtc_MustBeRejected()
     {
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
+        RegistryStateLedger.ClearLedgerForTesting();
+
         var def = RegistryOptimizer.Catalog["perf-game-dvr"];
         var recorded = RegistryStateLedger.RecordBeforeModification(
             def,
@@ -266,9 +271,38 @@ public class RegistryOptimizerTests
             appliedValue: "0"
         );
 
-        // Tamper with OriginalRawValue while keeping the old HMAC
-        var tamperedEntry = recorded with { OriginalRawValue = "999999" };
-        Assert.False(RegistryStateLedger.VerifyEntryHmac(tamperedEntry));
+        Assert.True(RegistryStateLedger.VerifyEntryHmac(recorded));
+
+        // 1. Tamper with OriginalRawValue while keeping the old HMAC
+        var tamperedValueEntry = recorded with { OriginalRawValue = "999999" };
+        Assert.False(RegistryStateLedger.VerifyEntryHmac(tamperedValueEntry));
+
+        // 2. Tamper with RestoredAtUtc while keeping the old HMAC (must also fail because RestoredAtUtc is in canonical string)
+        var tamperedRestoredAtEntry = recorded with { RestoredAtUtc = "2099-01-01T00:00:00.0000000Z" };
+        Assert.False(RegistryStateLedger.VerifyEntryHmac(tamperedRestoredAtEntry));
+    }
+
+    [Fact]
+    public void RegistryStateLedger_WhenDpapiKeyUnavailable_MustFailClosedWithoutFallbackSecret()
+    {
+        using var unavailableScope = RegistryStateLedger.UseTestEphemeralKeyScope(simulateUnavailableKey: true);
+        Assert.False(RegistryStateLedger.IsLedgerKeyAvailable);
+
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        Assert.Throws<InvalidOperationException>(() =>
+            RegistryStateLedger.RecordBeforeModification(
+                def,
+                originalKind: RegistryValueKind.DWord,
+                originalRawValue: "1",
+                wasInitiallyAbsent: false,
+                keyCreatedByApp: false,
+                appliedValue: "0"
+            )
+        );
+
+        var validation = RegistryStateLedger.ResolveAndValidateRestore("perf-game-dvr");
+        Assert.False(validation.IsValid);
+        Assert.Equal("LEDGER_KEY_UNAVAILABLE", validation.ErrorCode);
     }
 
     [Fact]
@@ -276,6 +310,7 @@ public class RegistryOptimizerTests
     {
         var probe = new SimulatedRegistryKeyProbe();
         using var scope = RegistryOptimizer.UseProbeScope(probe);
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
         RegistryStateLedger.ClearLedgerForTesting();
 
         var def = RegistryOptimizer.Catalog["perf-game-dvr"];
@@ -302,29 +337,179 @@ public class RegistryOptimizerTests
     }
 
     [Fact]
-    public void RestoreCatalogTweakFromTrustedSource_WhenValueWasInitiallyAbsent_RemovesValueAndVerifiesAbsence()
+    public void RestoreCatalogTweakFromTrustedSource_CustomOriginalValueAndDifferentKind_RestoresAndVerifiesExactOriginalState()
     {
         var probe = new SimulatedRegistryKeyProbe();
         using var scope = RegistryOptimizer.UseProbeScope(probe);
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
         RegistryStateLedger.ClearLedgerForTesting();
 
-        var def = RegistryOptimizer.Catalog["perf-fso-flags"];
-        probe.EnsureSubKeyExists(def.Hive, def.SubKeyPath);
-        probe.RemoveValue(def.Hive, def.SubKeyPath, def.ValueName);
+        // 1. User has a custom DWord value (24) outside AllowedValues ("2", "38") for Win32PrioritySeparation
+        var defHpet = RegistryOptimizer.Catalog["perf-hpet"];
+        probe.SetValue(defHpet.Hive, defHpet.SubKeyPath, defHpet.ValueName, 24, RegistryValueKind.DWord);
 
-        var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-fso-flags", "2");
+        var applyCustom = RegistryOptimizer.ApplyCatalogTweak("perf-hpet", "38");
+        Assert.True(applyCustom.Success);
+        Assert.Equal("24", applyCustom.PreviousRawValue);
+        Assert.Equal(TweakInspectionState.Active, RegistryOptimizer.InspectCatalogTweak("perf-hpet").State);
+
+        var restoreCustom = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-hpet", applyCustom.OperationId);
+        Assert.True(restoreCustom.Success);
+        Assert.Equal("24", restoreCustom.VerifiedCurrentValue);
+
+        var postCustomReport = RegistryOptimizer.InspectCatalogTweak("perf-hpet");
+        Assert.Equal(TweakInspectionState.Custom, postCustomReport.State);
+        Assert.Equal("24", postCustomReport.CurrentRawValue);
+        Assert.Equal(RegistryValueKind.DWord, postCustomReport.ActualValueKind);
+
+        // 2. User had a value with a different RegistryValueKind (REG_SZ "1" instead of REG_DWORD) before applying tweak
+        var defDvr = RegistryOptimizer.Catalog["perf-game-dvr"];
+        probe.SetValue(defDvr.Hive, defDvr.SubKeyPath, defDvr.ValueName, "1", RegistryValueKind.String);
+
+        var applyDiffKind = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applyDiffKind.Success);
+        Assert.Equal(RegistryValueKind.String, applyDiffKind.PreviousKind);
+
+        var restoreDiffKind = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applyDiffKind.OperationId);
+        Assert.True(restoreDiffKind.Success);
+        Assert.Equal("1", restoreDiffKind.VerifiedCurrentValue);
+
+        var rawCheck = probe.ReadValue(defDvr.Hive, defDvr.SubKeyPath, defDvr.ValueName);
+        Assert.Equal(RegistryProbeReadOutcome.Success, rawCheck.Outcome);
+        Assert.Equal(RegistryValueKind.String, rawCheck.ValueKind);
+        Assert.Equal("1", Convert.ToString(rawCheck.RawValue));
+    }
+
+    [Fact]
+    public void RestoreCatalogTweakFromTrustedSource_WhenOriginalValueEqualsRecommendedValue_ConfirmsRestorationAndMarksRestored()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
+        RegistryStateLedger.ClearLedgerForTesting();
+
+        var def = RegistryOptimizer.Catalog["bg-telemetry"]; // RecommendedValue = "1", DWord
+        // User ALREADY had "1" (RecommendedValue) in the Registry before applying the tweak
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 1, RegistryValueKind.DWord);
+
+        var applyResult = RegistryOptimizer.ApplyCatalogTweak("bg-telemetry", "1");
         Assert.True(applyResult.Success);
-        Assert.True(applyResult.WasInitiallyAbsent);
+        Assert.False(applyResult.WasInitiallyAbsent);
+        Assert.Equal("1", applyResult.PreviousRawValue);
 
-        var activeReport = RegistryOptimizer.InspectCatalogTweak("perf-fso-flags");
-        Assert.Equal(TweakInspectionState.Active, activeReport.State);
-
-        var restoreResult = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-fso-flags", applyResult.OperationId);
+        // Restoring must succeed by comparing the Registry re-read against the authenticated Ledger entry ("1", DWord),
+        // rather than failing because RecommendedValue ("1") is still present.
+        var restoreResult = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("bg-telemetry", applyResult.OperationId);
         Assert.True(restoreResult.Success);
-        Assert.Equal("REMOVED_ABSENT_VALUE", restoreResult.VerifiedCurrentValue);
+        Assert.Equal("1", restoreResult.VerifiedCurrentValue);
 
-        var postRestoreReport = RegistryOptimizer.InspectCatalogTweak("perf-fso-flags");
-        Assert.Equal(TweakInspectionState.NotConfigured, postRestoreReport.State);
+        var ledgerEntry = RegistryStateLedger.GetHistoryForTweak("bg-telemetry")[0];
+        Assert.True(ledgerEntry.IsRestored);
+        Assert.NotNull(ledgerEntry.RestoredAtUtc);
+        Assert.True(RegistryStateLedger.VerifyEntryHmac(ledgerEntry));
+    }
+
+    [Fact]
+    public void RestoreCatalogTweakFromTrustedSource_WhenValueWasInitiallyAbsent_RemovesEmptyAppCreatedKey_ButPreservesNonEmptyKey()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
+        RegistryStateLedger.ClearLedgerForTesting();
+
+        var def = RegistryOptimizer.Catalog["start-edge-preload"];
+
+        // Case 1: Key did not exist before Apply -> Apply creates key -> Restore removes value AND removes empty subkey
+        probe.RemoveSubKey(def.Hive, def.SubKeyPath);
+        Assert.False(probe.SubKeyExists(def.Hive, def.SubKeyPath));
+
+        var apply1 = RegistryOptimizer.ApplyCatalogTweak("start-edge-preload", "0");
+        Assert.True(apply1.Success);
+        Assert.True(apply1.WasInitiallyAbsent);
+        Assert.True(apply1.KeyCreatedByApp);
+        Assert.True(probe.SubKeyExists(def.Hive, def.SubKeyPath));
+
+        var restore1 = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("start-edge-preload", apply1.OperationId);
+        Assert.True(restore1.Success);
+        Assert.Equal("REMOVED_ABSENT_VALUE", restore1.VerifiedCurrentValue);
+        Assert.False(probe.SubKeyExists(def.Hive, def.SubKeyPath));
+        Assert.Equal(TweakInspectionState.NotConfigured, RegistryOptimizer.InspectCatalogTweak("start-edge-preload").State);
+
+        // Case 2: Key did not exist before Apply, but another value is added to the same subkey before Restore ->
+        // Restore removes the tweak value, but preserves the subkey and the other value!
+        var apply2 = RegistryOptimizer.ApplyCatalogTweak("start-edge-preload", "0");
+        Assert.True(apply2.Success);
+        Assert.True(apply2.KeyCreatedByApp);
+
+        probe.SetValue(def.Hive, def.SubKeyPath, "OtherUserSetting", 1, RegistryValueKind.DWord);
+
+        var restore2 = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("start-edge-preload", apply2.OperationId);
+        Assert.True(restore2.Success);
+        Assert.Equal("REMOVED_ABSENT_VALUE", restore2.VerifiedCurrentValue);
+        Assert.True(probe.SubKeyExists(def.Hive, def.SubKeyPath));
+
+        var otherSettingRead = probe.ReadValue(def.Hive, def.SubKeyPath, "OtherUserSetting");
+        Assert.Equal(RegistryProbeReadOutcome.Success, otherSettingRead.Outcome);
+        Assert.Equal("1", Convert.ToString(otherSettingRead.RawValue));
+    }
+
+    [Fact]
+    public void RestoreCatalogTweakFromTrustedSource_WhenPostRestoreReadFails_NeverConfirmsRestoreAndDoesNotMarkLedgerRestored()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
+        RegistryStateLedger.ClearLedgerForTesting();
+
+        // 1. Initially absent value: post-delete re-read returns AccessDenied -> must NOT be treated as absence!
+        var defAbsent = RegistryOptimizer.Catalog["perf-fso-flags"];
+        probe.EnsureSubKeyExists(defAbsent.Hive, defAbsent.SubKeyPath);
+        probe.RemoveValue(defAbsent.Hive, defAbsent.SubKeyPath, defAbsent.ValueName);
+
+        var applyAbsent = RegistryOptimizer.ApplyCatalogTweak("perf-fso-flags", "2");
+        Assert.True(applyAbsent.Success);
+
+        probe.SimulateReadFailureAfterMutation = RegistryProbeReadOutcome.AccessDenied;
+        var failedAbsentRestore = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-fso-flags", applyAbsent.OperationId);
+        Assert.False(failedAbsentRestore.Success);
+        Assert.Equal("RESTORE_READ_VERIFICATION_FAILED", failedAbsentRestore.ErrorCode);
+
+        // Ledger entry must remain un-restored so user can retry once permissions are fixed
+        var absentEntry = RegistryStateLedger.GetHistoryForTweak("perf-fso-flags")[0];
+        Assert.False(absentEntry.IsRestored);
+
+        // 2. Existing original value: post-write re-read returns ReadError -> must fail verification
+        probe.SimulateReadFailureAfterMutation = null;
+        var defExisting = RegistryOptimizer.Catalog["perf-game-dvr"];
+        probe.SetValue(defExisting.Hive, defExisting.SubKeyPath, defExisting.ValueName, 1, RegistryValueKind.DWord);
+
+        var applyExisting = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applyExisting.Success);
+
+        probe.SimulateReadFailureAfterMutation = RegistryProbeReadOutcome.ReadError;
+        var failedExistingRestore = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applyExisting.OperationId);
+        Assert.False(failedExistingRestore.Success);
+        Assert.Equal("RESTORE_READ_VERIFICATION_FAILED", failedExistingRestore.ErrorCode);
+
+        var existingEntry = RegistryStateLedger.GetHistoryForTweak("perf-game-dvr")[0];
+        Assert.False(existingEntry.IsRestored);
+    }
+
+    [Theory]
+    [InlineData(RegistryValueKind.DWord, "not-an-integer")]
+    [InlineData(RegistryValueKind.QWord, "not-a-long")]
+    [InlineData(RegistryValueKind.MultiString, "not-a-json-array")]
+    [InlineData(RegistryValueKind.Binary, "%%%invalid-base64%%%")]
+    [InlineData(RegistryValueKind.Unknown, "1")]
+    [InlineData(RegistryValueKind.None, "1")]
+    public void TryDeserializeRegistryValue_InvalidRawFormatsOrUnsupportedKinds_ReturnsFalseSafely(
+        RegistryValueKind kind,
+        string invalidRaw)
+    {
+        bool ok = RegistryOptimizer.TryDeserializeRegistryValue(invalidRaw, kind, out var converted, out var err);
+        Assert.False(ok);
+        Assert.Null(converted);
+        Assert.False(string.IsNullOrWhiteSpace(err));
     }
 
     [Fact]
@@ -441,6 +626,7 @@ public class RegistryOptimizerTests
     {
         var probe = new SimulatedRegistryKeyProbe();
         using var scope = RegistryOptimizer.UseProbeScope(probe);
+        using var ledgerScope = RegistryStateLedger.UseTestEphemeralKeyScope();
         RegistryStateLedger.ClearLedgerForTesting();
 
         var def = RegistryOptimizer.Catalog["bg-telemetry"]; // AllowTelemetry: Recommended=1, Default=3
@@ -517,3 +703,4 @@ public class RegistryOptimizerTests
         }
     }
 }
+
