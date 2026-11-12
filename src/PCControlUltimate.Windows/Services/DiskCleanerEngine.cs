@@ -21,7 +21,8 @@ public record DiskDryRunReport(
     long EstimatedBytes,
     int CandidateFilesCount,
     int SkippedSymlinksCount,
-    bool Success = true
+    bool Success = true,
+    IReadOnlyList<string>? Errors = null
 )
 {
     public int EstimatedFilesCount => CandidateFilesCount;
@@ -196,9 +197,11 @@ public static class DiskCleanerEngine
         long bytes = 0;
         int files = 0;
         int symlinks = 0;
-        ScanDirectoryRecursiveSafe(rootDir, ref bytes, ref files, ref symlinks);
+        var scanErrors = new List<string>();
+        ScanDirectoryRecursiveSafe(rootDir, ref bytes, ref files, ref symlinks, scanErrors);
 
-        return new DiskDryRunReport(categoryKey, targetDir, true, bytes, files, symlinks, Success: true);
+        return new DiskDryRunReport(categoryKey, targetDir, true, bytes, files, symlinks,
+            Success: scanErrors.Count == 0, Errors: scanErrors);
     }
 
     public static long ScanCategoryBytes(string categoryKey)
@@ -207,7 +210,7 @@ public static class DiskCleanerEngine
         return dryRun.EstimatedBytes;
     }
 
-    private static void ScanDirectoryRecursiveSafe(DirectoryInfo dir, ref long bytes, ref int filesCount, ref int symlinksCount)
+    private static void ScanDirectoryRecursiveSafe(DirectoryInfo dir, ref long bytes, ref int filesCount, ref int symlinksCount, List<string> errors)
     {
         try
         {
@@ -223,7 +226,10 @@ public static class DiskCleanerEngine
                     bytes += file.Length;
                     filesCount++;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    if (errors.Count < 100) errors.Add($"Falha ao inspecionar arquivo '{file.FullName}': {ex.Message}");
+                }
             }
 
             foreach (var subDir in dir.EnumerateDirectories())
@@ -235,12 +241,18 @@ public static class DiskCleanerEngine
                         symlinksCount++;
                         continue;
                     }
-                    ScanDirectoryRecursiveSafe(subDir, ref bytes, ref filesCount, ref symlinksCount);
+                    ScanDirectoryRecursiveSafe(subDir, ref bytes, ref filesCount, ref symlinksCount, errors);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    if (errors.Count < 100) errors.Add($"Falha ao inspecionar pasta '{subDir.FullName}': {ex.Message}");
+                }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            if (errors.Count < 100) errors.Add($"Falha ao enumerar pasta '{dir.FullName}': {ex.Message}");
+        }
     }
 
     public static DiskPurgeReport PurgeCategoryWithReport(string categoryKey, bool confirmServiceStop = false)
