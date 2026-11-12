@@ -344,7 +344,7 @@ public class RegistryOptimizerTests : IDisposable
     public void InspectCatalogTweak_WrongRegistryType_MarksInspectionUndeterminable()
     {
         var def = RegistryOptimizer.Catalog["perf-game-dvr"];
-        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, "0", RegistryValueKind.String);
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, "custom-string", RegistryValueKind.String);
         var result = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
         Assert.Equal("Tipo Incorreto", result.State);
         Assert.True(result.IsUndeterminable);
