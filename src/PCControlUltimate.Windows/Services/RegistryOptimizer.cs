@@ -1032,7 +1032,8 @@ public static class RegistryOptimizer
 
         try
         {
-            _ = DeserializeValue(originalSerializedValue, kind);
+            if (DeserializeValue(originalSerializedValue, kind) == null)
+                return (false, RegistryValueKind.Unknown, "LEDGER_VALUE_INVALID: desserialização do valor original retornou nulo.");
         }
         catch (Exception ex)
         {
