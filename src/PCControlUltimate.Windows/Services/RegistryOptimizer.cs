@@ -1137,10 +1137,20 @@ public static class RegistryOptimizer
                 }
 
                 object expectedTyped = DeserializeRegistryValue(expectedAppliedValue, def.ValueKind);
-                if (!before.ValueExists || before.Kind != def.ValueKind ||
-                    !ValuesMatch(before.Value, expectedTyped, def.ValueKind))
+                bool stillHasAppliedValue = before.ValueExists &&
+                    before.Kind == def.ValueKind &&
+                    ValuesMatch(before.Value, expectedTyped, def.ValueKind);
+                bool alreadyHasOriginalValue = wasInitiallyAbsent
+                    ? !before.ValueExists
+                    : before.ValueExists &&
+                      before.Kind == check.parsedKind &&
+                      ValuesMatch(before.Value, DeserializeValue(originalSerializedValue, check.parsedKind)!, check.parsedKind);
+
+                // If a write failed before changing the Registry, the original state is already
+                // present. Accept that as a safe no-op restore; otherwise block external changes.
+                if (!stillHasAppliedValue && !alreadyHasOriginalValue)
                 {
-                    const string changedStateMessage = "A restauração foi bloqueada porque o valor atual do Registro não corresponde mais ao valor aplicado pelo PC Control. A configuração pode ter sido alterada depois; verifique-a antes de restaurar.";
+                    const string changedStateMessage = "A restauração foi bloqueada porque o valor atual do Registro não corresponde mais ao valor aplicado pelo PC Control nem ao estado original registrado. A configuração pode ter sido alterada depois; verifique-a antes de restaurar.";
                     RecordAudit("RESTORE_BLOCKED_EXTERNAL_CHANGE", def.TweakId, fullKeyPath, def.ValueName,
                         before.Kind.ToString(), currentBeforeRestore, expectedAppliedValue, null, false, changedStateMessage);
                     return new RegistryOperationResult(false, currentBeforeRestore, null, before.Kind.ToString(),
