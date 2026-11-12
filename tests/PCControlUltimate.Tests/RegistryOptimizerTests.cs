@@ -474,6 +474,19 @@ public class RegistryOptimizerTests : IDisposable
         Assert.Contains("High", stringTweak.AllowedRawValues);
     }
 
+    [Theory]
+    [InlineData("power-ultimate-plan")]
+    [InlineData("serv-sysmain")]
+    [InlineData("serv-spooler")]
+    public void Catalog_ChangesWithPowerOrServiceSideEffects_RequireIndividualReview(string tweakId)
+    {
+        var tweak = RegistryOptimizer.Catalog[tweakId];
+
+        Assert.Equal("Médio", tweak.RiskLevel);
+        Assert.False(string.IsNullOrWhiteSpace(tweak.Description));
+        Assert.False(string.IsNullOrWhiteSpace(tweak.DescriptionEn));
+    }
+
     [Fact]
     public void ApplyCatalogTweak_WithUnknownTweakId_MustBeRejectedAndLogged()
     {
