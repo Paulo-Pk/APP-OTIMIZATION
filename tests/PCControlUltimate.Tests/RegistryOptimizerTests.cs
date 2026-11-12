@@ -82,6 +82,28 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void RestoreCatalogTweak_OriginalValueAlreadyPresent_DoesNotWriteAgain()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var entry = RegistryStateLedger.RecordAppliedTweakState(
+            def,
+            originalRawValue: "1",
+            originalKind: RegistryValueKind.DWord,
+            wasInitiallyAbsent: false,
+            keyCreatedByApp: false,
+            appliedValue: "0");
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, 1, RegistryValueKind.DWord);
+
+        var result = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource(def.TweakId, entry.OperationId);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal("1", result.VerifiedValue);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+        var persisted = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.True(persisted.IsRestored);
+    }
+
+    [Fact]
     public void ApplyCatalogTweak_AbsentUndeterminedState_IsNotModified()
     {
         var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
