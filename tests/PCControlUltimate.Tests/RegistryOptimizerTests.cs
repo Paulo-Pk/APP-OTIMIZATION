@@ -53,13 +53,28 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
-    public void ApplyCatalogTweak_WriteFailure_ReturnsFailure()
+    public void ApplyCatalogTweak_WriteFailure_LeavesTrustedRecoveryEntryBeforeMutation()
     {
         _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
         _fakeRegistry.WriteException = new UnauthorizedAccessException("simulated write denied");
+
         var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+
         Assert.False(result.Success);
         Assert.Contains("simulated write denied", result.ErrorMessage ?? string.Empty);
+        Assert.Equal("REGISTRY_ACCESS_DENIED", result.ErrorCode);
+        Assert.False(string.IsNullOrWhiteSpace(result.OperationId));
+        var ledgerEntry = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.Equal(result.OperationId, ledgerEntry.OperationId);
+        Assert.Equal("1", ledgerEntry.OriginalRawValue);
+        Assert.Equal("0", ledgerEntry.AppliedValue);
+
+        _fakeRegistry.WriteException = null;
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", result.OperationId);
+        Assert.True(restored.Success, restored.ErrorMessage);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.Equal(1, snapshot.Value);
+        Assert.Equal(RegistryValueKind.DWord, snapshot.Kind);
     }
 
     [Fact]
