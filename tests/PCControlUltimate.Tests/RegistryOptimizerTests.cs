@@ -88,6 +88,27 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void RestoreCatalogTweak_InitiallyAbsentValue_PreservesOtherValuesInExistingKey()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "UnrelatedValue", 123, RegistryValueKind.DWord);
+
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+
+        Assert.True(restored.Success, restored.ErrorMessage);
+        var targetSnapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        var unrelatedSnapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "UnrelatedValue");
+        Assert.True(targetSnapshot.KeyExists);
+        Assert.False(targetSnapshot.ValueExists);
+        Assert.True(unrelatedSnapshot.KeyExists);
+        Assert.True(unrelatedSnapshot.ValueExists);
+        Assert.Equal(RegistryValueKind.DWord, unrelatedSnapshot.Kind);
+        Assert.Equal(123, unrelatedSnapshot.Value);
+    }
+
+    [Fact]
     public void RestoreCatalogTweak_InitiallyAbsentValue_RemovesValueAndCreatedKey()
     {
         var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
