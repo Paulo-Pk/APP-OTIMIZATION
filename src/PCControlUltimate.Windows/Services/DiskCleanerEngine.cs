@@ -184,7 +184,7 @@ public static class DiskCleanerEngine
 
         if (!Directory.Exists(targetDir))
         {
-            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 0, Success: true);
+            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 0, Success: false);
         }
 
         var rootDir = new DirectoryInfo(targetDir);
