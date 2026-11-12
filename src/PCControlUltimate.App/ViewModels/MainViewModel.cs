@@ -1534,6 +1534,14 @@ public class MainViewModel : INotifyPropertyChanged
 
         ApplySafeBoostProfileCommand = new RelayCommand(async _ =>
         {
+            if (_isRefreshingTweakStates)
+            {
+                StatusMessage = Loc.CurrentCulture == "pt-BR"
+                    ? "Aguarde a consulta do Registro terminar antes de iniciar o perfil em lote."
+                    : "Wait for the Registry inspection to finish before starting the batch profile.";
+                return;
+            }
+
             // Refresh the read-only Registry baseline immediately before selecting
             // tweaks; never rely on a potentially stale screen state for a batch write.
             await RefreshAllTweakStatesAsync();
