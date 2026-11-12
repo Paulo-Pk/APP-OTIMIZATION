@@ -330,6 +330,8 @@ export default function App() {
     }
 
     const appliedIds: string[] = [];
+    const failedApplyMessages: string[] = [];
+    const blockedIds: string[] = [];
 
     for (const item of tweaks) {
       const shouldApply =
@@ -338,6 +340,11 @@ export default function App() {
           : level === 'balanced'
           ? item.level === 'conservative' || item.level === 'balanced'
           : item.level === 'conservative';
+
+      if (shouldApply && !item.isApplied && item.canApply !== true) {
+        blockedIds.push(item.id);
+        continue;
+      }
 
       if (shouldApply && !item.isApplied && item.canApply === true) {
         const res = await nativeBridge.applyRegistryTweak(
@@ -370,15 +377,31 @@ export default function App() {
             userInitiated: true,
           };
           setRestoreItems((r) => [newRestore, ...r]);
+        } else {
+          failedApplyMessages.push(`${item.name}: ${res.error || 'falha sem confirmação do agente'}`);
         }
       }
     }
 
     if (appliedIds.length > 0) {
       await handleRefreshTweakStates();
+      if (failedApplyMessages.length > 0 || blockedIds.length > 0) {
+        setNotification({
+          type: 'warning',
+          title: 'Aplicação parcial do perfil',
+          message: `${appliedIds.length} aplicados e verificados; ${failedApplyMessages.length} falharam; ${blockedIds.length} bloqueados por estado não elegível. ${failedApplyMessages.slice(0, 3).join(' | ')}`,
+        });
+      } else {
+        setNotification({
+          type: 'success',
+          message: `${appliedIds.length} otimizações verificadas e aplicadas no Registro do Windows.`,
+        });
+      }
+    } else if (failedApplyMessages.length > 0 || blockedIds.length > 0) {
       setNotification({
-        type: 'success',
-        message: `${appliedIds.length} otimizações verificadas e aplicadas no Registro do Windows.`,
+        type: 'warning',
+        title: 'Nenhum ajuste aplicado',
+        message: `${failedApplyMessages.length} falhas e ${blockedIds.length} ajustes bloqueados. Atualize os estados e confira os diagnósticos antes de tentar novamente. ${failedApplyMessages.slice(0, 3).join(' | ')}`,
       });
     }
   };
@@ -665,7 +688,7 @@ export default function App() {
   };
 
   const appliedTweaksCount = tweaks.filter((tweak) => tweak.isApplied).length;
-  const pendingTweaks = tweaks.filter((tweak) => !tweak.isApplied);
+  const pendingTweaks = tweaks.filter((tweak) => !tweak.isApplied && tweak.canApply === true);
 
   return (
     <div className="flex flex-col h-screen bg-[#07090e] text-slate-100 font-sans overflow-hidden select-none">
