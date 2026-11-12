@@ -962,6 +962,48 @@ public static class RegistryOptimizer
         );
     }
 
+    internal static RegistryOperationResult RestoreFromCapturedRollbackState(
+        TweakDefinition def,
+        RegistryValueEntry previousState,
+        RegistryValueEntry appliedSnapshotState)
+    {
+        // This state was read directly from the Registry immediately before this transaction.
+        // It may legitimately be a custom value or an unexpected type; rollback must restore
+        // that exact state rather than applying the catalog's allowed-value policy.
+        if (!string.Equals(previousState.TweakId, def.TweakId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(FindAuthorizedCatalogEntry(previousState.KeyPath, previousState.ValueName)?.TweakId,
+                def.TweakId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(FindAuthorizedCatalogEntry(appliedSnapshotState.KeyPath, appliedSnapshotState.ValueName)?.TweakId,
+                def.TweakId, StringComparison.OrdinalIgnoreCase))
+        {
+            return new RegistryOperationResult(false, null, null, previousState.ValueKind,
+                previousState.WasInitiallyAbsent, previousState.KeyCreatedByApp,
+                "Rollback bloqueado: os estados capturados não correspondem ao ajuste autorizado.", def.TweakId,
+                errorCode: "ROLLBACK_TARGET_MISMATCH");
+        }
+
+        var validation = ValidateTrustedRestoreState(
+            previousState.RawValue,
+            previousState.ValueKind,
+            previousState.WasInitiallyAbsent);
+        if (!validation.isValid)
+        {
+            return new RegistryOperationResult(false, null, null, previousState.ValueKind,
+                previousState.WasInitiallyAbsent, previousState.KeyCreatedByApp,
+                validation.errorMessage, def.TweakId, errorCode: "ROLLBACK_STATE_INVALID");
+        }
+
+        return ValidateAndExecuteRestore(
+            def,
+            previousState.RawValue,
+            previousState.ValueKind,
+            previousState.WasInitiallyAbsent,
+            previousState.KeyCreatedByApp,
+            expectedAppliedValue: appliedSnapshotState.RawValue,
+            enforceExpectedCurrentState: true,
+            expectedAppliedInitiallyAbsent: appliedSnapshotState.WasInitiallyAbsent);
+    }
+
     public static (bool isValid, string errorReason) ValidateRestoreParametersAgainstCatalog(
         string tweakId,
         string? originalRawValue,
