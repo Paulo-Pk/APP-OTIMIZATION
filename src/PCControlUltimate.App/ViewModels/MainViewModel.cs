@@ -69,6 +69,7 @@ public class TweakItemViewModel : INotifyPropertyChanged
     private bool _isApplied;
     private string _verificationState = "Não verificado";
     private string? _lastOperationId;
+    private string _inspectionState = "Não Verificado";
     private string _currentValueText = "N/D";
     private string _registryTypeText = "N/D";
     private string _diagnosticDetailText = "Aguardando leitura do Registro.";
@@ -119,6 +120,12 @@ public class TweakItemViewModel : INotifyPropertyChanged
         !IsApplied &&
         (VerificationState.StartsWith("Padrão/inativo — leitura confirmada", StringComparison.OrdinalIgnoreCase) ||
          VerificationState.StartsWith("Default/inactive — read-back confirmed", StringComparison.OrdinalIgnoreCase));
+
+    public string InspectionState
+    {
+        get => _inspectionState;
+        set { _inspectionState = value; OnPropertyChanged(); }
+    }
 
     public string CurrentValueText
     {
@@ -749,6 +756,7 @@ public class MainViewModel : INotifyPropertyChanged
                     continue;
 
                 tweak.IsApplied = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase);
+                tweak.InspectionState = inspection.State;
                 tweak.VerificationState = GetTweakStateDisplay(inspection.State, Loc.CurrentCulture == "pt-BR");
                 tweak.CurrentValueText = inspection.CurrentValue ?? "—";
                 tweak.RegistryTypeText = inspection.ActualValueKind?.ToString() ?? "N/D";
@@ -827,6 +835,7 @@ public class MainViewModel : INotifyPropertyChanged
             "Tipo Incorreto" => isPortuguese ? "Tipo incorreto — esperado diferente do encontrado" : "Wrong Registry type — expected type mismatch",
             "Estado Não Determinável" => isPortuguese ? "Estado não determinável — valor ausente sem padrão confirmado" : "Undetermined — absent value has no confirmed default",
             "Não Suportado" => isPortuguese ? "Ajuste não reconhecido pelo catálogo" : "Tweak is not in the supported catalog",
+            "Não Verificado" => isPortuguese ? "Aguardando primeira leitura do Registro..." : "Waiting for initial Registry inspection...",
             "Padrão Dependente" => isPortuguese ? "Padrão depende da edição/configuração do Windows" : "Default depends on Windows edition/configuration",
             "Erro de Leitura" => isPortuguese ? "Erro de leitura — estado não determinável" : "Read error — state undetermined",
             "Não Disponível Neste Sistema" => isPortuguese ? "Consulta disponível somente no Windows" : "Inspection is available on Windows only",
@@ -871,9 +880,8 @@ public class MainViewModel : INotifyPropertyChanged
                 RecommendedValue = def.RecommendedValue,
                 RiskLevel = def.RiskLevel,
                 IsApplied = false,
-                VerificationState = Loc.CurrentCulture == "pt-BR"
-                    ? "Aguardando primeira leitura do Registro..."
-                    : "Waiting for initial Registry inspection...",
+                InspectionState = "Não Verificado",
+                VerificationState = GetTweakStateDisplay("Não Verificado", Loc.CurrentCulture == "pt-BR"),
                 CurrentValueText = "N/D",
                 RegistryTypeText = "N/D",
                 DiagnosticDetailText = Loc.CurrentCulture == "pt-BR"
@@ -1874,6 +1882,7 @@ public class MainViewModel : INotifyPropertyChanged
         foreach (var tweak in CatalogTweaks)
         {
             tweak.Name = isPt ? tweak.NamePt : tweak.NameEn;
+            tweak.VerificationState = GetTweakStateDisplay(tweak.InspectionState, isPt);
         }
         foreach (var cat in CleanerCategories)
         {

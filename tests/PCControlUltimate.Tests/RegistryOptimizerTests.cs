@@ -349,6 +349,29 @@ public class RegistryOptimizerTests : IDisposable
         Assert.Equal("Tipo Incorreto", result.State);
         Assert.True(result.IsUndeterminable);
         Assert.Equal(RegistryValueKind.String, result.ActualValueKind);
+        Assert.Contains("Tipo esperado: DWord; tipo encontrado: String", result.DiagnosticDetail ?? string.Empty);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_AccessDeniedRetainsDiagnosticDetails()
+    {
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated access denied detail");
+        var result = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal("Acesso Negado", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Contains("simulated access denied detail", result.DiagnosticDetail ?? string.Empty);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_ReadErrorRetainsDiagnosticDetails()
+    {
+        _fakeRegistry.ReadException = new IOException("simulated registry read failure");
+        var result = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal("Erro de Leitura", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Contains("simulated registry read failure", result.DiagnosticDetail ?? string.Empty);
         Assert.Equal(0, _fakeRegistry.WriteCalls);
     }
 
