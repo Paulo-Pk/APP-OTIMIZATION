@@ -361,6 +361,51 @@ public sealed class GameDiscoveryTests : IDisposable
         }
     }
 
+    [Fact]
+    public void DiscoverXboxGamesFolder_FindsOnlyImmediateGdkGameFolders()
+    {
+        string xboxGamesRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-xboxgames-{Guid.NewGuid():N}");
+        string gameRoot = Path.Combine(xboxGamesRoot, "InstalledGame");
+        string nestedRoot = Path.Combine(xboxGamesRoot, "OrdinaryFolder", "NestedGame");
+        Directory.CreateDirectory(gameRoot);
+        Directory.CreateDirectory(nestedRoot);
+        Directory.CreateDirectory(Path.Combine(xboxGamesRoot, "OrdinaryFolder"));
+
+        const string gameConfig = """
+            <Game configVersion="1">
+              <Identity Name="Publisher.XboxFolderTest" Publisher="CN=Test" Version="1.0.0.0" />
+              <ShellVisuals DefaultDisplayName="PC Control Xbox Folder Test" />
+            </Game>
+            """;
+        File.WriteAllText(Path.Combine(gameRoot, "MicrosoftGame.config"), gameConfig);
+        File.WriteAllText(Path.Combine(nestedRoot, "MicrosoftGame.config"), """
+            <Game configVersion="1">
+              <Identity Name="Publisher.NestedShouldNotAppear" />
+              <ShellVisuals DefaultDisplayName="Nested Game" />
+            </Game>
+            """);
+
+        MethodInfo discover = typeof(GameNetworkAcceleratorService).GetMethod(
+            "DiscoverXboxGamesFolder", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        try
+        {
+            var games = Assert.IsAssignableFrom<System.Collections.Generic.IReadOnlyList<InstalledGameEntry>>(
+                discover.Invoke(null, new object[] { xboxGamesRoot }));
+
+            var game = Assert.Single(games);
+            Assert.Equal("PC Control Xbox Folder Test", game.Title);
+            Assert.Equal("Publisher.XboxFolderTest", game.AppId);
+            Assert.Equal("Xbox / Microsoft Store", game.Launcher);
+            Assert.Equal(Path.GetFullPath(gameRoot), game.InstallLocation);
+            Assert.True(game.IsInstalled);
+        }
+        finally
+        {
+            try { Directory.Delete(xboxGamesRoot, recursive: true); } catch { }
+        }
+    }
+
     public void Dispose()
     {
         try
