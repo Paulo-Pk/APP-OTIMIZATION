@@ -778,8 +778,9 @@ public class MainViewModel : INotifyPropertyChanged
                     }
                     catch { }
 
-                    tweak.IsApplied = true;
-                    tweak.VerificationState = $"Verificado ({tweak.RecommendedValue})";
+                    var readBackState = RegistryOptimizer.InspectCatalogTweakCurrentState(tweak.TweakId);
+                    tweak.IsApplied = string.Equals(readBackState, "Ativo", StringComparison.OrdinalIgnoreCase);
+                    tweak.VerificationState = GetTweakStateDisplay(readBackState, Loc.CurrentCulture == "pt-BR");
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     await _databaseService.UpsertOptimizationActionAsync(
@@ -793,7 +794,9 @@ public class MainViewModel : INotifyPropertyChanged
                         isApplied: true,
                         backupId: tweak.LastOperationId
                     );
-                    StatusMessage = $"Ajuste '{tweak.TweakId}' aplicado, gravado no Ledger DPAPI + SQLite e confirmado por releitura.";
+                    StatusMessage = tweak.IsApplied
+                        ? $"Ajuste '{tweak.TweakId}' aplicado e confirmado por nova leitura do Registro."
+                        : $"O agente informou que aplicou '{tweak.TweakId}', mas a releitura não confirmou o valor recomendado. Estado: {tweak.VerificationState}.";
                 }
                 else
                 {
@@ -816,8 +819,9 @@ public class MainViewModel : INotifyPropertyChanged
                 RefreshAuditLogs();
                 if (ok)
                 {
-                    tweak.IsApplied = false;
-                    tweak.VerificationState = "Restaurado (Ledger Seguro)";
+                    var restoredReadBackState = RegistryOptimizer.InspectCatalogTweakCurrentState(tweak.TweakId);
+                    tweak.IsApplied = string.Equals(restoredReadBackState, "Ativo", StringComparison.OrdinalIgnoreCase);
+                    tweak.VerificationState = GetTweakStateDisplay(restoredReadBackState, Loc.CurrentCulture == "pt-BR");
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     await _databaseService.UpsertOptimizationActionAsync(
@@ -831,7 +835,9 @@ public class MainViewModel : INotifyPropertyChanged
                         isApplied: false,
                         backupId: tweak.LastOperationId
                     );
-                    StatusMessage = $"Ajuste '{tweak.TweakId}' revertido ao estado original autêntico do backend e atualizado no SQLite.";
+                    StatusMessage = tweak.IsApplied
+                        ? $"A restauração de '{tweak.TweakId}' foi executada, mas o valor recomendado ainda aparece no Registro. Verifique o estado original e as permissões."
+                        : $"Restauração de '{tweak.TweakId}' executada; releitura do Registro indica que o valor recomendado não está ativo.";
                 }
                 else
                 {
