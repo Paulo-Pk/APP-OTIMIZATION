@@ -162,6 +162,84 @@ public sealed class GameDiscoveryTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(RegistryView.Registry32)]
+    [InlineData(RegistryView.Registry64)]
+    public void DiscoverInstalledGames_ReadsUbisoftConnectMachineCatalog(RegistryView registryView)
+    {
+        string entryName = $"PCControlUbisoft_{Guid.NewGuid():N}";
+        string installRoot = Path.Combine(Path.GetTempPath(), entryName);
+        string catalogPath = $@"Software\Ubisoft\Launcher\Installs\{entryName}";
+        Directory.CreateDirectory(installRoot);
+
+        try
+        {
+            using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, registryView))
+            using (RegistryKey entry = baseKey.CreateSubKey(catalogPath)!)
+            {
+                entry.SetValue("InstallDir", installRoot, RegistryValueKind.String);
+                entry.SetValue("DisplayName", "PC Control Ubisoft Test", RegistryValueKind.String);
+            }
+
+            var game = Assert.Single(GameNetworkAcceleratorService.DiscoverInstalledGames()
+                .Where(item => item.Launcher == "Ubisoft Connect" && item.AppId == entryName));
+
+            Assert.Equal("PC Control Ubisoft Test", game.Title);
+            Assert.Equal(Path.GetFullPath(installRoot), game.InstallLocation);
+            Assert.True(game.IsInstalled);
+        }
+        finally
+        {
+            try
+            {
+                using RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, registryView);
+                baseKey.DeleteSubKeyTree(catalogPath, throwOnMissingSubKey: false);
+            }
+            catch { }
+
+            try { Directory.Delete(installRoot, recursive: true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData(RegistryView.Registry32)]
+    [InlineData(RegistryView.Registry64)]
+    public void DiscoverInstalledGames_ReadsEaAppMachineCatalog(RegistryView registryView)
+    {
+        string entryName = $"PCControlEa_{Guid.NewGuid():N}";
+        string installRoot = Path.Combine(Path.GetTempPath(), entryName);
+        string catalogPath = $@"Software\EA Games\{entryName}";
+        Directory.CreateDirectory(installRoot);
+
+        try
+        {
+            using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, registryView))
+            using (RegistryKey entry = baseKey.CreateSubKey(catalogPath)!)
+            {
+                entry.SetValue("Install Dir", installRoot, RegistryValueKind.String);
+                entry.SetValue("DisplayName", "PC Control EA Test", RegistryValueKind.String);
+            }
+
+            var game = Assert.Single(GameNetworkAcceleratorService.DiscoverInstalledGames()
+                .Where(item => item.Launcher == "EA app" && item.AppId == entryName));
+
+            Assert.Equal("PC Control EA Test", game.Title);
+            Assert.Equal(Path.GetFullPath(installRoot), game.InstallLocation);
+            Assert.True(game.IsInstalled);
+        }
+        finally
+        {
+            try
+            {
+                using RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, registryView);
+                baseKey.DeleteSubKeyTree(catalogPath, throwOnMissingSubKey: false);
+            }
+            catch { }
+
+            try { Directory.Delete(installRoot, recursive: true); } catch { }
+        }
+    }
+
     public void Dispose()
     {
         try
