@@ -224,6 +224,73 @@ public class GameNetworkAcceleratorTests
     }
 
     [Fact]
+    public void WireGuardTunnelManager_ShouldDetectSplitCidrsThatCoverTheEntireAddressSpace()
+    {
+        string splitIpv4FullTunnel = """
+            [Interface]
+            PrivateKey = wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=
+            Address = 10.66.66.2/32
+            [Peer]
+            PublicKey = mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=
+            Endpoint = 203.0.113.10:51820
+            AllowedIPs = 0.0.0.0/2, 64.0.0.0/2, 128.0.0.0/2, 192.0.0.0/2
+            """;
+        string splitIpv6FullTunnel = """
+            [Interface]
+            PrivateKey = wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=
+            Address = fd00:66::2/128
+            [Peer]
+            PublicKey = mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=
+            Endpoint = 203.0.113.10:51820
+            AllowedIPs = ::/2, 4000::/2, 8000::/2, c000::/2
+            """;
+
+        var ipv4Audit = WireGuardTunnelManager.ValidateAndAuditConfig(splitIpv4FullTunnel);
+        Assert.False(ipv4Audit.IsValid);
+        Assert.True(ipv4Audit.AltersIpv4DefaultRoute);
+
+        var ipv6Audit = WireGuardTunnelManager.ValidateAndAuditConfig(splitIpv6FullTunnel);
+        Assert.False(ipv6Audit.IsValid);
+        Assert.True(ipv6Audit.AltersIpv6DefaultRoute);
+    }
+
+    [Fact]
+    public void WireGuardTunnelManager_ShouldRejectDisabledRouteTableAndMultiplePeers()
+    {
+        string tableOffConfig = """
+            [Interface]
+            PrivateKey = wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=
+            Address = 10.66.66.2/32
+            Table = off
+            [Peer]
+            PublicKey = mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=
+            Endpoint = 203.0.113.10:51820
+            AllowedIPs = 155.133.248.0/24
+            """;
+        string multiplePeersConfig = """
+            [Interface]
+            PrivateKey = wJ9K4m8N1pQ6rT3vX5zB7cF0hL2sD4gA8eM1uP9yV3E=
+            Address = 10.66.66.2/32
+            [Peer]
+            PublicKey = mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=
+            Endpoint = 203.0.113.10:51820
+            AllowedIPs = 155.133.248.0/24
+            [Peer]
+            PublicKey = mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=
+            Endpoint = 203.0.113.11:51820
+            AllowedIPs = 155.133.249.0/24
+            """;
+
+        var tableAudit = WireGuardTunnelManager.ValidateAndAuditConfig(tableOffConfig);
+        Assert.False(tableAudit.IsValid);
+        Assert.Contains("UNSUPPORTED_ROUTE_TABLE_MODE", tableAudit.ErrorReason);
+
+        var peersAudit = WireGuardTunnelManager.ValidateAndAuditConfig(multiplePeersConfig);
+        Assert.False(peersAudit.IsValid);
+        Assert.Contains("MULTIPLE_PEER_SECTIONS", peersAudit.ErrorReason);
+    }
+
+    [Fact]
     public void WireGuardTunnelManager_ShouldBlockMaliciousPreUpPostUpScriptHooks()
     {
         string maliciousConfig = """
