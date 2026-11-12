@@ -371,8 +371,66 @@ public static class GameNetworkAcceleratorService
         // Enumerate only the current user's packages and accept packages carrying the
         // official MicrosoftGame.config game manifest (not every Store app).
         AddMicrosoftStoreGames(games);
+        AddXboxGamesFolderGames(games);
 
         return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private static void AddXboxGamesFolderGames(Dictionary<string, InstalledGameEntry> games)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            // GDK flat-file installs use [drive]:\\XboxGames by default. Keep this
+            // lookup bounded to that known folder and its immediate game directories.
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (!drive.IsReady || drive.DriveType != DriveType.Fixed) continue;
+                    string xboxGamesRoot = Path.Combine(drive.RootDirectory.FullName, "XboxGames");
+                    foreach (InstalledGameEntry game in DiscoverXboxGamesFolder(xboxGamesRoot))
+                        games["Xbox / Microsoft Store:" + game.AppId] = game;
+                }
+                catch
+                {
+                    // An unavailable or protected drive must not interrupt other catalogs.
+                }
+            }
+        }
+        catch
+        {
+            // Xbox folder discovery is optional; other launcher catalogs remain available.
+        }
+    }
+
+    internal static IReadOnlyList<InstalledGameEntry> DiscoverXboxGamesFolder(string xboxGamesRoot)
+    {
+        var discovered = new List<InstalledGameEntry>();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(xboxGamesRoot) || !Directory.Exists(xboxGamesRoot))
+                return discovered;
+
+            // No recursive or whole-disk scan: inspect only immediate game folders.
+            foreach (string gameDirectory in Directory.EnumerateDirectories(
+                xboxGamesRoot, "*", SearchOption.TopDirectoryOnly))
+            {
+                string packageName = Path.GetFileName(gameDirectory);
+                if (TryReadMicrosoftGameConfig(gameDirectory, packageName, out InstalledGameEntry? game)
+                    && game is not null)
+                {
+                    discovered.Add(game);
+                }
+            }
+        }
+        catch
+        {
+            // Skip inaccessible folders and malformed game installations individually.
+        }
+
+        return discovered;
     }
 
     private static void AddMicrosoftStoreGames(Dictionary<string, InstalledGameEntry> games)
