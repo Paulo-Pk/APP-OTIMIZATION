@@ -863,10 +863,29 @@ public static class WireGuardTunnelManager
                 );
             }
 
+            var (installedAfterInstall, runningAfterInstall, installStateVerified) =
+                await CheckWindowsServiceStateAsync($"WireGuardTunnel${safeName}", cancellationToken);
+            if (!installStateVerified)
+            {
+                return new WireGuardServiceOperationResult(
+                    false,
+                    "SERVICE_INSTALL_STATE_UNVERIFIED",
+                    "O instalador terminou, mas o Windows não confirmou o estado do serviço. Não considere o túnel instalado até verificar manualmente.");
+            }
+            if (!installedAfterInstall || !runningAfterInstall)
+            {
+                return new WireGuardServiceOperationResult(
+                    false,
+                    !installedAfterInstall ? "SERVICE_NOT_INSTALLED_AFTER_COMMAND" : "SERVICE_NOT_RUNNING_AFTER_INSTALL",
+                    !installedAfterInstall
+                        ? "O instalador terminou sem erro, mas o serviço WireGuard não aparece instalado no Windows."
+                        : "O serviço WireGuard foi instalado, mas não está em execução. O túnel ainda não está ativo.");
+            }
+
             return new WireGuardServiceOperationResult(
                 true,
                 string.Empty,
-                $"Serviço do túnel '{safeName}' instalado sob autorização UAC. O aplicativo executou a rotina de exclusão do arquivo temporário de configuração (sobrescrita best-effort; isso não garante apagamento físico em SSD). Verifique o handshake antes de iniciar a partida."
+                $"Serviço do túnel '{safeName}' instalado e em execução após verificação no Windows. O aplicativo executou a rotina de exclusão do arquivo temporário de configuração (sobrescrita best-effort; isso não garante apagamento físico em SSD). Verifique o handshake antes de iniciar a partida."
             );
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
