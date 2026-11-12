@@ -59,7 +59,6 @@ public record LedgerValidationResult(
 public static class RegistryStateLedger
 {
     private static readonly object _syncRoot = new();
-    private static readonly string _ledgerSecretKey = InitializeProcessLedgerKey();
 
     public static string LedgerFilePath { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -67,6 +66,9 @@ public static class RegistryStateLedger
         "StateLedger",
         "tweak_state_ledger.dpapi"
     );
+
+    // Initialize only after LedgerFilePath so DPAPI key and ledger share the protected application directory.
+    private static readonly string _ledgerSecretKey = InitializeProcessLedgerKey();
 
     private static string LedgerKeyFilePath => Path.Combine(
         Path.GetDirectoryName(LedgerFilePath) ?? Path.GetTempPath(),
