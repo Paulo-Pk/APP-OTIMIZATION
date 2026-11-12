@@ -706,12 +706,10 @@ public static class RegistrySnapshotEngine
 
                     // Do not overwrite a Registry value changed by another process after the
                     // snapshot restore; only roll back if the snapshot value is still present.
-                    var rollbackResult = RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(
+                    var rollbackResult = RegistryOptimizer.RestoreFromCapturedRollbackState(
                         rDef,
                         rollbackEntry,
-                        enforceExpectedCurrentState: true,
-                        expectedCurrentValue: appliedSnapshotEntry.RawValue,
-                        expectedCurrentAbsent: appliedSnapshotEntry.WasInitiallyAbsent);
+                        appliedSnapshotEntry);
                     if (!rollbackResult.Success)
                     {
                         rollbackFailures.Add(new SnapshotItemRestoreReport(
