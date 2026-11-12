@@ -204,6 +204,7 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isAdmin;
     private string _statusMessage = "Verificando comunicação com o Agente...";
     private bool _isRefreshingTweakStates;
+    private bool _isApplyingSafeBoostProfile;
     private string _tweakStatesSummaryText = "Estados do Registro ainda não atualizados nesta sessão.";
     private bool _isRefreshingGameConnections;
     private string _gameConnectionsStatusText = "A biblioteca ainda não foi atualizada nesta sessão.";
@@ -1534,108 +1535,125 @@ public class MainViewModel : INotifyPropertyChanged
 
         ApplySafeBoostProfileCommand = new RelayCommand(async _ =>
         {
-            if (_isRefreshingTweakStates)
+            if (_isApplyingSafeBoostProfile)
             {
                 StatusMessage = Loc.CurrentCulture == "pt-BR"
-                    ? "Aguarde a consulta do Registro terminar antes de iniciar o perfil em lote."
-                    : "Wait for the Registry inspection to finish before starting the batch profile.";
+                    ? "O perfil seguro já está em execução. Aguarde a conclusão antes de iniciar novamente."
+                    : "The safe profile is already running. Wait for it to finish before starting it again.";
                 return;
             }
 
-            // Refresh the read-only Registry baseline immediately before selecting
-            // tweaks; never rely on a potentially stale screen state for a batch write.
-            await RefreshAllTweakStatesAsync();
-
-            var safeTweaks = CatalogTweaks
-                .Where(t => t.CanApply &&
-                    (string.Equals(t.RiskLevel, "Safe", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(t.RiskLevel, "Low", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(t.RiskLevel, "Baixo", StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-
-            if (safeTweaks.Count == 0)
+            _isApplyingSafeBoostProfile = true;
+            try
             {
-                StatusMessage = Loc.CurrentCulture == "pt-BR"
-                    ? "Nenhum ajuste seguro está elegível agora. Os itens já aplicados ou com estado do Registro não confirmado ficam bloqueados."
-                    : "No safe tweak is currently eligible. Already-applied items and items without a confirmed Registry baseline remain blocked.";
-                return;
-            }
-
-            StatusMessage = Loc.CurrentCulture == "pt-BR"
-                ? "Criando e verificando um ponto de restauração antes das otimizações..."
-                : "Creating and verifying a restore point before applying optimizations.";
-
-            var (snapshotCreated, snapshotDetails) = await _agentClient.CreateSnapshotAsync();
-            RefreshBackupsList();
-            RefreshAuditLogs();
-
-            if (!snapshotCreated)
-            {
-                StatusMessage = Loc.CurrentCulture == "pt-BR"
-                    ? $"Nenhuma alteração foi aplicada porque o backup não foi confirmado: {snapshotDetails}"
-                    : $"No changes were applied because the backup could not be verified: {snapshotDetails}";
-                return;
-            }
-
-            int appliedCount = 0;
-            int failedCount = 0;
-
-            foreach (var tweak in safeTweaks)
-            {
-                var (success, details) = await _agentClient.ApplyCatalogTweakAsync(tweak.TweakId, tweak.RecommendedValue);
-                if (!success)
+                if (_isRefreshingTweakStates)
                 {
-                    tweak.VerificationState = "Falha / Requer UAC";
-                    failedCount++;
-                    continue;
-                }
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(details);
-                    if (doc.RootElement.TryGetProperty("operationId", out var operationId))
-                        tweak.LastOperationId = operationId.GetString();
-                }
-                catch { }
-
-                // A successful agent response confirms the write request, not the
-                // effective Registry state. Re-read the value before reporting success.
-                var readBackState = RegistryOptimizer.InspectCatalogTweakCurrentState(tweak.TweakId);
-                tweak.IsApplied = string.Equals(readBackState, "Ativo", StringComparison.OrdinalIgnoreCase);
-                tweak.VerificationState = GetTweakStateDisplay(readBackState, Loc.CurrentCulture == "pt-BR");
-
-                if (!tweak.IsApplied)
-                {
-                    failedCount++;
                     StatusMessage = Loc.CurrentCulture == "pt-BR"
-                        ? $"O ajuste '{tweak.Name}' foi enviado ao agente, mas a releitura não confirmou o valor recomendado. Estado: {tweak.VerificationState}."
-                        : $"The agent accepted '{tweak.Name}', but read-back did not confirm the recommended value. State: {tweak.VerificationState}.";
-                    continue;
+                        ? "Aguarde a consulta do Registro terminar antes de iniciar o perfil em lote."
+                        : "Wait for the Registry inspection to finish before starting the batch profile.";
+                    return;
                 }
-
-                await _databaseService.UpsertOptimizationActionAsync(
-                    tweak.TweakId,
-                    tweak.Name,
-                    tweak.Category,
-                    tweak.RegistryPath,
-                    tweak.ValueName,
-                    "Ledger-DPAPI",
-                    tweak.RecommendedValue,
-                    isApplied: true,
-                    backupId: tweak.LastOperationId
-                );
-                appliedCount++;
+    
+                // Refresh the read-only Registry baseline immediately before selecting
+                // tweaks; never rely on a potentially stale screen state for a batch write.
+                await RefreshAllTweakStatesAsync();
+    
+                var safeTweaks = CatalogTweaks
+                    .Where(t => t.CanApply &&
+                        (string.Equals(t.RiskLevel, "Safe", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(t.RiskLevel, "Low", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(t.RiskLevel, "Baixo", StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+    
+                if (safeTweaks.Count == 0)
+                {
+                    StatusMessage = Loc.CurrentCulture == "pt-BR"
+                        ? "Nenhum ajuste seguro está elegível agora. Os itens já aplicados ou com estado do Registro não confirmado ficam bloqueados."
+                        : "No safe tweak is currently eligible. Already-applied items and items without a confirmed Registry baseline remain blocked.";
+                    return;
+                }
+    
+                StatusMessage = Loc.CurrentCulture == "pt-BR"
+                    ? "Criando e verificando um ponto de restauração antes das otimizações..."
+                    : "Creating and verifying a restore point before applying optimizations.";
+    
+                var (snapshotCreated, snapshotDetails) = await _agentClient.CreateSnapshotAsync();
+                RefreshBackupsList();
+                RefreshAuditLogs();
+    
+                if (!snapshotCreated)
+                {
+                    StatusMessage = Loc.CurrentCulture == "pt-BR"
+                        ? $"Nenhuma alteração foi aplicada porque o backup não foi confirmado: {snapshotDetails}"
+                        : $"No changes were applied because the backup could not be verified: {snapshotDetails}";
+                    return;
+                }
+    
+                int appliedCount = 0;
+                int failedCount = 0;
+    
+                foreach (var tweak in safeTweaks)
+                {
+                    var (success, details) = await _agentClient.ApplyCatalogTweakAsync(tweak.TweakId, tweak.RecommendedValue);
+                    if (!success)
+                    {
+                        tweak.VerificationState = "Falha / Requer UAC";
+                        failedCount++;
+                        continue;
+                    }
+    
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(details);
+                        if (doc.RootElement.TryGetProperty("operationId", out var operationId))
+                            tweak.LastOperationId = operationId.GetString();
+                    }
+                    catch { }
+    
+                    // A successful agent response confirms the write request, not the
+                    // effective Registry state. Re-read the value before reporting success.
+                    var readBackState = RegistryOptimizer.InspectCatalogTweakCurrentState(tweak.TweakId);
+                    tweak.IsApplied = string.Equals(readBackState, "Ativo", StringComparison.OrdinalIgnoreCase);
+                    tweak.VerificationState = GetTweakStateDisplay(readBackState, Loc.CurrentCulture == "pt-BR");
+    
+                    if (!tweak.IsApplied)
+                    {
+                        failedCount++;
+                        StatusMessage = Loc.CurrentCulture == "pt-BR"
+                            ? $"O ajuste '{tweak.Name}' foi enviado ao agente, mas a releitura não confirmou o valor recomendado. Estado: {tweak.VerificationState}."
+                            : $"The agent accepted '{tweak.Name}', but read-back did not confirm the recommended value. State: {tweak.VerificationState}.";
+                        continue;
+                    }
+    
+                    await _databaseService.UpsertOptimizationActionAsync(
+                        tweak.TweakId,
+                        tweak.Name,
+                        tweak.Category,
+                        tweak.RegistryPath,
+                        tweak.ValueName,
+                        "Ledger-DPAPI",
+                        tweak.RecommendedValue,
+                        isApplied: true,
+                        backupId: tweak.LastOperationId
+                    );
+                    appliedCount++;
+                }
+    
+                RefreshAuditLogs();
+                OnPropertyChanged(nameof(AppliedTweaksCount));
+                OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+                CommandManager.InvalidateRequerySuggested();
+    
+                StatusMessage = Loc.CurrentCulture == "pt-BR"
+                    ? $"Backup confirmado. {appliedCount} otimização(ões) segura(s) aplicada(s) e verificadas; {failedCount} falha(s)."
+                    : $"Backup verified. {appliedCount} safe optimization(s) applied and verified; {failedCount} failure(s).";
             }
-
-            RefreshAuditLogs();
-            OnPropertyChanged(nameof(AppliedTweaksCount));
-            OnPropertyChanged(nameof(AppliedTweaksBadgeText));
-            CommandManager.InvalidateRequerySuggested();
-
-            StatusMessage = Loc.CurrentCulture == "pt-BR"
-                ? $"Backup confirmado. {appliedCount} otimização(ões) segura(s) aplicada(s) e verificadas; {failedCount} falha(s)."
-                : $"Backup verified. {appliedCount} safe optimization(s) applied and verified; {failedCount} failure(s).";
+            finally
+            {
+                _isApplyingSafeBoostProfile = false;
+                CommandManager.InvalidateRequerySuggested();
+            }
         });
 
         RunBenchmarkCommand = new RelayCommand(async _ =>
