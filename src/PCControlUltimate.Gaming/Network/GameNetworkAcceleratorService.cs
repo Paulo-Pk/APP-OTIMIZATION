@@ -336,6 +336,9 @@ public static class GameNetworkAcceleratorService
         AddRegistryGameCatalog(games, RegistryHive.CurrentUser, RegistryView.Registry32,
             @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
             new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
+        AddRegistryGameCatalog(games, RegistryHive.CurrentUser, RegistryView.Registry64,
+            @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
         AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
             @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
             new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
