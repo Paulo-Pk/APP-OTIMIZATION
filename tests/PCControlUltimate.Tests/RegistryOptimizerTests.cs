@@ -82,6 +82,20 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
+    public void ApplyCatalogTweak_CustomRegistryState_IsNotOverwritten()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 7, RegistryValueKind.DWord);
+
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+
+        Assert.False(result.Success);
+        Assert.Equal("REGISTRY_STATE_NOT_DEFAULT", result.ErrorCode);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.Equal(7, snapshot.Value);
+    }
+
+    [Fact]
     public void ApplyCatalogTweak_ReadbackMismatch_IsNotReportedAsSuccess()
     {
         _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
@@ -95,10 +109,17 @@ public class RegistryOptimizerTests : IDisposable
     [Fact]
     public void RestoreCatalogTweak_RestoresCustomOriginalValueAndKind_UsingFakeBackend()
     {
-        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", "custom-original", RegistryValueKind.String);
-        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
-        Assert.True(applied.Success, applied.ErrorMessage);
-        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, 0, RegistryValueKind.DWord);
+        var ledgerEntry = RegistryStateLedger.RecordBeforeModification(
+            def,
+            originalKind: RegistryValueKind.String,
+            originalRawValue: "custom-original",
+            wasInitiallyAbsent: false,
+            keyCreatedByApp: false,
+            appliedValue: "0"
+        );
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", ledgerEntry.OperationId);
         Assert.True(restored.Success, restored.ErrorMessage);
         var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
         Assert.True(snapshot.ValueExists);
@@ -109,16 +130,16 @@ public class RegistryOptimizerTests : IDisposable
     [Fact]
     public void RestoreCatalogTweak_InitiallyAbsentValue_PreservesOtherValuesInExistingKey()
     {
-        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "UnrelatedValue", 123, RegistryValueKind.DWord);
+        _fakeRegistry.Seed("HKLM", @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "UnrelatedValue", 123, RegistryValueKind.DWord);
 
-        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-mmcss", "10");
         Assert.True(applied.Success, applied.ErrorMessage);
 
-        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-mmcss", applied.OperationId);
 
         Assert.True(restored.Success, restored.ErrorMessage);
-        var targetSnapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
-        var unrelatedSnapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "UnrelatedValue");
+        var targetSnapshot = _fakeRegistry.Read("HKLM", @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "SystemResponsiveness");
+        var unrelatedSnapshot = _fakeRegistry.Read("HKLM", @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "UnrelatedValue");
         Assert.True(targetSnapshot.KeyExists);
         Assert.False(targetSnapshot.ValueExists);
         Assert.True(unrelatedSnapshot.KeyExists);
@@ -130,11 +151,11 @@ public class RegistryOptimizerTests : IDisposable
     [Fact]
     public void RestoreCatalogTweak_InitiallyAbsentValue_RemovesValueAndCreatedKey()
     {
-        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-mmcss", "10");
         Assert.True(applied.Success, applied.ErrorMessage);
-        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-mmcss", applied.OperationId);
         Assert.True(restored.Success, restored.ErrorMessage);
-        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        var snapshot = _fakeRegistry.Read("HKLM", @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "SystemResponsiveness");
         Assert.False(snapshot.ValueExists);
         Assert.False(snapshot.KeyExists);
     }
@@ -194,11 +215,11 @@ public class RegistryOptimizerTests : IDisposable
     [Fact]
     public void RestoreCatalogTweak_DeleteAccessDenied_ReturnsFailure()
     {
-        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-mmcss", "10");
         Assert.True(applied.Success, applied.ErrorMessage);
 
         _fakeRegistry.DeleteException = new UnauthorizedAccessException("simulated delete denied");
-        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-mmcss", applied.OperationId);
 
         Assert.False(restored.Success);
         Assert.Contains("simulated delete denied", restored.ErrorMessage ?? string.Empty);
