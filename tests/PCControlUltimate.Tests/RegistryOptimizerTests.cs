@@ -184,7 +184,7 @@ public class RegistryOptimizerTests : IDisposable
         Assert.True(applied.Success, applied.ErrorMessage);
 
         // Simulate the user or another application changing the value after our tweak.
-        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 7, RegistryValueKind.DWord);
         int writesBeforeRestore = _fakeRegistry.WriteCalls;
 
         var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
@@ -193,7 +193,7 @@ public class RegistryOptimizerTests : IDisposable
         Assert.Equal("REGISTRY_STATE_CHANGED", restored.ErrorCode);
         Assert.Equal(writesBeforeRestore, _fakeRegistry.WriteCalls);
         var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
-        Assert.Equal(1, snapshot.Value);
+        Assert.Equal(7, snapshot.Value);
         Assert.Equal(RegistryValueKind.DWord, snapshot.Kind);
     }
 
