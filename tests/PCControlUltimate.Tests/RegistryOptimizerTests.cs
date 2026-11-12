@@ -309,10 +309,10 @@ public class RegistryOptimizerTests : IDisposable
     }
 
     [Fact]
-    public void InspectCatalogTweak_LargeSystemCacheAbsent_UsesKnownZeroDefault()
+    public void InspectCatalogTweak_LargeSystemCacheAbsent_ReportsNoChangeNeeded()
     {
         var result = RegistryOptimizer.InspectCatalogTweak("mem-standby-clean");
-        Assert.Equal("Ativo", result.State);
+        Assert.Equal("Sem Alteração Necessária", result.State);
         Assert.False(result.IsUndeterminable);
         Assert.Equal(0, _fakeRegistry.WriteCalls);
     }
