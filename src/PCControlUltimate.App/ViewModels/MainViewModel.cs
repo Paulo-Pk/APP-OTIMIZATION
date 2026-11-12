@@ -627,6 +627,17 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
 
+    private static string GetTweakStateDisplay(string state, bool isPortuguese)
+    {
+        return state switch
+        {
+            "Ativo" => isPortuguese ? "Ativo — leitura confirmada" : "Active — read-back confirmed",
+            "Inativo" => isPortuguese ? "Padrão/inativo — leitura confirmada" : "Default/inactive — read-back confirmed",
+            "Parcial" => isPortuguese ? "Personalizado — diferente do recomendado" : "Custom — differs from recommendation",
+            _ => isPortuguese ? "Não foi possível consultar" : "Unable to inspect"
+        };
+    }
+
     public MainViewModel() : this(new AgentClientService(), null, new LocalizationService(), new DatabaseService(), new NetworkDiagnosticsService())
     {
     }
@@ -661,8 +672,13 @@ public class MainViewModel : INotifyPropertyChanged
                 ValueKind = def.ValueKind.ToString(),
                 RecommendedValue = def.RecommendedValue,
                 RiskLevel = def.RiskLevel,
-                IsApplied = false,
-                VerificationState = Loc.CurrentCulture == "pt-BR" ? "Não verificado" : "Not verified"
+                IsApplied = string.Equals(
+                    RegistryOptimizer.InspectCatalogTweakCurrentState(def.TweakId),
+                    "Ativo",
+                    StringComparison.OrdinalIgnoreCase),
+                VerificationState = GetTweakStateDisplay(
+                    RegistryOptimizer.InspectCatalogTweakCurrentState(def.TweakId),
+                    Loc.CurrentCulture == "pt-BR")
             });
         }
 
