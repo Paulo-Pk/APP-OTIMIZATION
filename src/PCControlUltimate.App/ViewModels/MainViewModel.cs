@@ -90,14 +90,32 @@ public class TweakItemViewModel : INotifyPropertyChanged
     public bool IsApplied
     {
         get => _isApplied;
-        set { _isApplied = value; OnPropertyChanged(); }
+        set
+        {
+            _isApplied = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanApply));
+        }
     }
 
     public string VerificationState
     {
         get => _verificationState;
-        set { _verificationState = value; OnPropertyChanged(); }
+        set
+        {
+            _verificationState = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanApply));
+        }
     }
+
+    // Applying over a custom, unknown, unreadable, or edition-dependent value could
+    // overwrite a user's configuration. Only allow application after a confirmed
+    // read that the current value is the known inactive/default value.
+    public bool CanApply =>
+        !IsApplied &&
+        (VerificationState.StartsWith("Padrão/inativo — leitura confirmada", StringComparison.OrdinalIgnoreCase) ||
+         VerificationState.StartsWith("Default/inactive — read-back confirmed", StringComparison.OrdinalIgnoreCase));
 
     public string? LastOperationId
     {
@@ -948,7 +966,7 @@ public class MainViewModel : INotifyPropertyChanged
                     StatusMessage = $"Não foi possível aplicar '{tweak.TweakId}': {details}";
                 }
             }
-        }, param => param is TweakItemViewModel item && !item.IsApplied);
+        }, param => param is TweakItemViewModel item && item.CanApply);
 
         RestoreSingleTweakCommand = new RelayCommand(async param =>
         {
