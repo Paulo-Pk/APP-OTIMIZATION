@@ -1543,8 +1543,8 @@ public class MainViewModel : INotifyPropertyChanged
             if (safeTweaks.Count == 0)
             {
                 StatusMessage = Loc.CurrentCulture == "pt-BR"
-                    ? "As otimizações seguras já estão aplicadas ou não há itens seguros disponíveis."
-                    : "Safe optimizations are already applied or no safe items are available.";
+                    ? "Nenhum ajuste seguro está elegível agora. Os itens já aplicados ou com estado do Registro não confirmado ficam bloqueados."
+                    : "No safe tweak is currently eligible. Already-applied items and items without a confirmed Registry baseline remain blocked.";
                 return;
             }
 
@@ -1617,6 +1617,7 @@ public class MainViewModel : INotifyPropertyChanged
             RefreshAuditLogs();
             OnPropertyChanged(nameof(AppliedTweaksCount));
             OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+            CommandManager.InvalidateRequerySuggested();
 
             StatusMessage = Loc.CurrentCulture == "pt-BR"
                 ? $"Backup confirmado. {appliedCount} otimização(ões) segura(s) aplicada(s) e verificadas; {failedCount} falha(s)."
