@@ -338,7 +338,7 @@ public class RegistrySnapshotTests
                 {
                     TweakId = "perf-game-dvr",
                     Hive = "HKCU",
-                    SubKey = @"System\\GameConfigStore",
+                    SubKey = @"System\GameConfigStore",
                     ValueName = "GameDVR_Enabled",
                     ValueKind = "DWord",
                     RawValue = "1",
