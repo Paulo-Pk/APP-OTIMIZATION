@@ -18,6 +18,41 @@ public sealed class GameDiscoveryTests : IDisposable
     private readonly string _installRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-game-tests-{Guid.NewGuid():N}");
 
     [Fact]
+    public void DiscoverInstalledGames_ReadsCurrentUserGogCatalogFrom64BitRegistryView()
+    {
+        string installRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-game-tests-64-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(installRoot);
+
+        using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64))
+        using (RegistryKey entry = baseKey.CreateSubKey($@"{CatalogPath}\\{_testPrefix}_64BitGame")!)
+        {
+            entry.SetValue("path", installRoot);
+            entry.SetValue("gameName", "PC Control Test Game 64");
+        }
+
+        try
+        {
+            var game = Assert.Single(GameNetworkAcceleratorService.DiscoverInstalledGames()
+                .Where(item => item.Launcher == "GOG"
+                    && item.AppId == $"{_testPrefix}_64BitGame"));
+
+            Assert.Equal("PC Control Test Game 64", game.Title);
+            Assert.Equal(Path.GetFullPath(installRoot), game.InstallLocation);
+        }
+        finally
+        {
+            try
+            {
+                using RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64);
+                baseKey.DeleteSubKeyTree($@"{CatalogPath}\\{_testPrefix}_64BitGame", throwOnMissingSubKey: false);
+            }
+            catch { }
+
+            try { Directory.Delete(installRoot, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void DiscoverInstalledGames_ReadsCurrentUserGogCatalog_AndKeepsExecutablesInsideInstallFolder()
     {
         Directory.CreateDirectory(_installRoot);
