@@ -253,7 +253,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _gpuHotspotDeltaText = "N/D";
     private string _overallHealthScore = "N/D";
     private string _benchmarkResultSummary = "Clique em Executar Benchmark Determinístico para medir throughput real de CPU e Memória.";
-    private string _peripheralCadenceSummary = "Mostra informações do monitor e do contador do Windows; não mede polling do mouse/teclado nem perda de eventos.";
+    private string _peripheralCadenceSummary = "Este módulo mostra os dados da tela. Os testes de mouse e teclado ainda não estão disponíveis.";
 
     // Preview Visual Parity & Extended Real Hardware Properties
     private string _detectedProfileDisplay = "Desktop";
@@ -626,6 +626,32 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RunBenchmarkCommand { get; }
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
+
+    private static string BuildGpuThermalUserMessage(GpuThermalEvaluationResult evaluation, bool isPortuguese)
+    {
+        if (!isPortuguese)
+            return evaluation.Message;
+
+        string status = evaluation.Status switch
+        {
+            GpuThermalHealth.SensorUnavailable => "Temperatura não disponível",
+            GpuThermalHealth.Excellent => "Temperatura muito boa",
+            GpuThermalHealth.Normal => "Temperatura dentro do esperado",
+            GpuThermalHealth.Warning => "Atenção: a placa está aquecendo bastante",
+            GpuThermalHealth.Critical => "Alerta: temperatura muito alta",
+            _ => "Não foi possível avaliar a temperatura"
+        };
+
+        string readings = evaluation.HotspotTemp > 0
+            ? $"Temperatura principal: {evaluation.CoreTemp:F1} °C. Ponto mais quente: {evaluation.HotspotTemp:F1} °C. Diferença: {evaluation.Delta:F1} °C."
+            : $"Temperatura principal: {evaluation.CoreTemp:F1} °C.";
+
+        string limitation = evaluation.IsEvaluationLimited
+            ? " O Windows/driver não disponibilizou todos os sensores; a avaliação está incompleta."
+            : string.Empty;
+
+        return $"{status}. {readings}{limitation}";
+    }
 
     private static string GetTweakStateDisplay(string state, bool isPortuguese)
     {
@@ -1344,8 +1370,8 @@ public class MainViewModel : INotifyPropertyChanged
         MeasureInputCadenceCommand = new RelayCommand(_ =>
         {
             PeripheralCadenceSummary = Loc.CurrentCulture == "pt-BR"
-                ? $"Monitor: {DisplayInfoText} · Frequência do contador de alta resolução: {System.Diagnostics.Stopwatch.Frequency / 1_000_000.0:F2} MHz. Esta verificação não mede a taxa de polling do mouse/teclado nem detecta perda de eventos."
-                : $"Monitor: {DisplayInfoText} · High-resolution counter frequency: {System.Diagnostics.Stopwatch.Frequency / 1_000_000.0:F2} MHz. This check does not measure mouse/keyboard polling rate or detect dropped input events.";
+                ? $"Tela detectada: {DisplayInfoText}. No momento, este módulo consulta apenas as informações do monitor; ainda não testa a resposta do mouse ou do teclado."
+                : $"Detected display: {DisplayInfoText}. This module currently reads monitor information only; mouse and keyboard response tests are not available yet.";
         });
 
         GenerateDiagnosticInsightsCommand = new RelayCommand(_ => RefreshAssistantInsights());
@@ -1611,7 +1637,7 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     var thermalEval = GpuThermalAuditor.EvaluateThermalState(snap.GpuCoreTemp.Value, snap.GpuHotspotTemp.Value, snap.GpuModelName);
                     GpuHotspotDeltaText = $"+{thermalEval.Delta:F1} °C";
-                    GpuThermalDiagnosisText = $"Status: {thermalEval.Status} (Delta Core/Hotspot: +{thermalEval.Delta:F1} °C) — {thermalEval.Message}";
+                    GpuThermalDiagnosisText = BuildGpuThermalUserMessage(thermalEval, Loc.CurrentCulture == "pt-BR");
                     // A GPU hotspot delta alone is not a complete system-health score.
                     // Keep the score unavailable until a transparent multi-component model exists.
                     OverallHealthScore = "N/D";
