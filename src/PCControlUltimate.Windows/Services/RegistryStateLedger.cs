@@ -87,6 +87,9 @@ public static class RegistryStateLedger
             RandomNumberGenerator.Fill(keyBytes);
             string generated = Convert.ToHexString(keyBytes).ToLowerInvariant();
             IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerKeyFilePath, generated);
+            string? persisted = IntegrityVerifier.ReadProtectedSessionToken(LedgerKeyFilePath);
+            if (!string.Equals(persisted, generated, StringComparison.Ordinal))
+                throw new CryptographicException("Não foi possível confirmar a persistência protegida da chave do Ledger.");
             return generated;
         }
         catch
@@ -298,23 +301,26 @@ public static class RegistryStateLedger
                     $"A entrada de histórico não corresponde ao caminho ou nome de valor do catálogo para '{def.TweakId}'.");
             }
 
-            // Rule 5: Validate RegistryValueKind against the catalog definition
+            // Restore the authenticated original type/value. Catalog restrictions apply to new writes,
+            // not to a previously recorded state protected by this entry's HMAC.
             if (!Enum.TryParse<RegistryValueKind>(targetEntry.OriginalValueKind, true, out var parsedKind) ||
-                parsedKind != def.ValueKind)
+                !Enum.IsDefined(typeof(RegistryValueKind), parsedKind) ||
+                (!targetEntry.WasInitiallyAbsent && parsedKind == RegistryValueKind.Unknown))
             {
-                return new LedgerValidationResult(false, null, "INCOMPATIBLE_VALUE_KIND",
-                    $"Tipo de Registro '{targetEntry.OriginalValueKind}' incompatível com o tipo exigido pelo catálogo ('{def.ValueKind}').");
+                return new LedgerValidationResult(false, null, "INVALID_ORIGINAL_VALUE_KIND",
+                    $"Tipo original de Registro inválido na operação '{targetEntry.OperationId}'.");
             }
 
-            // Rule 6: If the value existed originally, validate that OriginalRawValue is in AllowedValues
-            if (!targetEntry.WasInitiallyAbsent)
+            if (targetEntry.WasInitiallyAbsent)
             {
-                if (string.IsNullOrWhiteSpace(targetEntry.OriginalRawValue) ||
-                    !def.AllowedValues.Contains(targetEntry.OriginalRawValue, StringComparer.OrdinalIgnoreCase))
-                {
-                    return new LedgerValidationResult(false, null, "RESTORE_VALUE_NOT_ALLOWED",
-                        $"Valor original '{targetEntry.OriginalRawValue ?? "<NULL>"}' fora de AllowedValues para o ajuste '{def.TweakId}'.");
-                }
+                if (targetEntry.OriginalRawValue != null)
+                    return new LedgerValidationResult(false, null, "INVALID_ABSENT_STATE",
+                        "O Ledger indica valor originalmente ausente, mas contém um valor original.");
+            }
+            else if (targetEntry.OriginalRawValue == null)
+            {
+                return new LedgerValidationResult(false, null, "MISSING_ORIGINAL_VALUE",
+                    "O Ledger não contém o valor original autenticado necessário para restaurar.");
             }
 
             return new LedgerValidationResult(true, targetEntry, null, null);
