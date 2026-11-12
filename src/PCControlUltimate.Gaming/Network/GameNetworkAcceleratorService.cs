@@ -227,6 +227,109 @@ public static class GameNetworkAcceleratorService
     }
 
     /// <summary>
+    /// Discovers installed games from Steam and Epic launcher manifests only. No full-disk scan.
+    /// </summary>
+    public static IReadOnlyList<InstalledGameEntry> DiscoverInstalledGames()
+    {
+        var games = new Dictionary<string, InstalledGameEntry>(StringComparer.OrdinalIgnoreCase);
+        void Add(InstalledGameEntry game)
+        {
+            if (!string.IsNullOrWhiteSpace(game.Title) && !string.IsNullOrWhiteSpace(game.InstallLocation))
+                games[game.Launcher + ":" + game.AppId] = game;
+        }
+
+        try
+        {
+            var steamRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string defaultSteam = Path.Combine(programFilesX86, "Steam");
+            if (Directory.Exists(defaultSteam)) steamRoots.Add(defaultSteam);
+
+            foreach (string root in steamRoots.ToArray())
+            {
+                string libraryFile = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+                if (!File.Exists(libraryFile)) continue;
+                string vdf = File.ReadAllText(libraryFile);
+                foreach (Match match in Regex.Matches(vdf, @"""path""\s*""([^""]+)""", RegexOptions.IgnoreCase))
+                {
+                    string library = match.Groups[1].Value.Replace(@"\\", @"\");
+                    if (Directory.Exists(library)) steamRoots.Add(library);
+                }
+            }
+
+            foreach (string root in steamRoots)
+            {
+                string apps = Path.Combine(root, "steamapps");
+                if (!Directory.Exists(apps)) continue;
+                foreach (string manifest in Directory.EnumerateFiles(apps, "appmanifest_*.acf", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        string data = File.ReadAllText(manifest);
+                        string title = Regex.Match(data, @"""name""\s*""([^""]+)""", RegexOptions.IgnoreCase).Groups[1].Value;
+                        string installDir = Regex.Match(data, @"""installdir""\s*""([^""]+)""", RegexOptions.IgnoreCase).Groups[1].Value;
+                        string appId = Regex.Match(Path.GetFileName(manifest), @"appmanifest_(\d+)\.acf", RegexOptions.IgnoreCase).Groups[1].Value;
+                        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(installDir) || string.IsNullOrWhiteSpace(appId)) continue;
+                        string location = Path.GetFullPath(Path.Combine(apps, "common", installDir));
+                        if (Directory.Exists(location))
+                            Add(new InstalledGameEntry(title, "Steam", location, appId, null, true));
+                    }
+                    catch { /* Skip unreadable or malformed manifests. */ }
+                }
+            }
+        }
+        catch { /* Steam is optional. */ }
+
+        try
+        {
+            string manifests = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Epic", "EpicGamesLauncher", "Data", "Manifests");
+            if (Directory.Exists(manifests))
+            {
+                foreach (string manifest in Directory.EnumerateFiles(manifests, "*.item", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(manifest));
+                        JsonElement root = doc.RootElement;
+                        string title = ReadManifestString(root, "DisplayName");
+                        string location = ReadManifestString(root, "InstallLocation");
+                        string appId = ReadManifestString(root, "AppName");
+                        string launchExe = ReadManifestString(root, "LaunchExecutable");
+                        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(location)) continue;
+                        location = Path.GetFullPath(location);
+                        if (!Directory.Exists(location)) continue;
+                        string? executable = null;
+                        if (!string.IsNullOrWhiteSpace(launchExe))
+                        {
+                            string candidate = Path.GetFullPath(Path.Combine(location, launchExe));
+                            string prefix = location.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                            if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+                                executable = candidate;
+                        }
+                        Add(new InstalledGameEntry(title, "Epic Games", location,
+                            string.IsNullOrWhiteSpace(appId) ? Path.GetFileNameWithoutExtension(manifest) : appId,
+                            executable, true));
+                    }
+                    catch { /* Skip unreadable or malformed manifests. */ }
+                }
+            }
+        }
+        catch { /* Epic Games is optional. */ }
+
+        return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private static string ReadManifestString(JsonElement root, string propertyName)
+    {
+        return root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty(propertyName, out JsonElement value)
+            && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+    }
+
+    /// <summary>
     /// Detects currently running game processes and maps their active external TCP/UDP socket endpoints
     /// without injecting into game processes or reading process memory.
     /// </summary>
