@@ -223,6 +223,7 @@ public class MainViewModel : INotifyPropertyChanged
     // Debloat properties
     private bool _confirmCleanerDeletion;
     private string _debloatSummaryText = "Simule (Dry-Run) antes de executar qualquer exclusão.";
+    private bool _isCleanerBusy;
 
     // Network Lab properties
     private string _networkSummaryText = "Clique em Executar Diagnóstico para medir ICMP, TCP e DNS.";
@@ -527,6 +528,8 @@ public class MainViewModel : INotifyPropertyChanged
         get => _confirmCleanerDeletion;
         set { _confirmCleanerDeletion = value; OnPropertyChanged(); }
     }
+
+    public bool CanRunCleanerOperation => !_isCleanerBusy;
 
     public string DebloatSummaryText
     {
@@ -1092,33 +1095,60 @@ public class MainViewModel : INotifyPropertyChanged
                 : $"Falha ao restaurar item '{targetId}': {report.ErrorMessage}";
         });
 
-        SimulateDryRunCommand = new RelayCommand(param =>
+        SimulateDryRunCommand = new RelayCommand(async param =>
         {
+            if (_isCleanerBusy) return;
+
             var targets = param is CleanerCategoryViewModel single
                 ? new[] { single }
                 : CleanerCategories.ToArray();
 
-            long totalEstimated = 0;
-            int totalFiles = 0;
-            foreach (var cat in targets)
+            _isCleanerBusy = true;
+            OnPropertyChanged(nameof(CanRunCleanerOperation));
+            CommandManager.InvalidateRequerySuggested();
+            DebloatSummaryText = "Analisando os diretórios autorizados em segundo plano...";
+
+            try
             {
-                var dryRun = DiskCleanerEngine.SimulateCategoryDryRun(cat.CategoryKey);
-                totalEstimated += dryRun.EstimatedBytes;
-                totalFiles += dryRun.CandidateFilesCount;
-                double mb = dryRun.EstimatedBytes / (1024.0 * 1024.0);
-                cat.ScannedFilesCount = dryRun.CandidateFilesCount;
-                cat.EstimatedBytesFormatted = $"{mb:F2} MB";
-                cat.DryRunEstimateText = $"Estimativa: {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos; {dryRun.SkippedSymlinksCount} links ignorados)";
-                cat.LastOperationStatus = dryRun.Success ? "Simulação concluída" : "Falha na simulação";
-                if (!dryRun.Success && dryRun.Errors is { Count: > 0 })
-                    cat.LastOperationStatus += $": {dryRun.Errors[0]}";
+                var results = await Task.Run(() => targets
+                    .Select(cat => (Category: cat, Report: DiskCleanerEngine.SimulateCategoryDryRun(cat.CategoryKey)))
+                    .ToList());
+
+                long totalEstimated = 0;
+                int totalFiles = 0;
+                foreach (var result in results)
+                {
+                    var cat = result.Category;
+                    var dryRun = result.Report;
+                    totalEstimated += dryRun.EstimatedBytes;
+                    totalFiles += dryRun.CandidateFilesCount;
+                    double mb = dryRun.EstimatedBytes / (1024.0 * 1024.0);
+                    cat.ScannedFilesCount = dryRun.CandidateFilesCount;
+                    cat.EstimatedBytesFormatted = $"{mb:F2} MB";
+                    cat.DryRunEstimateText = $"Estimativa: {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos; {dryRun.SkippedSymlinksCount} links ignorados)";
+                    cat.LastOperationStatus = dryRun.Success ? "Simulação concluída" : "Falha na simulação";
+                    if (!dryRun.Success && dryRun.Errors is { Count: > 0 })
+                        cat.LastOperationStatus += $": {dryRun.Errors[0]}";
+                }
+
+                DebloatSummaryText = $"Simulação concluída — SOMENTE ESTIMATIVA: {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos. Nenhum arquivo foi excluído.";
             }
+            catch (Exception ex)
+            {
+                DebloatSummaryText = $"Falha ao analisar os diretórios autorizados: {ex.Message}";
+            }
+            finally
+            {
+                _isCleanerBusy = false;
+                OnPropertyChanged(nameof(CanRunCleanerOperation));
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }, _ => CanRunCleanerOperation);
 
-            DebloatSummaryText = $"Simulação concluída — SOMENTE ESTIMATIVA: {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos. Nenhum arquivo foi excluído.";
-        });
-
-        PurgeCategoryCommand = new RelayCommand(param =>
+        PurgeCategoryCommand = new RelayCommand(async param =>
         {
+            if (_isCleanerBusy) return;
+
             if (!ConfirmCleanerDeletion)
             {
                 DebloatSummaryText = Loc.CurrentCulture == "pt-BR"
@@ -1127,9 +1157,17 @@ public class MainViewModel : INotifyPropertyChanged
                 return;
             }
 
-            if (param is CleanerCategoryViewModel cat)
+            if (param is not CleanerCategoryViewModel cat) return;
+
+            _isCleanerBusy = true;
+            OnPropertyChanged(nameof(CanRunCleanerOperation));
+            CommandManager.InvalidateRequerySuggested();
+            DebloatSummaryText = $"Executando limpeza autorizada em '{cat.CategoryKey}' em segundo plano...";
+
+            try
             {
-                var report = DiskCleanerEngine.PurgeCategoryWithReport(cat.CategoryKey, confirmServiceStop: ConfirmCleanerDeletion);
+                var report = await Task.Run(() =>
+                    DiskCleanerEngine.PurgeCategoryWithReport(cat.CategoryKey, confirmServiceStop: ConfirmCleanerDeletion));
                 double freedMb = report.FreedBytes / (1024.0 * 1024.0);
                 cat.RealFreedText = $"Liberado real: {freedMb:F2} MB ({report.DeletedFilesCount} arquivos removidos; {report.SkippedLockedCount} em uso; {report.SkippedSymlinksCount} links preservados)";
                 cat.LastOperationStatus = report.Status switch
@@ -1143,18 +1181,11 @@ public class MainViewModel : INotifyPropertyChanged
 
                 CleanerAffectedFilesLog.Clear();
                 foreach (var logLine in report.AffectedItemsLog)
-                {
                     CleanerAffectedFilesLog.Add(logLine);
-                }
                 foreach (var error in report.Errors)
-                {
                     CleanerAffectedFilesLog.Add($"[ERRO] {error}");
-                }
-
                 foreach (var warning in report.Warnings ?? Array.Empty<string>())
-                {
                     CleanerAffectedFilesLog.Add($"[AVISO] {warning}");
-                }
 
                 DebloatSummaryText = report.Status switch
                 {
@@ -1165,7 +1196,21 @@ public class MainViewModel : INotifyPropertyChanged
                     _ => $"Falha na limpeza de '{cat.CategoryKey}': nenhum resultado completo foi confirmado. {report.Errors.FirstOrDefault() ?? "Verifique permissões e se os arquivos estão em uso."}"
                 };
             }
-        });
+            catch (Exception ex)
+            {
+                cat.LastOperationStatus = "Falha na limpeza";
+                cat.RealFreedText = "Nenhum resultado confirmado.";
+                DebloatSummaryText = $"Falha ao limpar '{cat.CategoryKey}': {ex.Message}";
+                CleanerAffectedFilesLog.Clear();
+                CleanerAffectedFilesLog.Add($"[ERRO] {ex.Message}");
+            }
+            finally
+            {
+                _isCleanerBusy = false;
+                OnPropertyChanged(nameof(CanRunCleanerOperation));
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }, _ => CanRunCleanerOperation);
 
         RunNetworkDiagCommand = new RelayCommand(async _ =>
         {
