@@ -1017,6 +1017,38 @@ public static class RegistryOptimizer
         return RestoreCatalogTweak(def.TweakId, originalSerializedValue, originalValueKindStr, wasInitiallyAbsent, keyCreatedByApp);
     }
 
+    private static (bool isValid, RegistryValueKind parsedKind, string? errorMessage) ValidateTrustedRestoreState(
+        string? originalSerializedValue,
+        string? originalValueKindStr,
+        bool wasInitiallyAbsent)
+    {
+        if (wasInitiallyAbsent)
+        {
+            if (originalSerializedValue != null)
+                return (false, RegistryValueKind.Unknown, "LEDGER_STATE_INVALID: valor original deveria estar ausente.");
+            return (true, RegistryValueKind.Unknown, null);
+        }
+
+        if (originalSerializedValue == null)
+            return (false, RegistryValueKind.Unknown, "LEDGER_STATE_INVALID: valor original autenticado está ausente.");
+
+        if (!Enum.TryParse<RegistryValueKind>(originalValueKindStr, true, out var kind) ||
+            !Enum.IsDefined(typeof(RegistryValueKind), kind) ||
+            kind == RegistryValueKind.Unknown)
+            return (false, RegistryValueKind.Unknown, "LEDGER_KIND_INVALID: tipo original do Registro inválido.");
+
+        try
+        {
+            _ = DeserializeValue(originalSerializedValue, kind);
+        }
+        catch (Exception ex)
+        {
+            return (false, RegistryValueKind.Unknown, $"LEDGER_VALUE_INVALID: valor original não pode ser desserializado: {ex.Message}");
+        }
+
+        return (true, kind, null);
+    }
+
     private static RegistryOperationResult ValidateAndExecuteRestore(
         TweakDefinition def,
         string? originalSerializedValue,
@@ -1025,7 +1057,9 @@ public static class RegistryOptimizer
         bool keyCreatedByApp,
         string? operationId = null)
     {
-        var check = ValidateRestoreParametersAgainstCatalog(def, originalSerializedValue, originalValueKindStr, wasInitiallyAbsent);
+        // This method is reached only with state resolved from the authenticated backend ledger.
+        // Restore the exact original value/type; AllowedValues applies to new writes, not recovery.
+        var check = ValidateTrustedRestoreState(originalSerializedValue, originalValueKindStr, wasInitiallyAbsent);
         if (!check.isValid)
         {
             RecordAudit("RESTORE_VALIDATION_FAILED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
