@@ -153,8 +153,8 @@ public static class RegistryOptimizer
             @"System\GameConfigStore",
             "GameDVR_Enabled", RegistryValueKind.DWord,
             "0", "1", new[] { "0", "1" },
-            "Desativa gravação contínua em segundo plano do Xbox Game DVR.",
-            "Disables continuous background recording by Xbox Game DVR.",
+            "Desativa a captura/gravação em segundo plano do Xbox Game DVR. Pode afetar clipes e capturas automáticas; não garante aumento de FPS.",
+            "Disables Xbox Game DVR background capture/recording. Automatic clips and captures may be affected; no FPS gain is guaranteed.",
             "Performance", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["perf-hpet"] = new(
@@ -270,27 +270,27 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
             "HwSchMode", RegistryValueKind.DWord,
             "2", "1", new[] { "1", "2" },
-            "Habilita agendamento de GPU acelerado por hardware (HAGS).",
-            "Enables Hardware-Accelerated GPU Scheduling (HAGS).",
-            "Gaming", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
+            "Solicita o uso do HAGS. Compatibilidade e desempenho variam conforme GPU, driver e Windows; pode exigir reinicialização e não garante mais FPS.",
+            "Requests HAGS. Compatibility and performance vary by GPU, driver, and Windows; a restart may be required and higher FPS is not guaranteed.",
+            "Gaming", "Médio", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["game-fso-override"] = new(
             "game-fso-override", "HKCU",
             @"System\GameConfigStore",
             "GameDVR_FSEBehaviorMode", RegistryValueKind.DWord,
             "2", "0", new[] { "0", "2" },
-            "Otimiza apresentação Flip Model em tela cheia para DX11/DX12.",
-            "Optimizes fullscreen Flip Model presentation for DX11/DX12.",
-            "Gaming", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
+            "Altera GameDVR_FSEBehaviorMode, uma configuração de comportamento de tela cheia do Windows. O efeito depende do jogo e da versão do sistema; não garante menor latência ou mais FPS.",
+            "Changes GameDVR_FSEBehaviorMode, a Windows fullscreen behavior setting. Effects depend on the game and OS version; lower latency or higher FPS is not guaranteed.",
+            "Gaming", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-fso-flags"] = new(
             "perf-fso-flags", "HKCU",
             @"System\GameConfigStore",
             "GameDVR_FSEBehavior", RegistryValueKind.DWord,
             "2", "0", new[] { "0", "2" },
-            "Define flags de comportamento Fullscreen Optimizations (GameDVR_FSEBehavior).",
-            "Configures Fullscreen Optimizations behavior flags (GameDVR_FSEBehavior).",
-            "Gaming", "Baixo", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
+            "Altera GameDVR_FSEBehavior, uma flag de comportamento de tela cheia cuja interpretação pode variar entre versões do Windows. Sem garantia de ganho; restaurar se houver problemas de exibição ou compatibilidade.",
+            "Changes GameDVR_FSEBehavior, a fullscreen behavior flag whose interpretation may vary across Windows versions. No performance gain is guaranteed; restore if display or compatibility issues occur.",
+            "Gaming", "Médio", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
         ),
         ["sys-delivery-p2p"] = new(
             "sys-delivery-p2p", "HKLM",
