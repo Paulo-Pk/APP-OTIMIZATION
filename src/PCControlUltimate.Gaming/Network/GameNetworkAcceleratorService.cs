@@ -334,30 +334,30 @@ public static class GameNetworkAcceleratorService
         // Additional launchers expose installed-game locations through their own registry catalogs.
         // These are bounded lookups; no disk-wide executable scan is performed.
         AddRegistryGameCatalog(games, RegistryHive.CurrentUser, RegistryView.Registry32,
-            @"Software\\GOG.com\\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
             new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
         AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
-            @"Software\\GOG.com\\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
             new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
         AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
-            @"Software\\GOG.com\\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
             new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
 
         AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
-            @"Software\\Ubisoft\\Launcher\\Installs", "Ubisoft Connect",
+            @"Software\Ubisoft\Launcher\Installs", "Ubisoft Connect",
             new[] { "InstallDir", "InstallLocation", "InstallPath" },
             new[] { "DisplayName", "GameName", "name" }, new[] { "Exe", "Executable" });
         AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
-            @"Software\\Ubisoft\\Launcher\\Installs", "Ubisoft Connect",
+            @"Software\Ubisoft\Launcher\Installs", "Ubisoft Connect",
             new[] { "InstallDir", "InstallLocation", "InstallPath" },
             new[] { "DisplayName", "GameName", "name" }, new[] { "Exe", "Executable" });
 
         AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
-            @"Software\\EA Games", "EA app",
+            @"Software\EA Games", "EA app",
             new[] { "Install Dir", "InstallDir", "InstallLocation" },
             new[] { "DisplayName", "GameName", "ProductName" }, new[] { "Executable", "Exe" });
         AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
-            @"Software\\EA Games", "EA app",
+            @"Software\EA Games", "EA app",
             new[] { "Install Dir", "InstallDir", "InstallLocation" },
             new[] { "DisplayName", "GameName", "ProductName" }, new[] { "Executable", "Exe" });
 
