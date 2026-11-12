@@ -22,6 +22,8 @@ public class RegistryOptimizerTests : IDisposable
         _testLedgerDirectory = Path.Combine(Path.GetTempPath(), $"pccontrol-registry-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_testLedgerDirectory);
         RegistryStateLedger.LedgerFilePath = Path.Combine(_testLedgerDirectory, "test-ledger.dpapi");
+        RegistryStateLedger.ProtectedTokenWriter = PCControlUltimate.Security.IntegrityVerifier.SaveProtectedSessionTokenWithReport;
+        RegistryStateLedger.ProtectedTokenReader = PCControlUltimate.Security.IntegrityVerifier.ReadProtectedSessionToken;
         RegistryOptimizer.RegistryBackend = _fakeRegistry;
         RegistryStateLedger.ClearLedgerForTesting();
     }
@@ -30,6 +32,8 @@ public class RegistryOptimizerTests : IDisposable
     {
         RegistryStateLedger.ClearLedgerForTesting();
         RegistryOptimizer.RegistryBackend = new WindowsRegistryBackend();
+        RegistryStateLedger.ProtectedTokenWriter = PCControlUltimate.Security.IntegrityVerifier.SaveProtectedSessionTokenWithReport;
+        RegistryStateLedger.ProtectedTokenReader = PCControlUltimate.Security.IntegrityVerifier.ReadProtectedSessionToken;
         try
         {
             if (Directory.Exists(_testLedgerDirectory))
@@ -543,6 +547,26 @@ public class RegistryOptimizerTests : IDisposable
         Assert.NotNull(resolved.Entry);
         Assert.Equal("custom-original-value", resolved.Entry!.OriginalRawValue);
         Assert.Equal(nameof(RegistryValueKind.String), resolved.Entry.OriginalValueKind);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_FailedAtomicSave_PreservesPreviousVerifiedLedger()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var first = RegistryStateLedger.RecordAppliedTweakState(def, "1", RegistryValueKind.DWord, false, false, "0");
+        RegistryStateLedger.ProtectedTokenWriter = (path, json) =>
+            new PCControlUltimate.Security.TokenProtectionResult(false, false, false, "simulated protected-write failure");
+
+        var ex = Assert.Throws<IOException>(() =>
+            RegistryStateLedger.RecordAppliedTweakState(def, "0", RegistryValueKind.DWord, false, false, "1"));
+
+        Assert.Contains("simulated protected-write failure", ex.Message);
+        var preserved = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.Equal(first.OperationId, preserved.OperationId);
+        Assert.Equal("1", preserved.OriginalRawValue);
+        Assert.False(preserved.IsRestored);
+        Assert.Empty(Directory.GetFiles(_testLedgerDirectory, "*.tmp"));
+        Assert.Empty(Directory.GetFiles(_testLedgerDirectory, "*.bak"));
     }
 
     [Fact]
