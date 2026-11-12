@@ -357,8 +357,18 @@
                             <ProgressBar Style="{StaticResource TelemetryProgressBar}" Value="{Binding GpuLoadPercent}" Foreground="#06B6D4" Margin="0,0,0,12"/>
                             <Border BorderBrush="#161B28" BorderThickness="0,1,0,0" Padding="0,8,0,0">
                                 <Grid>
-                                    <TextBlock Text="{Binding GpuTemp}" FontSize="11" Foreground="#94A3B8" FontFamily="Consolas"/>
-                                    <TextBlock Text="{Binding GpuHotspot}" HorizontalAlignment="Right" FontSize="11" Foreground="#F59E0B" FontFamily="Consolas"/>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="GPU — temperatura principal" FontSize="9" Foreground="#64748B"/>
+                                        <TextBlock Text="{Binding GpuTemp}" FontSize="11" Foreground="#94A3B8" FontFamily="Consolas"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                        <TextBlock Text="GPU — ponto mais quente" FontSize="9" Foreground="#64748B" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="{Binding GpuHotspot}" FontSize="11" Foreground="#F59E0B" FontFamily="Consolas"/>
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </StackPanel>
@@ -773,11 +783,11 @@
                     <Grid>
                         <StackPanel>
                             <TextBlock Text="DIAGNÓSTICO TÉRMICO MULTI-VENDOR (AMD / NVIDIA / INTEL)" FontSize="10" FontWeight="Bold" Foreground="#F59E0B" Margin="0,0,0,4"/>
-                            <TextBlock Text="GPU Health Lab — Auditoria Core vs Hotspot (ΔT)" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Temperatura e refrigeração da placa de vídeo" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="{Binding GpuModel}" FontSize="13" FontWeight="SemiBold" Foreground="#C084FC" Margin="0,4,0,0"/>
                         </StackPanel>
                         <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionPrimaryButton}" Command="{Binding RefreshStatusCommand}">
-                            <TextBlock Text="Reavaliar Saúde Térmica da GPU"/>
+                            <TextBlock Text="Verificar temperaturas novamente"/>
                         </Button>
                     </Grid>
                 </Border>
@@ -785,37 +795,37 @@
                 <UniformGrid Columns="4" Margin="0,0,0,18">
                     <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,8,0">
                         <StackPanel>
-                            <TextBlock Text="TEMPERATURA CORE (EDGE)" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="TEMPERATURA PRINCIPAL DA GPU" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding GpuTemp}" FontSize="24" FontWeight="Bold" Foreground="#10B981" FontFamily="Consolas" Margin="0,6,0,2"/>
-                            <TextBlock Text="Sensor principal do die" FontSize="11" Foreground="#64748B"/>
+                            <TextBlock Text="Temperatura geral informada pela placa de vídeo" FontSize="11" Foreground="#64748B"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="TEMPERATURA HOTSPOT (JUNCTION)" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="PONTO MAIS QUENTE DA GPU" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding GpuHotspot}" FontSize="24" FontWeight="Bold" Foreground="#F59E0B" FontFamily="Consolas" Margin="0,6,0,2"/>
-                            <TextBlock Text="Ponto mais quente reportado" FontSize="11" Foreground="#64748B"/>
+                            <TextBlock Text="Maior temperatura registrada dentro do chip" FontSize="11" Foreground="#64748B"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="DIFERENCIAL TÉRMICO (ΔT)" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="DIFERENÇA ENTRE AS TEMPERATURAS" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding GpuHotspotDeltaText}" FontSize="24" FontWeight="Bold" Foreground="#C084FC" FontFamily="Consolas" Margin="0,6,0,2"/>
-                            <TextBlock Text="Ideal &lt; 15°C · Alerta &gt; 25°C" FontSize="11" Foreground="#64748B"/>
+                            <TextBlock Text="Mostra quanto o ponto mais quente está acima da temperatura principal" FontSize="11" Foreground="#64748B"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource CardBorderStyle}" Margin="8,0,0,0">
                         <StackPanel>
-                            <TextBlock Text="ROTAÇÃO DO COOLER &amp; ENERGIA" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="VENTOINHA E CONSUMO DE ENERGIA" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding GpuFanRpm}" FontSize="22" FontWeight="Bold" Foreground="#06B6D4" FontFamily="Consolas" Margin="0,6,0,2"/>
-                            <TextBlock Text="{Binding GpuPower, StringFormat=Board Power: {0}}" FontSize="11" Foreground="#64748B" FontFamily="Consolas"/>
+                            <TextBlock Text="{Binding GpuPower, StringFormat=Consumo da placa: {0}}" FontSize="11" Foreground="#64748B" FontFamily="Consolas"/>
                         </StackPanel>
                     </Border>
                 </UniformGrid>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Laudo Técnico de Integridade Térmica (GpuThermalAuditor)" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <TextBlock Text="Resultado da verificação de temperatura" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
                         <Border Style="{StaticResource SubtleInnerCardStyle}" Margin="0,0,0,12">
                             <TextBlock Text="{Binding GpuThermalDiagnosisText}" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0" TextWrapping="Wrap"/>
                         </Border>
@@ -952,8 +962,8 @@
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
-                            <TextBlock Text="AUDITORIA DE INTEGRIDADE &amp; MATRIZ DOS 17 MÓDULOS" FontSize="10" FontWeight="Bold" Foreground="#10B981" Margin="0,0,0,4"/>
-                            <TextBlock Text="PC Diagnostics — System Doctor &amp; Integridade" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="VERIFICAÇÃO DO COMPUTADOR" FontSize="10" FontWeight="Bold" Foreground="#10B981" Margin="0,0,0,4"/>
+                            <TextBlock Text="Diagnóstico do computador" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="{Binding SecurityPostureText}" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
                         <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionPrimaryButton}" Command="{Binding RefreshStatusCommand}">
@@ -1235,21 +1245,21 @@
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
-                            <TextBlock Text="CADÊNCIA DE EVENTOS WIN32 &amp; REFRESH RATE NATIVO" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
-                            <TextBlock Text="Periféricos — Tela e Temporização" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="INFORMAÇÕES DA TELA, MOUSE E TECLADO" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
+                            <TextBlock Text="Tela, mouse e teclado" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="{Binding DisplayInfoText}" FontSize="12" Foreground="#10B981" Margin="0,4,0,0"/>
                         </StackPanel>
                         <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionPrimaryButton}" Command="{Binding MeasureInputCadenceCommand}">
-                            <TextBlock Text="Verificar timer do Windows"/>
+                            <TextBlock Text="Atualizar informações da tela"/>
                         </Button>
                     </Grid>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Informações da tela e do timer" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                        <TextBlock Text="O que este módulo verifica" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
                         <Border Style="{StaticResource SubtleInnerCardStyle}">
-                            <TextBlock Text="{Binding PeripheralCadenceSummary}" FontSize="13.5" FontWeight="SemiBold" Foreground="#E2E8F0" FontFamily="Consolas" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding PeripheralCadenceSummary}" FontSize="13.5" FontWeight="SemiBold" Foreground="#E2E8F0" TextWrapping="Wrap"/>
                         </Border>
                     </StackPanel>
                 </Border>
