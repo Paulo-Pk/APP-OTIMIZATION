@@ -82,10 +82,16 @@ public static class RegistryStateLedger
     {
         try
         {
-            string? existing = IntegrityVerifier.ReadProtectedSessionToken(LedgerKeyFilePath);
-            if (!string.IsNullOrWhiteSpace(existing) && existing.Length >= 32)
+            // Never rotate an existing but unreadable key: doing so would permanently orphan
+            // the authenticated recovery history. Create a key only on first use.
+            if (File.Exists(LedgerKeyFilePath))
             {
-                return existing;
+                string? existing = IntegrityVerifier.ReadProtectedSessionToken(LedgerKeyFilePath);
+                if (!string.IsNullOrWhiteSpace(existing) && existing.Length >= 32)
+                    return existing;
+
+                throw new CryptographicException(
+                    "A chave DPAPI existente do Ledger não pôde ser lida ou é inválida. A chave não será substituída para preservar o histórico.");
             }
 
             byte[] keyBytes = new byte[32];
