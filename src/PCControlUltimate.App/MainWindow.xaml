@@ -1489,8 +1489,7 @@
                     <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding SelectTabCommand}" CommandParameter="diagnostics" Padding="12,5" Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="SAÚDE: " FontSize="10" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding OverallHealthScore}" FontSize="12.5" FontWeight="Bold" Foreground="#10B981" FontFamily="Consolas" VerticalAlignment="Center"/>
-                            <TextBlock Text="/100" FontSize="10" Foreground="#64748B" FontFamily="Consolas" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding OverallHealthScore}" FontSize="12.5" FontWeight="Bold" Foreground="#F59E0B" FontFamily="Consolas" VerticalAlignment="Center" ToolTip="Pontuação geral indisponível: o aplicativo ainda não possui uma avaliação completa e verificável de todos os componentes."/>
                         </StackPanel>
                     </Button>
 
