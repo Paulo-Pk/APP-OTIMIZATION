@@ -644,7 +644,7 @@ public static class RegistryOptimizer
                 RecordAudit("APPLY_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                     previousSerialized, serializedTargetValue, null, false, err);
                 return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                    wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId);
+                    wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId, ErrorCode: "REGISTRY_READBACK_MISSING");
             }
 
             object? readBack = after.Value;
@@ -682,7 +682,7 @@ public static class RegistryOptimizer
             RecordAudit("APPLY_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, verifiedStr, false, mismatchErr);
             return new RegistryOperationResult(false, previousSerialized, verifiedStr,
-                previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr, def.TweakId);
+                previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr, def.TweakId, ErrorCode: "REGISTRY_READBACK_MISMATCH");
         }
         catch (SecurityException ex)
         {
@@ -1103,7 +1103,7 @@ public static class RegistryOptimizer
                     RecordAudit("RESTORE_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
                         currentBeforeRestore, "<DELETE>", null, false, err);
                     return new RegistryOperationResult(false, originalSerializedValue, null, "Deleted",
-                        true, keyCreatedByApp, err, def.TweakId, operationId);
+                        true, keyCreatedByApp, err, def.TweakId, operationId, "REGISTRY_READBACK_MISSING");
                 }
 
                 if (keyCreatedByApp)
@@ -1140,7 +1140,7 @@ public static class RegistryOptimizer
             RecordAudit("RESTORE_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
                 currentBeforeRestore, originalSerializedValue, verifiedStr, false, mismatchErr);
             return new RegistryOperationResult(false, currentBeforeRestore, verifiedStr,
-                originalKind.ToString(), false, false, mismatchErr, def.TweakId, operationId);
+                originalKind.ToString(), false, false, mismatchErr, def.TweakId, operationId, "REGISTRY_READBACK_MISMATCH");
         }
         catch (SecurityException ex)
         {
