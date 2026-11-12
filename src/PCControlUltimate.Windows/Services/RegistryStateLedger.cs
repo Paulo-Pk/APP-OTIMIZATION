@@ -376,7 +376,7 @@ public static class RegistryStateLedger
 
             var entry = ledger.Entries.FirstOrDefault(e =>
                 string.Equals(e.OperationId, operationId.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (entry == null) return false;
+            if (entry == null || entry.IsRestored) return false;
 
             entry.IsRestored = true;
             entry.RestoredAtUtc = DateTime.UtcNow.ToString("O");
