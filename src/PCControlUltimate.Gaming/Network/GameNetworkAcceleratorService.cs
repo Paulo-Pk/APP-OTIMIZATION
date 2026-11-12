@@ -1050,8 +1050,52 @@ public static class GameNetworkAcceleratorService
             );
         }
 
-        // Total relay RTT includes User->Relay RTT plus Relay->GameServer leg (if not directly measured from inside the tunnel, must be at least the ingress RTT)
-        double relayTotalRtt = Math.Round(relayIngressProbe.AverageRttMs.Value + Math.Max(0.0, estimatedRelayToGameLegMs ?? 0.0), 2);
+        if (!directRoute.IsReliable || !directRoute.AverageRttMs.HasValue)
+        {
+            var unreliableDirect = new RouteComparisonEvaluation(
+                GameIdentifier: gameIdentifier,
+                TargetServerHost: targetServerHost,
+                TargetServerPort: targetServerPort,
+                DirectRoute: directRoute,
+                BestRelayNodeId: candidateNode.NodeId,
+                BestRelayNodeName: candidateNode.DisplayName,
+                RelayIngressProbe: relayIngressProbe,
+                EstimatedTotalRelayRttMs: null,
+                RecommendedMode: "Direct",
+                ShouldUseRelay: false,
+                HonestVerdictPt: "MANTER ROTA DIRETA / NOVA MEDIÇÃO NECESSÁRIA: a rota direta não possui amostras confiáveis para servir de referência. Não é seguro afirmar que o relay melhora a conexão.",
+                HonestVerdictEn: "KEEP DIRECT / MEASUREMENT REQUIRED: the direct route has no reliable baseline samples. A relay improvement cannot be established safely.",
+                MeasuredAtUtc: nowIso
+            );
+            EnqueueEvaluation(unreliableDirect);
+            return unreliableDirect;
+        }
+
+        if (!estimatedRelayToGameLegMs.HasValue ||
+            !double.IsFinite(estimatedRelayToGameLegMs.Value) ||
+            estimatedRelayToGameLegMs.Value < 0)
+        {
+            var unmeasuredRelayLeg = new RouteComparisonEvaluation(
+                GameIdentifier: gameIdentifier,
+                TargetServerHost: targetServerHost,
+                TargetServerPort: targetServerPort,
+                DirectRoute: directRoute,
+                BestRelayNodeId: candidateNode.NodeId,
+                BestRelayNodeName: candidateNode.DisplayName,
+                RelayIngressProbe: relayIngressProbe,
+                EstimatedTotalRelayRttMs: null,
+                RecommendedMode: "Direct",
+                ShouldUseRelay: false,
+                HonestVerdictPt: "MANTER ROTA DIRETA: foi medida apenas a latência entre o PC e o relay. A latência do relay até o servidor do jogo não foi medida; sem esse segundo trecho, não é possível calcular nem recomendar a rota completa.",
+                HonestVerdictEn: "KEEP DIRECT: only the PC-to-relay leg was measured. The relay-to-game-server leg is unknown, so the complete route cannot be calculated or recommended.",
+                MeasuredAtUtc: nowIso
+            );
+            EnqueueEvaluation(unmeasuredRelayLeg);
+            return unmeasuredRelayLeg;
+        }
+
+        // Total RTT is only evaluated when the relay-to-game-server leg was supplied as a measured estimate.
+        double relayTotalRtt = Math.Round(relayIngressProbe.AverageRttMs.Value + estimatedRelayToGameLegMs.Value, 2);
         double directRtt = directRoute.AverageRttMs ?? 9999.0;
         double directJitter = directRoute.JitterMs ?? 999.0;
         double relayJitter = relayIngressProbe.JitterMs ?? 999.0;
