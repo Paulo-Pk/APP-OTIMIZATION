@@ -633,7 +633,10 @@ public class MainViewModel : INotifyPropertyChanged
         {
             "Ativo" => isPortuguese ? "Ativo — leitura confirmada" : "Active — read-back confirmed",
             "Inativo" => isPortuguese ? "Padrão/inativo — leitura confirmada" : "Default/inactive — read-back confirmed",
-            "Parcial" => isPortuguese ? "Personalizado — diferente do recomendado" : "Custom — differs from recommendation",
+            "Personalizado" or "Parcial" => isPortuguese ? "Personalizado — diferente do recomendado" : "Custom — differs from recommendation",
+            "Chave Ausente" or "Valor Ausente" => isPortuguese ? "Valor ausente no Registro" : "Registry value is missing",
+            "Acesso Negado" => isPortuguese ? "Acesso negado — requer permissão" : "Access denied — permission required",
+            "Não Disponível Neste Sistema" => isPortuguese ? "Consulta disponível somente no Windows" : "Inspection is available on Windows only",
             _ => isPortuguese ? "Não foi possível consultar" : "Unable to inspect"
         };
     }
