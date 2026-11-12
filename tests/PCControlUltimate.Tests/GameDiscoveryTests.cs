@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using PCControlUltimate.Gaming.Network;
@@ -298,6 +299,65 @@ public sealed class GameDiscoveryTests : IDisposable
                 if (Directory.Exists(epicRoot) && !Directory.EnumerateFileSystemEntries(epicRoot).Any()) Directory.Delete(epicRoot);
             }
             catch { }
+        }
+    }
+
+    [Fact]
+    public void TryReadMicrosoftGameConfig_IdentifiesGameAndRejectsExecutableOutsidePackage()
+    {
+        string testRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-xbox-test-{Guid.NewGuid():N}");
+        string installRoot = Path.Combine(testRoot, "Package");
+        string executablePath = Path.Combine(installRoot, "Game", "Game.exe");
+        string outsideExecutable = Path.Combine(testRoot, "outside.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(executablePath)!);
+        File.WriteAllText(executablePath, "test");
+        File.WriteAllText(outsideExecutable, "test");
+
+        MethodInfo parser = typeof(GameNetworkAcceleratorService).GetMethod(
+            "TryReadMicrosoftGameConfig", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        try
+        {
+            Directory.CreateDirectory(installRoot);
+            File.WriteAllText(Path.Combine(installRoot, "MicrosoftGame.config"),
+                """
+                <Game configVersion="1">
+                  <Identity Name="Publisher.TestGame" Publisher="CN=Test" Version="1.0.0.0" />
+                  <ExecutableList>
+                    <Executable Name="Game\\Game.exe" Id="Game" />
+                  </ExecutableList>
+                  <ShellVisuals DefaultDisplayName="PC Control Xbox Test" />
+                </Game>
+                """);
+
+            object?[] arguments = { installRoot, "Package_TestGame", null };
+            Assert.True((bool)parser.Invoke(null, arguments)!);
+            var game = Assert.IsType<InstalledGameEntry>(arguments[2]);
+            Assert.Equal("PC Control Xbox Test", game.Title);
+            Assert.Equal("Publisher.TestGame", game.AppId);
+            Assert.Equal("Xbox / Microsoft Store", game.Launcher);
+            Assert.Equal(Path.GetFullPath(executablePath), game.ExecutablePath);
+            Assert.True(game.IsInstalled);
+
+            File.WriteAllText(Path.Combine(installRoot, "MicrosoftGame.config"),
+                """
+                <Game configVersion="1">
+                  <Identity Name="Publisher.TestGame" />
+                  <ExecutableList>
+                    <Executable Name="../outside.exe" Id="Game" />
+                  </ExecutableList>
+                  <ShellVisuals DefaultDisplayName="PC Control Xbox Test" />
+                </Game>
+                """);
+
+            object?[] traversalArguments = { installRoot, "Package_TestGame", null };
+            Assert.True((bool)parser.Invoke(null, traversalArguments)!);
+            var traversalGame = Assert.IsType<InstalledGameEntry>(traversalArguments[2]);
+            Assert.Null(traversalGame.ExecutablePath);
+        }
+        finally
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
         }
     }
 
