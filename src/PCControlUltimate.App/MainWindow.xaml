@@ -670,6 +670,28 @@
                     </Grid>
                 </Border>
 
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock Text="BIBLIOTECA DETECTADA AUTOMATICAMENTE" FontSize="10" FontWeight="Bold" Foreground="#C084FC"/>
+                                <TextBlock Text="Jogos Instalados (Steam e Epic Games)" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,3,0,0"/>
+                                <TextBlock Text="Leitura dos manifestos dos launchers; não varre o disco inteiro nem inicia jogos." FontSize="11" Foreground="#94A3B8" Margin="0,3,0,0"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding InstalledGames.Count, StringFormat=Jogos encontrados: {0}}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#A78BFA" FontSize="11" FontWeight="SemiBold"/>
+                        </Grid>
+                        <DataGrid ItemsSource="{Binding InstalledGames}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="220">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Jogo" Binding="{Binding Title}" Width="2*"/>
+                                <DataGridTextColumn Header="Launcher" Binding="{Binding Launcher}" Width="120"/>
+                                <DataGridTextColumn Header="ID" Binding="{Binding AppId}" Width="150"/>
+                                <DataGridTextColumn Header="Pasta de instalação" Binding="{Binding InstallLocation}" Width="3*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <TextBlock Text="A biblioteca identifica jogos instalados. As conexões do servidor só aparecem quando o jogo está aberto e possui sockets ativos." FontSize="10.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="3*"/>
