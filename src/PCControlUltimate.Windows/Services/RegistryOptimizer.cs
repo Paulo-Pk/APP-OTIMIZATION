@@ -1160,8 +1160,9 @@ public static class RegistryOptimizer
                 ? SerializeRegistryValue(before.Value, before.Kind)
                 : null;
 
-            // A ledger restore must not overwrite a value changed manually after the app's write.
-            // Snapshot restoration is an explicit recovery action and does not supply this guard.
+            // Trusted ledger restores and transactional snapshot rollbacks must not overwrite
+            // values changed externally after the expected applied state was recorded. Ordinary
+            // user-selected snapshot restores intentionally omit this guard.
             bool stillHasAppliedValue = false;
             bool alreadyHasOriginalValue = false;
             if (enforceExpectedCurrentState)
