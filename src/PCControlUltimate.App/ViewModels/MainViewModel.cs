@@ -325,13 +325,18 @@ public class TweakItemViewModel : INotifyPropertyChanged
                 StateBadgeText = isPt ? "ACESSO NEGADO" : "ACCESS DENIED";
                 break;
 
+            case TweakInspectionState.ReadError:
+                StateColorHex = "#F43F5E";
+                StateBackgroundHex = "#2C1219";
+                StateBadgeText = isPt ? "ERRO DE LEITURA" : "READ ERROR";
+                break;
+
             case TweakInspectionState.WrongType:
             case TweakInspectionState.Incompatible:
-            case TweakInspectionState.ReadError:
             default:
-                StateColorHex = "#F43F5E"; // Rose red: unverifiable / wrong type / read error
+                StateColorHex = "#F43F5E"; // Rose red: unverifiable state (wrong type / incompatible)
                 StateBackgroundHex = "#2C1219";
-                StateBadgeText = isPt ? "NÃO VERIFICÁVEL" : "UNVERIFIABLE";
+                StateBadgeText = isPt ? "ESTADO NÃO VERIFICÁVEL" : "UNVERIFIABLE STATE";
                 break;
         }
 
@@ -1121,8 +1126,8 @@ public class MainViewModel : INotifyPropertyChanged
                 RefreshAuditLogs();
 
                 bool isAccessDenied = postReport.State == TweakInspectionState.AccessDenied;
-                bool isUnverifiable = postReport.State is TweakInspectionState.ReadError
-                    or TweakInspectionState.Incompatible
+                bool isReadError = postReport.State == TweakInspectionState.ReadError;
+                bool isUnverifiable = postReport.State is TweakInspectionState.Incompatible
                     or TweakInspectionState.WrongType;
 
                 if (isConfirmedActive)
@@ -1139,8 +1144,8 @@ public class MainViewModel : INotifyPropertyChanged
                         backupId: tweak.LastOperationId
                     );
                     StatusMessage = IsPortugueseActive
-                        ? $"Ativo — leitura confirmada: '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}."
-                        : $"Active — read confirmed: '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}.";
+                        ? $"Aplicado (Ativo — leitura confirmada): '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}."
+                        : $"Applied (Active — read confirmed): '{tweak.Name}' ({tweak.TweakId}) -> {tweak.CurrentRawValueDisplay}.";
                 }
                 else if (isAccessDenied)
                 {
@@ -1151,14 +1156,23 @@ public class MainViewModel : INotifyPropertyChanged
                         ? $"Acesso negado · Falha na operação para '{tweak.Name}' ({tweak.TweakId})."
                         : $"Access denied · Operation failed for '{tweak.Name}' ({tweak.TweakId}).";
                 }
+                else if (isReadError)
+                {
+                    tweak.IsApplied = false;
+                    OnPropertyChanged(nameof(AppliedTweaksCount));
+                    OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+                    StatusMessage = IsPortugueseActive
+                        ? $"Erro de leitura · Falha na operação para '{tweak.Name}' ({tweak.TweakId})."
+                        : $"Read error · Operation failed for '{tweak.Name}' ({tweak.TweakId}).";
+                }
                 else if (isUnverifiable)
                 {
                     tweak.IsApplied = false;
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     StatusMessage = IsPortugueseActive
-                        ? $"Não verificável · Falha na operação para '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay})."
-                        : $"Unverifiable · Operation failed for '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay}).";
+                        ? $"Estado não verificável · Falha na operação para '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay})."
+                        : $"Unverifiable state · Operation failed for '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay}).";
                 }
                 else
                 {
@@ -1197,10 +1211,10 @@ public class MainViewModel : INotifyPropertyChanged
                 // Mandatory post-restore real Registry re-read
                 var postReport = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
                 bool isAccessDenied = postReport.State == TweakInspectionState.AccessDenied;
-                bool isUnverifiable = postReport.State is TweakInspectionState.ReadError
-                    or TweakInspectionState.Incompatible;
+                bool isReadError = postReport.State == TweakInspectionState.ReadError;
+                bool isUnverifiable = postReport.State == TweakInspectionState.Incompatible;
 
-                if (ok && !isAccessDenied && !isUnverifiable)
+                if (ok && !isAccessDenied && !isReadError && !isUnverifiable)
                 {
                     tweak.IsAppliedInCurrentSession = false;
                     tweak.IsRestoredInCurrentSession = true;
@@ -1210,7 +1224,7 @@ public class MainViewModel : INotifyPropertyChanged
                 UpdateTweakSummaryCounters();
                 RefreshAuditLogs();
 
-                if (ok && !isAccessDenied && !isUnverifiable)
+                if (ok && !isAccessDenied && !isReadError && !isUnverifiable)
                 {
                     tweak.IsApplied = false;
                     OnPropertyChanged(nameof(AppliedTweaksCount));
@@ -1253,11 +1267,17 @@ public class MainViewModel : INotifyPropertyChanged
                         ? $"Acesso negado · Falha na operação ao restaurar '{tweak.Name}' ({tweak.TweakId})."
                         : $"Access denied · Operation failed while restoring '{tweak.Name}' ({tweak.TweakId}).";
                 }
+                else if (isReadError)
+                {
+                    StatusMessage = IsPortugueseActive
+                        ? $"Erro de leitura · Falha na operação ao restaurar '{tweak.Name}' ({tweak.TweakId})."
+                        : $"Read error · Operation failed while restoring '{tweak.Name}' ({tweak.TweakId}).";
+                }
                 else if (isUnverifiable)
                 {
                     StatusMessage = IsPortugueseActive
-                        ? $"Não verificável · Falha na operação ao restaurar '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay})."
-                        : $"Unverifiable · Operation failed while restoring '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay}).";
+                        ? $"Estado não verificável · Falha na operação ao restaurar '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay})."
+                        : $"Unverifiable state · Operation failed while restoring '{tweak.Name}' ({tweak.TweakId}) ({tweak.CurrentRawValueDisplay}).";
                 }
                 else
                 {

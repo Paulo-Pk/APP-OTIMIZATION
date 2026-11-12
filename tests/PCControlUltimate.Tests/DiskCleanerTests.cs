@@ -525,6 +525,72 @@ public class DiskCleanerTests
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public void DirectoryEnumerationFailure_AndPathOutsideRoot_AreRecordedAndNeverClaimCompleted()
+    {
+        string tempDir = CreateIsolatedTempFolder("enum_failure");
+        string outsideDir = CreateIsolatedTempFolder("outside_root");
+        try
+        {
+            string rootFile = Path.Combine(tempDir, "root_ok.tmp");
+            File.WriteAllBytes(rootFile, new byte[512]);
+
+            string unreadableSubDir = Path.Combine(tempDir, "UnreadableSubfolder");
+            Directory.CreateDirectory(unreadableSubDir);
+            string hiddenSubFile = Path.Combine(unreadableSubDir, "inside.tmp");
+            File.WriteAllBytes(hiddenSubFile, new byte[1024]);
+
+            // Verify a completely unrelated path outside the authorized root is rejected by IsSubPathOfOrEqual
+            Assert.False(DiskCleanerEngine.IsSubPathOfOrEqual(outsideDir, tempDir));
+            Assert.False(DiskCleanerEngine.IsSubPathOfOrEqual(Path.Combine(outsideDir, "file.tmp"), tempDir));
+
+            // 1. Subdirectory enumeration failure during Purge -> rootFile deleted, unreadableSubDir throws -> Partial
+            using (DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir },
+                simulatedFileFailureHook: path =>
+                {
+                    if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(unreadableSubDir), StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new UnauthorizedAccessException("Access denied enumerating subdirectory.");
+                    }
+                    return null;
+                }))
+            {
+                var partialPurge = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+                Assert.Equal(DiskPurgeStatus.Partial, partialPurge.Status);
+                Assert.True(partialPurge.Success);
+                Assert.True(partialPurge.PartialSuccess);
+                Assert.Equal(1, partialPurge.DeletedFilesCount);
+                Assert.NotEmpty(partialPurge.Errors);
+                Assert.True(File.Exists(hiddenSubFile));
+            }
+
+            // 2. Root directory enumeration failure during Purge -> 0 files deleted -> Failed (Success == false)
+            using (DiskCleanerEngine.UseCategoryPathOverrideScope(
+                new Dictionary<string, string> { ["temp-user"] = tempDir },
+                simulatedFileFailureHook: path =>
+                {
+                    if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(tempDir), StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new UnauthorizedAccessException("Access denied enumerating root directory.");
+                    }
+                    return null;
+                }))
+            {
+                var failedPurge = DiskCleanerEngine.PurgeCategoryWithReport("temp-user");
+                Assert.Equal(DiskPurgeStatus.Failed, failedPurge.Status);
+                Assert.False(failedPurge.Success);
+                Assert.Equal(0, failedPurge.DeletedFilesCount);
+                Assert.NotEmpty(failedPurge.Errors);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+            if (Directory.Exists(outsideDir)) Directory.Delete(outsideDir, true);
+        }
+    }
 }
 
 

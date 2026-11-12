@@ -594,6 +594,17 @@ public class RegistryOptimizerTests
 
         var existingEntry = RegistryStateLedger.GetHistoryForTweak("perf-game-dvr")[0];
         Assert.False(existingEntry.IsRestored);
+
+        // 3. Failure to persist restored state in Ledger after Registry write -> must report LEDGER_PERSIST_RESTORED_FAILED and Success = false
+        probe.SimulateReadFailureAfterMutation = null;
+        RegistryStateLedger.SetSimulatedPersistenceFailureForTesting(true);
+        var failedPersistRestore = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applyExisting.OperationId);
+        Assert.False(failedPersistRestore.Success);
+        Assert.Equal("LEDGER_PERSIST_RESTORED_FAILED", failedPersistRestore.ErrorCode);
+
+        RegistryStateLedger.SetSimulatedPersistenceFailureForTesting(false);
+        var unpersistedEntry = RegistryStateLedger.GetHistoryForTweak("perf-game-dvr")[0];
+        Assert.False(unpersistedEntry.IsRestored);
     }
 
     [Theory]

@@ -67,6 +67,7 @@ public static class RegistryStateLedger
         public string? EphemeralSecretKey { get; init; }
         public string? IsolatedLedgerFilePath { get; init; }
         public bool SimulateKeyUnavailable { get; init; }
+        public bool SimulatePersistenceFailure { get; set; }
         public Dictionary<string, string> InMemoryProtectedFiles { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
@@ -445,6 +446,7 @@ public static class RegistryStateLedger
         lock (_syncRoot)
         {
             if (!IsLedgerKeyAvailable) return false;
+            if (_testScope.Value?.SimulatePersistenceFailure == true) return false;
 
             var ledger = LoadVerifiedLedgerInternal();
             if (ledger == null) return false;
@@ -457,8 +459,24 @@ public static class RegistryStateLedger
             entry.RestoredAtUtc = DateTime.UtcNow.ToString("O");
             entry.EntryHmacSha256 = ComputeEntryHmac(entry);
 
-            SaveLedgerInternal(ledger);
-            return true;
+            try
+            {
+                SaveLedgerInternal(ledger);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    internal static void SetSimulatedPersistenceFailureForTesting(bool simulateFailure)
+    {
+        var scope = _testScope.Value;
+        if (scope != null)
+        {
+            scope.SimulatePersistenceFailure = simulateFailure;
         }
     }
 
@@ -567,6 +585,13 @@ public static class RegistryStateLedger
                 return null;
             }
 
+            if (string.IsNullOrWhiteSpace(ledger.FormatVersion) ||
+                !string.Equals(ledger.FormatVersion, "2.6", StringComparison.Ordinal))
+            {
+                errorMessage = $"Versão de formato do Ledger '{ledger.FormatVersion ?? "<NULL>"}' incompatível com o formato autenticado atual (2.6).";
+                return null;
+            }
+
             if (!IntegrityVerifier.VerifyHmacSha256(secret, BuildLedgerCanonicalString(ledger.Entries), ledger.LedgerHmacSha256))
             {
                 errorMessage = "Assinatura HMAC-SHA256 global do Ledger inválida (adulteração detectada).";
@@ -599,18 +624,27 @@ public static class RegistryStateLedger
             throw new InvalidOperationException("LEDGER_KEY_UNAVAILABLE: Não é possível salvar o Ledger sem chave de autenticação válida.");
         }
 
+        var scope = _testScope.Value;
+        if (scope?.SimulatePersistenceFailure == true)
+        {
+            throw new IOException("LEDGER_PERSISTENCE_FAILED: Falha simulada ao persistir o estado no Ledger.");
+        }
+
         ledger.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
         ledger.LedgerHmacSha256 = IntegrityVerifier.ComputeHmacSha256(secret, BuildLedgerCanonicalString(ledger.Entries));
         string json = JsonSerializer.Serialize(ledger, new JsonSerializerOptions { WriteIndented = true });
 
-        var scope = _testScope.Value;
         if (scope != null)
         {
             scope.InMemoryProtectedFiles[LedgerFilePath] = json;
         }
         if (OperatingSystem.IsWindows())
         {
-            IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerFilePath, json);
+            var saveReport = IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerFilePath, json);
+            if (scope == null && (!saveReport.Success || !saveReport.DpapiApplied))
+            {
+                throw new IOException($"LEDGER_PERSISTENCE_FAILED: Não foi possível gravar o Ledger protegido por DPAPI ({saveReport.ErrorMessage}).");
+            }
         }
     }
 }

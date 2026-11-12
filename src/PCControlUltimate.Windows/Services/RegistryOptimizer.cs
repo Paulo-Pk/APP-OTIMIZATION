@@ -1891,14 +1891,37 @@ public static class RegistryOptimizer
         if (verifiedKind == targetKind && ValuesMatch(verifyRead.RawValue, typedTarget, targetKind))
         {
             // Record trusted pre-modification state in the DPAPI + HMAC-SHA256 backend ledger ONLY when verified
-            var ledgerEntry = RegistryStateLedger.RecordAppliedTweakState(
-                def,
-                previousSerialized,
-                previousKind,
-                wasInitiallyAbsent,
-                keyCreatedByApp,
-                serializedTargetValue
-            );
+            RegistryLedgerEntry ledgerEntry;
+            try
+            {
+                ledgerEntry = RegistryStateLedger.RecordAppliedTweakState(
+                    def,
+                    previousSerialized,
+                    previousKind,
+                    wasInitiallyAbsent,
+                    keyCreatedByApp,
+                    serializedTargetValue
+                );
+            }
+            catch (Exception ex)
+            {
+                string persistErr = $"Falha ao persistir estado original no Ledger: {ex.Message}";
+                RecordAudit("APPLY_LEDGER_PERSIST_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                    wasInitiallyAbsent ? "<ABSENT>" : previousSerialized, serializedTargetValue, verifiedStr, false, persistErr);
+                return new RegistryOperationResult(
+                    false,
+                    wasInitiallyAbsent ? null : previousSerialized,
+                    verifiedStr,
+                    verifiedKind.ToString(),
+                    wasInitiallyAbsent,
+                    keyCreatedByApp,
+                    persistErr,
+                    def.TweakId,
+                    null,
+                    ErrorCode: "LEDGER_PERSIST_FAILED",
+                    PreviousKind: wasInitiallyAbsent ? null : previousKind
+                );
+            }
 
             RecordAudit("APPLY_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 wasInitiallyAbsent ? "<ABSENT>" : previousSerialized, serializedTargetValue, verifiedStr, true, null);
@@ -2004,7 +2027,19 @@ public static class RegistryOptimizer
 
         if (restoreRes.Success)
         {
-            RegistryStateLedger.MarkOperationRestored(entry.OperationId);
+            bool persisted = RegistryStateLedger.MarkOperationRestored(entry.OperationId);
+            if (!persisted)
+            {
+                string persistErr = "LEDGER_PERSIST_RESTORED_FAILED: O valor original foi restaurado no Registro, mas falhou ao persistir o estado restaurado no Ledger.";
+                RecordAudit("RESTORE_LEDGER_PERSIST_FAIL", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
+                    restoreRes.ValueKind, restoreRes.PreviousValue, entry.OriginalRawValue, restoreRes.VerifiedValue, false, persistErr);
+                return restoreRes with
+                {
+                    Success = false,
+                    ErrorCode = "LEDGER_PERSIST_RESTORED_FAILED",
+                    ErrorMessage = persistErr
+                };
+            }
         }
 
         return restoreRes;
