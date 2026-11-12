@@ -24,7 +24,7 @@ public sealed class GameDiscoveryTests : IDisposable
         Directory.CreateDirectory(installRoot);
 
         using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64))
-        using (RegistryKey entry = baseKey.CreateSubKey($@"{CatalogPath}\\{_testPrefix}_64BitGame")!)
+        using (RegistryKey entry = baseKey.CreateSubKey($@"{CatalogPath}\{_testPrefix}_64BitGame")!)
         {
             entry.SetValue("path", installRoot);
             entry.SetValue("gameName", "PC Control Test Game 64");
@@ -44,7 +44,7 @@ public sealed class GameDiscoveryTests : IDisposable
             try
             {
                 using RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64);
-                baseKey.DeleteSubKeyTree($@"{CatalogPath}\\{_testPrefix}_64BitGame", throwOnMissingSubKey: false);
+                baseKey.DeleteSubKeyTree($@"{CatalogPath}\{_testPrefix}_64BitGame", throwOnMissingSubKey: false);
             }
             catch { }
 
