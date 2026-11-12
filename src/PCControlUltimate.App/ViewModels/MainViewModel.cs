@@ -251,7 +251,7 @@ public class MainViewModel : INotifyPropertyChanged
     private double _gpuLoadPercent;
     private double _ramUsagePercent;
     private string _gpuHotspotDeltaText = "N/D";
-    private string _overallHealthScore = "--";
+    private string _overallHealthScore = "N/D";
     private string _benchmarkResultSummary = "Clique em Executar Benchmark Determinístico para medir throughput real de CPU e Memória.";
     private string _peripheralCadenceSummary = "Inspecione a taxa nativa Win32 do monitor e meça a estabilidade de eventos de input.";
 
@@ -1573,13 +1573,16 @@ public class MainViewModel : INotifyPropertyChanged
                     var thermalEval = GpuThermalAuditor.EvaluateThermalState(snap.GpuCoreTemp.Value, snap.GpuHotspotTemp.Value, snap.GpuModelName);
                     GpuHotspotDeltaText = $"+{thermalEval.Delta:F1} °C";
                     GpuThermalDiagnosisText = $"Status: {thermalEval.Status} (Delta Core/Hotspot: +{thermalEval.Delta:F1} °C) — {thermalEval.Message}";
-                    OverallHealthScore = thermalEval.Delta < 25 ? "96" : "78";
+                    // A GPU hotspot delta alone is not a complete system-health score.
+                    // Keep the score unavailable until a transparent multi-component model exists.
+                    OverallHealthScore = "N/D";
                 }
                 else
                 {
                     GpuHotspotDeltaText = unavailable;
                     GpuThermalDiagnosisText = notSupported;
-                    OverallHealthScore = "92";
+                    // Missing GPU thermal sensors must never be converted into a fabricated health score.
+                    OverallHealthScore = "N/D";
                 }
 
                 if (snap.RamUsedGb.HasValue && snap.RamTotalGb.HasValue && snap.RamTotalGb.Value > 0)
@@ -1639,7 +1642,7 @@ public class MainViewModel : INotifyPropertyChanged
         RamAvailableText = unavailable;
         OnPropertyChanged(nameof(RamUsageWithPercent));
         UpdatePrimaryDiskAndProfileTelemetry(null, null);
-        OverallHealthScore = "--";
+        OverallHealthScore = "N/D";
         RefreshAssistantInsights();
         }
         finally
