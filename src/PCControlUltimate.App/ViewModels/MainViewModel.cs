@@ -73,6 +73,7 @@ public class TweakItemViewModel : INotifyPropertyChanged
     private string _currentValueText = "N/D";
     private string _registryTypeText = "N/D";
     private string _diagnosticDetailText = "Aguardando leitura do Registro.";
+    private bool _canRestore;
 
     public string TweakId { get; init; } = string.Empty;
     public string NamePt { get; init; } = string.Empty;
@@ -125,6 +126,12 @@ public class TweakItemViewModel : INotifyPropertyChanged
     {
         get => _inspectionState;
         set { _inspectionState = value; OnPropertyChanged(); }
+    }
+
+    public bool CanRestore
+    {
+        get => _canRestore;
+        set { _canRestore = value; OnPropertyChanged(); }
     }
 
     public string CurrentValueText
@@ -746,15 +753,23 @@ public class MainViewModel : INotifyPropertyChanged
         {
             var states = await Task.Run(() =>
                 RegistryOptimizer.Catalog.Keys
-                    .Select(id => (TweakId: id, Inspection: RegistryOptimizer.InspectCatalogTweak(id)))
+                    .Select(id =>
+                    {
+                        RegistryTweakInspectionResult inspection = RegistryOptimizer.InspectCatalogTweak(id);
+                        bool canRestore = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase) &&
+                            RegistryStateLedger.ResolveTrustedRestoreEntry(id).IsValid;
+                        return (TweakId: id, Inspection: inspection, CanRestore: canRestore);
+                    })
                     .ToArray());
 
-            var byId = states.ToDictionary(x => x.TweakId, x => x.Inspection, StringComparer.OrdinalIgnoreCase);
+            var byId = states.ToDictionary(x => x.TweakId, x => x, StringComparer.OrdinalIgnoreCase);
             foreach (var tweak in CatalogTweaks)
             {
-                if (!byId.TryGetValue(tweak.TweakId, out RegistryTweakInspectionResult? inspection))
+                if (!byId.TryGetValue(tweak.TweakId, out var stateResult))
                     continue;
 
+                RegistryTweakInspectionResult inspection = stateResult.Inspection;
+                tweak.CanRestore = stateResult.CanRestore;
                 tweak.IsApplied = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase);
                 tweak.InspectionState = inspection.State;
                 tweak.VerificationState = GetTweakStateDisplay(inspection.State, Loc.CurrentCulture == "pt-BR");
@@ -829,6 +844,7 @@ public class MainViewModel : INotifyPropertyChanged
     {
         tweak.InspectionState = inspection.State;
         tweak.IsApplied = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase);
+        tweak.CanRestore = tweak.IsApplied && RegistryStateLedger.ResolveTrustedRestoreEntry(tweak.TweakId).IsValid;
         tweak.VerificationState = GetTweakStateDisplay(inspection.State, isPortuguese);
         tweak.CurrentValueText = inspection.CurrentValue ?? "—";
         tweak.RegistryTypeText = inspection.ActualValueKind?.ToString() ?? "N/D";
@@ -896,6 +912,7 @@ public class MainViewModel : INotifyPropertyChanged
                 RecommendedValue = def.RecommendedValue,
                 RiskLevel = def.RiskLevel,
                 IsApplied = false,
+                CanRestore = false,
                 InspectionState = "Não Verificado",
                 VerificationState = GetTweakStateDisplay("Não Verificado", Loc.CurrentCulture == "pt-BR"),
                 CurrentValueText = "N/D",
@@ -1069,13 +1086,14 @@ public class MainViewModel : INotifyPropertyChanged
                 }
                 else
                 {
+                    tweak.CanRestore = false;
                     tweak.InspectionState = "Erro de Restauração";
                     tweak.VerificationState = GetTweakStateDisplay(tweak.InspectionState, Loc.CurrentCulture == "pt-BR");
                     tweak.DiagnosticDetailText = details;
                     StatusMessage = $"Falha ao reverter '{tweak.TweakId}': {details}";
                 }
             }
-        });
+        }, param => param is TweakItemViewModel item && item.CanRestore);
 
         RefreshBackupsCommand = new RelayCommand(_ => RefreshBackupsList());
 

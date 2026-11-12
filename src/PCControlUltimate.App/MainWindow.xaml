@@ -635,7 +635,8 @@
                                                         CommandParameter="{Binding}"/>
                                                 <Button Content="Reverter" Style="{StaticResource ActionSecondaryButton}" Padding="10,4"
                                                         Command="{Binding DataContext.RestoreSingleTweakCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                        CommandParameter="{Binding}"/>
+                                                        CommandParameter="{Binding}"
+                                                        IsEnabled="{Binding CanRestore}"/>
                                             </StackPanel>
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
