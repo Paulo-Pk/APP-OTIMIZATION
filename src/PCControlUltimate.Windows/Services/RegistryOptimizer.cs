@@ -162,8 +162,8 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Control\PriorityControl",
             "Win32PrioritySeparation", RegistryValueKind.DWord,
             "38", "2", new[] { "2", "38", "26" },
-            "Ajusta Win32PrioritySeparation; o comportamento do escalonador varia conforme a versão e a configuração do Windows.",
-            "Adjusts Win32PrioritySeparation; scheduler behavior varies by Windows version and configuration.",
+            "ID interno legado perf-hpet: este ajuste não altera HPET. Modifica Win32PrioritySeparation; o efeito do escalonador varia conforme a versão e a configuração do Windows.",
+            "Legacy internal ID perf-hpet: this tweak does not change HPET. It modifies Win32PrioritySeparation; scheduler effects vary by Windows version and configuration.",
             "Performance", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-tcp-nagle"] = new(
@@ -171,8 +171,8 @@ public static class RegistryOptimizer
             @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
             "NetworkThrottlingIndex", RegistryValueKind.DWord,
             "-1", "10", new[] { "-1", "10", "1" },
-            "Ajusta NetworkThrottlingIndex; não altera Nagle e não garante redução de ping ou jitter.",
-            "Adjusts NetworkThrottlingIndex; it does not change Nagle and does not guarantee lower ping or jitter.",
+            "ID interno legado perf-tcp-nagle: este ajuste não altera Nagle. Modifica NetworkThrottlingIndex e não garante redução de ping ou jitter.",
+            "Legacy internal ID perf-tcp-nagle: this tweak does not change Nagle. It modifies NetworkThrottlingIndex and does not guarantee lower ping or jitter.",
             "Performance", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["start-fast-boot"] = new(
@@ -225,8 +225,8 @@ public static class RegistryOptimizer
             @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games",
             "Scheduling Category", RegistryValueKind.String,
             "High", "Medium", new[] { "High", "Medium", "Low" },
-            "Define a categoria de escalonamento MMCSS de Jogos para High (REG_SZ).",
-            "Sets the MMCSS Games task scheduling category to High (REG_SZ).",
+            "ID interno legado power-pcie-link: não altera a economia de energia do link PCIe. Define a categoria de escalonamento MMCSS da tarefa Games como High (REG_SZ).",
+            "Legacy internal ID power-pcie-link: this does not change PCIe link power management. It sets the MMCSS Games task scheduling category to High (REG_SZ).",
             "Power", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["serv-sysmain"] = new(
@@ -324,8 +324,8 @@ public static class RegistryOptimizer
             @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
             "TcpMaxDataRetransmissions", RegistryValueKind.DWord,
             "5", "5", new[] { "3", "5", "7" },
-            "Mantém TcpMaxDataRetransmissions em 5, valor padrão de referência; não é TCP autotuning nem uma otimização de ping.",
-            "Keeps TcpMaxDataRetransmissions at the reference default of 5; this is not TCP autotuning or a ping optimization.",
+            "ID interno legado net-tcp-autotuning: não altera TCP Auto-Tuning. Mantém TcpMaxDataRetransmissions em 5, valor padrão de referência; não é uma otimização de ping.",
+            "Legacy internal ID net-tcp-autotuning: this does not change TCP Auto-Tuning. It keeps TcpMaxDataRetransmissions at the reference default of 5; it is not a ping optimization.",
             "Network", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["priv-advertising-id"] = new(
