@@ -91,7 +91,8 @@ public static class RegistryStateLedger
         }
         catch
         {
-            return "PCControlUltimate_Fallback_Ledger_Secret_v25";
+            // Fail closed: never replace a DPAPI failure with a predictable process-wide secret.
+            return string.Empty;
         }
     }
 
@@ -109,18 +110,23 @@ public static class RegistryStateLedger
             entry.OriginalRawValue ?? "<ABSENT>",
             entry.AppliedValue ?? string.Empty,
             entry.CreatedAtUtc ?? string.Empty,
-            entry.IsRestored ? "1" : "0"
+            entry.IsRestored ? "1" : "0",
+            entry.RestoredAtUtc ?? string.Empty
         );
     }
 
     public static string ComputeEntryHmac(RegistryLedgerEntry entry)
     {
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
+            throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Operação bloqueada.");
         return IntegrityVerifier.ComputeHmacSha256(_ledgerSecretKey, BuildEntryCanonicalString(entry));
     }
 
     public static bool VerifyEntryHmac(RegistryLedgerEntry? entry)
     {
-        if (entry == null || string.IsNullOrWhiteSpace(entry.EntryHmacSha256))
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey) ||
+            entry == null ||
+            string.IsNullOrWhiteSpace(entry.EntryHmacSha256))
             return false;
 
         return IntegrityVerifier.VerifyHmacSha256(
@@ -167,7 +173,12 @@ public static class RegistryStateLedger
     {
         lock (_syncRoot)
         {
-            var ledger = LoadVerifiedLedgerInternal() ?? new RegistryLedgerFile();
+            if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
+                throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Ajuste não pode ser aplicado com segurança.");
+
+            var ledger = LoadVerifiedLedgerInternal();
+            if (ledger == null)
+                throw new InvalidOperationException("O Ledger existente não pôde ser autenticado. Ajuste bloqueado para preservar o histórico.");
 
             var entry = new RegistryLedgerEntry
             {
@@ -377,6 +388,12 @@ public static class RegistryStateLedger
     private static RegistryLedgerFile? LoadVerifiedLedgerInternal(out string? errorMessage)
     {
         errorMessage = null;
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
+        {
+            errorMessage = "A chave DPAPI do Ledger não está disponível. Restauração autenticada bloqueada.";
+            return null;
+        }
+
         if (!File.Exists(LedgerFilePath))
         {
             return new RegistryLedgerFile();
@@ -424,6 +441,9 @@ public static class RegistryStateLedger
 
     private static void SaveLedgerInternal(RegistryLedgerFile ledger)
     {
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
+            throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Gravação bloqueada.");
+
         ledger.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
         ledger.LedgerHmacSha256 = IntegrityVerifier.ComputeHmacSha256(_ledgerSecretKey, BuildLedgerCanonicalString(ledger.Entries));
         string json = JsonSerializer.Serialize(ledger, new JsonSerializerOptions { WriteIndented = true });
