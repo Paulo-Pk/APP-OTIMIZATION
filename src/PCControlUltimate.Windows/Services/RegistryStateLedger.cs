@@ -155,7 +155,7 @@ public static class RegistryStateLedger
             sb.Append(BuildLegacyEntryCanonicalString(entry))
               .Append('|')
               .Append(entry.EntryHmacSha256)
-              .Append('\\n');
+              .Append('\n');
         }
         return sb.ToString();
     }
