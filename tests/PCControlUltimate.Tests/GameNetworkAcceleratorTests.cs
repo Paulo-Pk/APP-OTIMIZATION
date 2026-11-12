@@ -113,6 +113,36 @@ public class GameNetworkAcceleratorTests
     }
 
     [Fact]
+    public void WireGuardTunnelManager_Ipv6RouteTableComparison_DetectsDefaultRouteChanges()
+    {
+        const string before = """
+            IPv6 Route Table
+            Active Routes:
+            If Metric Network Destination      Gateway
+            1 331 ::1/128                       On-link
+            1 281 fe80::/64                     On-link
+            """;
+        const string same = """
+            IPv6 Route Table
+            Active Routes:
+            If Metric Network Destination      Gateway
+            1 331 ::1/128                       On-link
+            1 281 fe80::/64                     On-link
+            """;
+        const string changed = """
+            IPv6 Route Table
+            Active Routes:
+            If Metric Network Destination      Gateway
+            1 331 ::1/128                       On-link
+            1 5 ::/0                            fe80::1
+            """;
+
+        Assert.True(WireGuardTunnelManager.AreIpv6RouteTablesEquivalent(before, same));
+        Assert.False(WireGuardTunnelManager.AreIpv6RouteTablesEquivalent(before, changed));
+        Assert.False(WireGuardTunnelManager.AreIpv6RouteTablesEquivalent(before, string.Empty));
+    }
+
+    [Fact]
     public void WireGuardTunnelManager_ShouldBlockIpv4DefaultRouteOverride_WhenSelectiveRoutingRequired()
     {
         string ipv4FullTunnelConfig = """
