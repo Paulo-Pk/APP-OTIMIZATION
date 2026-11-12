@@ -219,7 +219,7 @@ public class RegistryOptimizerTests : IDisposable
     [Fact]
     public void InspectCatalogTweakCurrentState_AbsentUndocumentedValue_ReturnsUndeterminedWithoutWriting()
     {
-        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("start-fast-boot");
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("maint-startup-delay");
         Assert.Equal("Estado Não Determinável", state);
         Assert.Equal(0, _fakeRegistry.WriteCalls);
     }
