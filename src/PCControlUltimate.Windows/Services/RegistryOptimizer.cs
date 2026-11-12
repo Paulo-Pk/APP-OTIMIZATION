@@ -1200,7 +1200,7 @@ public static class RegistryOptimizer
 
             // When the exact original value is already present, do not write it again.
             // For an originally absent value, keep the deletion/key-cleanup path below.
-            if (expectedAppliedValue != null && alreadyHasOriginalValue && !wasInitiallyAbsent)
+            if (enforceExpectedCurrentState && alreadyHasOriginalValue && !wasInitiallyAbsent)
             {
                 string originalValue = originalSerializedValue ?? string.Empty;
                 RecordAudit("RESTORE_ALREADY_ORIGINAL", def.TweakId, fullKeyPath, def.ValueName,
