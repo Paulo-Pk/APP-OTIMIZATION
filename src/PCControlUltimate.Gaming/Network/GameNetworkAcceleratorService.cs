@@ -228,7 +228,7 @@ public static class GameNetworkAcceleratorService
     }
 
     /// <summary>
-    /// Discovers installed games from Steam and Epic launcher manifests only. No full-disk scan.
+    /// Discovers installed games from supported Steam and Epic manifests plus GOG, Ubisoft Connect, and EA registry catalogs. No full-disk scan.
     /// </summary>
     public static IReadOnlyList<InstalledGameEntry> DiscoverInstalledGames()
     {
