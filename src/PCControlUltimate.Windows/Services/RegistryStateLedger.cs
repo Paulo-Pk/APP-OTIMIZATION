@@ -247,8 +247,8 @@ public static class RegistryStateLedger
 
     /// <summary>
     /// Resolves and strictly validates a trusted restoration state from the backend ledger.
-    /// Blocks replayed operations, mismatched tweakIds, incompatible RegistryValueKinds, tampered HMACs,
-    /// or values outside the catalog's AllowedValues.
+    /// Blocks replayed operations, mismatched catalog targets, invalid original RegistryValueKinds,
+    /// and tampered HMACs. Authenticated custom original values remain restorable.
     /// </summary>
     public static LedgerValidationResult ResolveTrustedRestoreEntry(string tweakId, string? operationId = null)
     {
