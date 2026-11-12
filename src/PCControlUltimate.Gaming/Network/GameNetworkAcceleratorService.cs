@@ -10,6 +10,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -366,7 +367,125 @@ public static class GameNetworkAcceleratorService
             new[] { "Install Dir", "InstallDir", "InstallLocation" },
             new[] { "DisplayName", "GameName", "ProductName" }, new[] { "Executable", "Exe" });
 
+        // Xbox / Microsoft Store GDK games are registered as Windows app packages.
+        // Enumerate only the current user's packages and accept packages carrying the
+        // official MicrosoftGame.config game manifest (not every Store app).
+        AddMicrosoftStoreGames(games);
+
         return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private static void AddMicrosoftStoreGames(Dictionary<string, InstalledGameEntry> games)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            const string script =
+                "Get-AppxPackage | Where-Object { -not [string]::IsNullOrWhiteSpace($_.InstallLocation) } " +
+                "| Select-Object @{Name='Name';Expression={$_.Name}}, @{Name='InstallLocation';Expression={$_.InstallLocation}} " +
+                "| ConvertTo-Json -Compress";
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("-NoLogo");
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-NonInteractive");
+            startInfo.ArgumentList.Add("-Command");
+            startInfo.ArgumentList.Add(script);
+
+            using Process? process = Process.Start(startInfo);
+            if (process is null) return;
+
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(15000))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                return;
+            }
+
+            string output = outputTask.GetAwaiter().GetResult();
+            _ = errorTask.GetAwaiter().GetResult();
+            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output)) return;
+
+            using JsonDocument document = JsonDocument.Parse(output);
+            IEnumerable<JsonElement> packages = document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.EnumerateArray().ToArray()
+                : document.RootElement.ValueKind == JsonValueKind.Object
+                    ? new[] { document.RootElement }
+                    : Array.Empty<JsonElement>();
+
+            foreach (JsonElement package in packages)
+            {
+                string packageName = ReadManifestString(package, "Name");
+                string installLocation = ReadManifestString(package, "InstallLocation");
+                if (string.IsNullOrWhiteSpace(packageName) || string.IsNullOrWhiteSpace(installLocation))
+                    continue;
+
+                if (TryReadMicrosoftGameConfig(installLocation, packageName, out InstalledGameEntry? game)
+                    && game is not null)
+                {
+                    games["Xbox / Microsoft Store:" + game.AppId] = game;
+                }
+            }
+        }
+        catch
+        {
+            // Package enumeration is optional; other launcher catalogs remain available.
+        }
+    }
+
+    internal static bool TryReadMicrosoftGameConfig(
+        string installLocation,
+        string packageName,
+        out InstalledGameEntry? game)
+    {
+        game = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(installLocation) || string.IsNullOrWhiteSpace(packageName))
+                return false;
+
+            string location = Path.GetFullPath(installLocation);
+            if (!Directory.Exists(location)) return false;
+
+            string configPath = Path.Combine(location, "MicrosoftGame.config");
+            if (!File.Exists(configPath)) return false;
+
+            XDocument config = XDocument.Load(configPath);
+            XElement? identity = config.Descendants().FirstOrDefault(element => element.Name.LocalName == "Identity");
+            XElement? shellVisuals = config.Descendants().FirstOrDefault(element => element.Name.LocalName == "ShellVisuals");
+            string appId = identity?.Attribute("Name")?.Value?.Trim() ?? packageName;
+            string title = shellVisuals?.Attribute("DefaultDisplayName")?.Value?.Trim() ?? packageName;
+            if (string.IsNullOrWhiteSpace(appId)) appId = packageName;
+            if (string.IsNullOrWhiteSpace(title)) title = packageName;
+
+            string? executable = null;
+            XElement? executableElement = config.Descendants().FirstOrDefault(element => element.Name.LocalName == "Executable");
+            string? executableName = executableElement?.Attribute("Name")?.Value?.Trim();
+            if (!string.IsNullOrWhiteSpace(executableName))
+            {
+                string candidate = Path.GetFullPath(Path.Combine(location, executableName));
+                string prefix = location.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+                    executable = candidate;
+            }
+
+            game = new InstalledGameEntry(title, "Xbox / Microsoft Store", location, appId, executable, true);
+            return true;
+        }
+        catch
+        {
+            // Invalid or inaccessible package manifests are skipped individually.
+            return false;
+        }
     }
 
     private static void AddRegistryGameCatalog(
