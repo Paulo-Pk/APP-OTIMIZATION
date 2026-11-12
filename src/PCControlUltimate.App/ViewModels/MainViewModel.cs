@@ -1535,7 +1535,7 @@ public class MainViewModel : INotifyPropertyChanged
         ApplySafeBoostProfileCommand = new RelayCommand(async _ =>
         {
             var safeTweaks = CatalogTweaks
-                .Where(t => !t.IsApplied &&
+                .Where(t => t.CanApply &&
                     (string.Equals(t.RiskLevel, "Safe", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase)))
                 .ToList();
@@ -1585,8 +1585,21 @@ public class MainViewModel : INotifyPropertyChanged
                 }
                 catch { }
 
-                tweak.IsApplied = true;
-                tweak.VerificationState = $"Verificado ({tweak.RecommendedValue})";
+                // A successful agent response confirms the write request, not the
+                // effective Registry state. Re-read the value before reporting success.
+                var readBackState = RegistryOptimizer.InspectCatalogTweakCurrentState(tweak.TweakId);
+                tweak.IsApplied = string.Equals(readBackState, "Ativo", StringComparison.OrdinalIgnoreCase);
+                tweak.VerificationState = GetTweakStateDisplay(readBackState, Loc.CurrentCulture == "pt-BR");
+
+                if (!tweak.IsApplied)
+                {
+                    failedCount++;
+                    StatusMessage = Loc.CurrentCulture == "pt-BR"
+                        ? $"O ajuste '{tweak.Name}' foi enviado ao agente, mas a releitura não confirmou o valor recomendado. Estado: {tweak.VerificationState}."
+                        : $"The agent accepted '{tweak.Name}', but read-back did not confirm the recommended value. State: {tweak.VerificationState}.";
+                    continue;
+                }
+
                 await _databaseService.UpsertOptimizationActionAsync(
                     tweak.TweakId,
                     tweak.Name,
