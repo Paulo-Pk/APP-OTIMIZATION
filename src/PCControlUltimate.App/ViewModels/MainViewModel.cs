@@ -113,7 +113,10 @@ public class TweakItemViewModel : INotifyPropertyChanged
 public class CleanerCategoryViewModel : INotifyPropertyChanged
 {
     private string _dryRunEstimateText = "Execute Dry-Run para estimar";
-    private string _realFreedText = "Nenhum arquivo removido nesta sessão";
+    private string _realFreedText = "Nenhuma limpeza executada nesta sessão";
+    private int _scannedFilesCount;
+    private string _estimatedBytesFormatted = "Não simulado";
+    private string _lastOperationStatus = "Aguardando simulação";
 
     public string CategoryKey { get; init; } = string.Empty;
     public string NamePt { get; init; } = string.Empty;
@@ -126,6 +129,24 @@ public class CleanerCategoryViewModel : INotifyPropertyChanged
     {
         get => _displayName;
         set { _displayName = value; OnPropertyChanged(); }
+    }
+
+    public int ScannedFilesCount
+    {
+        get => _scannedFilesCount;
+        set { _scannedFilesCount = value; OnPropertyChanged(); }
+    }
+
+    public string EstimatedBytesFormatted
+    {
+        get => _estimatedBytesFormatted;
+        set { _estimatedBytesFormatted = value; OnPropertyChanged(); }
+    }
+
+    public string LastOperationStatus
+    {
+        get => _lastOperationStatus;
+        set { _lastOperationStatus = value; OnPropertyChanged(); }
     }
 
     public string DryRunEstimateText
@@ -1004,10 +1025,15 @@ public class MainViewModel : INotifyPropertyChanged
                 totalEstimated += dryRun.EstimatedBytes;
                 totalFiles += dryRun.CandidateFilesCount;
                 double mb = dryRun.EstimatedBytes / (1024.0 * 1024.0);
-                cat.DryRunEstimateText = $"Estimativa (Dry-Run): {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos, {dryRun.SkippedSymlinksCount} symlinks ignorados)";
+                cat.ScannedFilesCount = dryRun.CandidateFilesCount;
+                cat.EstimatedBytesFormatted = $"{mb:F2} MB";
+                cat.DryRunEstimateText = $"Estimativa: {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos; {dryRun.SkippedSymlinksCount} links ignorados)";
+                cat.LastOperationStatus = dryRun.Success ? "Simulação concluída" : "Falha na simulação";
+                if (!dryRun.Success && dryRun.Errors is { Count: > 0 })
+                    cat.LastOperationStatus += $": {dryRun.Errors[0]}";
             }
 
-            DebloatSummaryText = $"Simulação concluída (SOMENTE ESTIMATIVA): {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos.";
+            DebloatSummaryText = $"Simulação concluída — SOMENTE ESTIMATIVA: {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos. Nenhum arquivo foi excluído.";
         });
 
         PurgeCategoryCommand = new RelayCommand(param =>
@@ -1024,7 +1050,15 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 var report = DiskCleanerEngine.PurgeCategoryWithReport(cat.CategoryKey, confirmServiceStop: ConfirmCleanerDeletion);
                 double freedMb = report.FreedBytes / (1024.0 * 1024.0);
-                cat.RealFreedText = $"Liberado real: {freedMb:F2} MB ({report.DeletedFilesCount} removidos, {report.SkippedLockedCount} em uso, {report.SkippedSymlinksCount} symlinks bloqueados)";
+                cat.RealFreedText = $"Liberado real: {freedMb:F2} MB ({report.DeletedFilesCount} arquivos removidos; {report.SkippedLockedCount} em uso; {report.SkippedSymlinksCount} links preservados)";
+                cat.LastOperationStatus = report.Status switch
+                {
+                    "Completed" => "Limpeza concluída",
+                    "NothingToClean" => "Nada para limpar",
+                    "Partial" => "Limpeza parcial",
+                    "DirectoryMissing" => "Diretório inexistente",
+                    _ => "Falha na limpeza"
+                };
 
                 CleanerAffectedFilesLog.Clear();
                 foreach (var logLine in report.AffectedItemsLog)
