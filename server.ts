@@ -68,7 +68,7 @@ async function startServer() {
         protocol: string;
         pingMs: number | null;
         jitterMs: number | null;
-        packetLossPercent: number;
+        tcpFailurePercent: number;
         tcpHandshakeState: 'Connected' | 'Timeout' | 'ConnectionRefused' | 'FilteredPort';
         samples: number[];
         isSuccess: boolean;
@@ -121,7 +121,7 @@ async function startServer() {
             protocol: `TCP:${target.port} Handshake`,
             pingMs: null,
             jitterMs: null,
-            packetLossPercent: 0,
+            tcpFailurePercent: 0,
             tcpHandshakeState: lastErrorState,
             samples: [],
             isSuccess: false,
@@ -141,7 +141,7 @@ async function startServer() {
           protocol: `TCP:${target.port} Handshake`,
           pingMs: Math.round(avg),
           jitterMs: parseFloat(jitter.toFixed(1)),
-          packetLossPercent: lossPercent,
+          tcpFailurePercent: lossPercent,
           tcpHandshakeState: 'Connected',
           samples: samples.map((s) => Math.round(s)),
           isSuccess: true,
@@ -158,9 +158,9 @@ async function startServer() {
         structuredDiagnostic: {
           whatWasTested: 'Handshake TCP:443 multi-amostra em 6 endpoints globais verificados (Valve, Riot, Epic, Cloudflare, 1.1.1.1, 8.8.8.8)',
           whatFailed: connectedCount === targets.length ? 'Nenhuma falha (0 anomalias)' : `${targets.length - connectedCount} alvo(s) com porta filtrada/timeout`,
-          evidenceFound: `${connectedCount}/${targets.length} endpoints TCP:443 conectados sem perda artificial de portas UDP.`,
-          probableCause: connectedCount > 0 ? 'Conectividade externa saudável.' : 'Sem acesso externo à internet neste ambiente.',
-          recommendedSolution: 'Mantenha a rota direta verificada quando a perda for 0% e o jitter estiver abaixo de 15 ms.',
+          evidenceFound: `${connectedCount}/${targets.length} endpoints TCP:443 aceitaram conexão; falhas representam handshakes TCP não concluídos, não perda de pacotes ICMP/UDP.`,
+          probableCause: connectedCount > 0 ? 'Há conectividade com pelo menos um endpoint de referência; falhas individuais podem indicar filtro, timeout ou indisponibilidade do serviço.' : 'Nenhum endpoint de referência aceitou conexão TCP neste ambiente; isso não identifica sozinho a causa.',
+          recommendedSolution: 'Use estes dados apenas como referência de conectividade TCP; eles não medem perda ICMP nem latência UDP do jogo.',
           verificationSteps: 'Compare o RTT e o Jitter no Network Lab e no Game Network Accelerator.',
         },
         results,
