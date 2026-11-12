@@ -800,7 +800,10 @@ public class PrivilegedAgentServer : IDisposable
                             skippedLockedCount = purgeReport.SkippedLockedCount,
                             skippedSymlinksCount = purgeReport.SkippedSymlinksCount,
                             affectedItemsLog = purgeReport.AffectedItemsLog,
-                            errors = purgeReport.Errors
+                            errors = purgeReport.Errors,
+                            status = purgeReport.Status,
+                            directoryExisted = purgeReport.DirectoryExisted,
+                            warnings = purgeReport.Warnings
                         });
                         return;
                     }
