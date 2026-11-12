@@ -904,7 +904,8 @@ public class MainViewModel : INotifyPropertyChanged
 
         ApplyTweakCommand = new RelayCommand(async param =>
         {
-            if (param is TweakItemViewModel tweak)
+            // Do not create another ledger entry when the recommended value is already active.
+            if (param is TweakItemViewModel tweak && !tweak.IsApplied)
             {
                 var (ok, details) = await _agentClient.ApplyCatalogTweakAsync(tweak.TweakId, tweak.RecommendedValue);
                 RefreshAuditLogs();
@@ -925,6 +926,7 @@ public class MainViewModel : INotifyPropertyChanged
                     tweak.VerificationState = GetTweakStateDisplay(readBackState, Loc.CurrentCulture == "pt-BR");
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+                    CommandManager.InvalidateRequerySuggested();
                     await _databaseService.UpsertOptimizationActionAsync(
                         tweak.TweakId,
                         tweak.Name,
@@ -946,7 +948,7 @@ public class MainViewModel : INotifyPropertyChanged
                     StatusMessage = $"Não foi possível aplicar '{tweak.TweakId}': {details}";
                 }
             }
-        });
+        }, param => param is TweakItemViewModel item && !item.IsApplied);
 
         RestoreSingleTweakCommand = new RelayCommand(async param =>
         {
