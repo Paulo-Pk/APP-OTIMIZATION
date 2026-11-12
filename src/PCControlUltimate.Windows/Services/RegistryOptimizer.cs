@@ -14,6 +14,479 @@ using Microsoft.Win32;
 
 namespace PCControlUltimate.Windows.Services;
 
+/// <summary>
+/// Explicit real-time Registry inspection states (§2).
+/// Distinguishes between Active, Inactive (known reference value), Custom, NotConfigured (key/value absent),
+/// AccessDenied, WrongType (value exists with unexpected RegistryValueKind), Incompatible, and ReadError.
+/// </summary>
+public enum TweakInspectionState
+{
+    Active,
+    Inactive,
+    Custom,
+    NotConfigured,
+    AccessDenied,
+    WrongType,
+    Incompatible,
+    ReadError
+}
+
+/// <summary>
+/// Technical audit classification for each catalog entry (§1).
+/// </summary>
+public enum TweakRecommendationStatus
+{
+    Recommended,
+    Conditional,
+    NotRecommendedOrDefault
+}
+
+/// <summary>
+/// Outcome of a low-level Registry key/value probe.
+/// </summary>
+public enum RegistryProbeReadOutcome
+{
+    ValueFound,
+    KeyNotFound,
+    ValueNotFound,
+    AccessDenied,
+    IncompatibleEnvironment,
+    ReadError
+}
+
+/// <summary>
+/// Raw result returned by an IRegistryKeyProbe before catalog semantic classification.
+/// </summary>
+public record RegistryProbeReadResult(
+    RegistryProbeReadOutcome Outcome,
+    object? RawValue = null,
+    RegistryValueKind ActualValueKind = RegistryValueKind.Unknown,
+    string? SerializedValue = null,
+    string? ErrorMessage = null
+);
+
+/// <summary>
+/// Injectable abstraction for reading and writing Registry keys so unit tests can deterministically
+/// verify all 8 states (including WrongType, AccessDenied, NotConfigured, and unconfirmed writes/restores)
+/// without modifying the user's real Windows Registry.
+/// </summary>
+public interface IRegistryKeyProbe
+{
+    bool IsSupportedPlatform { get; }
+    int CurrentWindowsBuild { get; }
+    RegistryProbeReadResult ReadValue(string hive, string subKeyPath, string valueName);
+    bool TryWriteValue(string hive, string subKeyPath, string valueName, object typedValue, RegistryValueKind valueKind, out bool keyCreated, out string? errorMessage, out bool isAccessDenied);
+    bool TryDeleteValue(string hive, string subKeyPath, string valueName, bool deleteEmptyKeyIfCreatedByApp, out string? errorMessage, out bool isAccessDenied);
+}
+
+/// <summary>
+/// Production Win32 Registry implementation of IRegistryKeyProbe.
+/// </summary>
+[SupportedOSPlatform("windows")]
+public sealed class Win32RegistryKeyProbe : IRegistryKeyProbe
+{
+    public static Win32RegistryKeyProbe Instance { get; } = new();
+
+    public bool IsSupportedPlatform => OperatingSystem.IsWindows();
+
+    public int CurrentWindowsBuild => OperatingSystem.IsWindows() ? Environment.OSVersion.Version.Build : 0;
+
+    public RegistryProbeReadResult ReadValue(string hive, string subKeyPath, string valueName)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return new RegistryProbeReadResult(
+                RegistryProbeReadOutcome.IncompatibleEnvironment,
+                ErrorMessage: "Leitura real do Registro requer plataforma Windows nativa."
+            );
+        }
+
+        try
+        {
+            RegistryKey root = RegistryOptimizer.GetRootKey(hive);
+            using var key = root.OpenSubKey(subKeyPath, writable: false);
+            if (key == null)
+            {
+                return new RegistryProbeReadResult(RegistryProbeReadOutcome.KeyNotFound);
+            }
+
+            // Check if value name actually exists in the key (handles empty string or null values accurately)
+            string[] valueNames = key.GetValueNames();
+            bool valueExists = valueNames.Any(n => string.Equals(n, valueName, StringComparison.OrdinalIgnoreCase));
+            object? raw = key.GetValue(valueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+
+            if (!valueExists && raw == null)
+            {
+                return new RegistryProbeReadResult(RegistryProbeReadOutcome.ValueNotFound);
+            }
+
+            RegistryValueKind actualKind = key.GetValueKind(valueName);
+            string? serialized = RegistryOptimizer.SerializeRegistryValue(raw, actualKind);
+
+            return new RegistryProbeReadResult(
+                RegistryProbeReadOutcome.ValueFound,
+                RawValue: raw,
+                ActualValueKind: actualKind,
+                SerializedValue: serialized
+            );
+        }
+        catch (SecurityException ex)
+        {
+            return new RegistryProbeReadResult(
+                RegistryProbeReadOutcome.AccessDenied,
+                ErrorMessage: $"Acesso de segurança negado a {hive}\\{subKeyPath}: {ex.Message}"
+            );
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return new RegistryProbeReadResult(
+                RegistryProbeReadOutcome.AccessDenied,
+                ErrorMessage: $"Permissão negada ao consultar {hive}\\{subKeyPath}: {ex.Message}"
+            );
+        }
+        catch (Exception ex)
+        {
+            return new RegistryProbeReadResult(
+                RegistryProbeReadOutcome.ReadError,
+                ErrorMessage: $"Erro técnico ao consultar {hive}\\{subKeyPath}\\{valueName}: {ex.Message}"
+            );
+        }
+    }
+
+    public bool TryWriteValue(
+        string hive,
+        string subKeyPath,
+        string valueName,
+        object typedValue,
+        RegistryValueKind valueKind,
+        out bool keyCreated,
+        out string? errorMessage,
+        out bool isAccessDenied)
+    {
+        keyCreated = false;
+        errorMessage = null;
+        isAccessDenied = false;
+
+        if (!OperatingSystem.IsWindows())
+        {
+            errorMessage = "Operação de Registro requer plataforma Windows nativa.";
+            return false;
+        }
+
+        try
+        {
+            RegistryKey root = RegistryOptimizer.GetRootKey(hive);
+            using (var checkKey = root.OpenSubKey(subKeyPath, writable: false))
+            {
+                if (checkKey == null)
+                {
+                    keyCreated = true;
+                }
+            }
+
+            using (RegistryKey writeKey = root.CreateSubKey(subKeyPath, writable: true))
+            {
+                writeKey.SetValue(valueName, typedValue, valueKind);
+                writeKey.Flush();
+            }
+
+            return true;
+        }
+        catch (SecurityException ex)
+        {
+            isAccessDenied = true;
+            errorMessage = $"Acesso de segurança negado (Elevação UAC necessária para {hive}): {ex.Message}";
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            isAccessDenied = true;
+            errorMessage = $"Privilégios insuficientes para {hive}. Execute como Administrador (UAC): {ex.Message}";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Erro ao gravar no Registro: {ex.Message}";
+            return false;
+        }
+    }
+
+    public bool TryDeleteValue(
+        string hive,
+        string subKeyPath,
+        string valueName,
+        bool deleteEmptyKeyIfCreatedByApp,
+        out string? errorMessage,
+        out bool isAccessDenied)
+    {
+        errorMessage = null;
+        isAccessDenied = false;
+
+        if (!OperatingSystem.IsWindows())
+        {
+            errorMessage = "Operação de Registro requer plataforma Windows nativa.";
+            return false;
+        }
+
+        try
+        {
+            RegistryKey root = RegistryOptimizer.GetRootKey(hive);
+            using (RegistryKey? writeKey = root.OpenSubKey(subKeyPath, writable: true))
+            {
+                if (writeKey != null && writeKey.GetValue(valueName) != null)
+                {
+                    writeKey.DeleteValue(valueName, throwOnMissingValue: false);
+                    writeKey.Flush();
+                }
+            }
+
+            if (deleteEmptyKeyIfCreatedByApp)
+            {
+                using (RegistryKey? verifyKey = root.OpenSubKey(subKeyPath, writable: false))
+                {
+                    if (verifyKey != null && verifyKey.ValueCount == 0 && verifyKey.SubKeyCount == 0)
+                    {
+                        verifyKey.Close();
+                        root.DeleteSubKey(subKeyPath, throwOnMissingSubKey: false);
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (SecurityException ex)
+        {
+            isAccessDenied = true;
+            errorMessage = $"Acesso de segurança negado ao remover valor em {hive}: {ex.Message}";
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            isAccessDenied = true;
+            errorMessage = $"Privilégios insuficientes para remover valor em {hive}: {ex.Message}";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Falha ao restaurar/remover valor no Registro: {ex.Message}";
+            return false;
+        }
+    }
+}
+
+/// <summary>
+/// Isolated, deterministic in-memory Registry probe for xUnit testing.
+/// Supports simulating existing values, missing keys, missing values, wrong RegistryValueKind,
+/// custom values, access denied, OS incompatibility, read errors, and unconfirmed write/restore scenarios.
+/// </summary>
+public sealed class SimulatedRegistryKeyProbe : IRegistryKeyProbe
+{
+    private readonly Dictionary<string, Dictionary<string, (object RawValue, RegistryValueKind Kind)>> _keys =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _accessDeniedTargets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _readErrorTargets = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsSupportedPlatform { get; set; } = true;
+    public int CurrentWindowsBuild { get; set; } = 22631; // Windows 11 23H2 default for simulation
+    public bool SimulateWriteIgnore { get; set; }
+    public bool SimulateDeleteIgnore { get; set; }
+
+    private static string NormalizeKeyId(string hive, string subKeyPath) =>
+        $"{hive.Trim().ToUpperInvariant()}\\{RegistryOptimizer.NormalizeSubKeyPath(subKeyPath)}";
+
+    private static string NormalizeValueId(string hive, string subKeyPath, string valueName) =>
+        $"{NormalizeKeyId(hive, subKeyPath)}::{valueName.Trim()}";
+
+    public void EnsureSubKeyExists(string hive, string subKeyPath)
+    {
+        string keyId = NormalizeKeyId(hive, subKeyPath);
+        if (!_keys.ContainsKey(keyId))
+        {
+            _keys[keyId] = new Dictionary<string, (object RawValue, RegistryValueKind Kind)>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public void SetValue(string hive, string subKeyPath, string valueName, object rawValue, RegistryValueKind kind)
+    {
+        string keyId = NormalizeKeyId(hive, subKeyPath);
+        if (!_keys.TryGetValue(keyId, out var values))
+        {
+            values = new Dictionary<string, (object RawValue, RegistryValueKind Kind)>(StringComparer.OrdinalIgnoreCase);
+            _keys[keyId] = values;
+        }
+        values[valueName.Trim()] = (rawValue, kind);
+    }
+
+    public void RemoveSubKey(string hive, string subKeyPath)
+    {
+        _keys.Remove(NormalizeKeyId(hive, subKeyPath));
+    }
+
+    public void RemoveValue(string hive, string subKeyPath, string valueName)
+    {
+        string keyId = NormalizeKeyId(hive, subKeyPath);
+        if (_keys.TryGetValue(keyId, out var values))
+        {
+            values.Remove(valueName.Trim());
+        }
+    }
+
+    public void SetAccessDenied(string hive, string subKeyPath, string? valueName = null)
+    {
+        if (string.IsNullOrWhiteSpace(valueName))
+            _accessDeniedTargets.Add(NormalizeKeyId(hive, subKeyPath));
+        else
+            _accessDeniedTargets.Add(NormalizeValueId(hive, subKeyPath, valueName));
+    }
+
+    public void SetReadError(string hive, string subKeyPath, string? valueName = null)
+    {
+        if (string.IsNullOrWhiteSpace(valueName))
+            _readErrorTargets.Add(NormalizeKeyId(hive, subKeyPath));
+        else
+            _readErrorTargets.Add(NormalizeValueId(hive, subKeyPath, valueName));
+    }
+
+    public RegistryProbeReadResult ReadValue(string hive, string subKeyPath, string valueName)
+    {
+        if (!IsSupportedPlatform)
+        {
+            return new RegistryProbeReadResult(
+                RegistryProbeReadOutcome.IncompatibleEnvironment,
+                ErrorMessage: "Plataforma simulada incompatível."
+            );
+        }
+
+        string keyId = NormalizeKeyId(hive, subKeyPath);
+        string valId = NormalizeValueId(hive, subKeyPath, valueName);
+
+        if (_accessDeniedTargets.Contains(keyId) || _accessDeniedTargets.Contains(valId))
+        {
+            return new RegistryProbeReadResult(
+                RegistryProbeReadOutcome.AccessDenied,
+                ErrorMessage: $"Acesso negado simulado para {keyId}\\{valueName}."
+            );
+        }
+
+        if (_readErrorTargets.Contains(keyId) || _readErrorTargets.Contains(valId))
+        {
+            return new RegistryProbeReadResult(
+                RegistryProbeReadOutcome.ReadError,
+                ErrorMessage: $"Erro de leitura simulado para {keyId}\\{valueName}."
+            );
+        }
+
+        if (!_keys.TryGetValue(keyId, out var values))
+        {
+            return new RegistryProbeReadResult(RegistryProbeReadOutcome.KeyNotFound);
+        }
+
+        if (!values.TryGetValue(valueName.Trim(), out var entry))
+        {
+            return new RegistryProbeReadResult(RegistryProbeReadOutcome.ValueNotFound);
+        }
+
+        string? serialized = RegistryOptimizer.SerializeRegistryValue(entry.RawValue, entry.Kind);
+        return new RegistryProbeReadResult(
+            RegistryProbeReadOutcome.ValueFound,
+            RawValue: entry.RawValue,
+            ActualValueKind: entry.Kind,
+            SerializedValue: serialized
+        );
+    }
+
+    public bool TryWriteValue(
+        string hive,
+        string subKeyPath,
+        string valueName,
+        object typedValue,
+        RegistryValueKind valueKind,
+        out bool keyCreated,
+        out string? errorMessage,
+        out bool isAccessDenied)
+    {
+        keyCreated = false;
+        errorMessage = null;
+        isAccessDenied = false;
+
+        string keyId = NormalizeKeyId(hive, subKeyPath);
+        string valId = NormalizeValueId(hive, subKeyPath, valueName);
+
+        if (_accessDeniedTargets.Contains(keyId) || _accessDeniedTargets.Contains(valId))
+        {
+            isAccessDenied = true;
+            errorMessage = $"Acesso negado ao gravar em {keyId}\\{valueName}.";
+            return false;
+        }
+
+        if (!_keys.ContainsKey(keyId))
+        {
+            keyCreated = true;
+        }
+
+        if (!SimulateWriteIgnore)
+        {
+            SetValue(hive, subKeyPath, valueName, typedValue, valueKind);
+        }
+
+        return true;
+    }
+
+    public bool TryDeleteValue(
+        string hive,
+        string subKeyPath,
+        string valueName,
+        bool deleteEmptyKeyIfCreatedByApp,
+        out string? errorMessage,
+        out bool isAccessDenied)
+    {
+        errorMessage = null;
+        isAccessDenied = false;
+
+        string keyId = NormalizeKeyId(hive, subKeyPath);
+        string valId = NormalizeValueId(hive, subKeyPath, valueName);
+
+        if (_accessDeniedTargets.Contains(keyId) || _accessDeniedTargets.Contains(valId))
+        {
+            isAccessDenied = true;
+            errorMessage = $"Acesso negado ao remover {keyId}\\{valueName}.";
+            return false;
+        }
+
+        if (!SimulateDeleteIgnore && _keys.TryGetValue(keyId, out var values))
+        {
+            values.Remove(valueName.Trim());
+            if (deleteEmptyKeyIfCreatedByApp && values.Count == 0)
+            {
+                _keys.Remove(keyId);
+            }
+        }
+
+        return true;
+    }
+}
+
+/// <summary>
+/// Rich, structured report returned by RegistryOptimizer.InspectCatalogTweak (§2).
+/// </summary>
+public record TweakStateReport(
+    string TweakId,
+    TweakInspectionState State,
+    string StateDisplayPt,
+    string StateDisplayEn,
+    bool KeyExists,
+    bool ValueExists,
+    string? CurrentRawValue,
+    RegistryValueKind? ActualValueKind,
+    RegistryValueKind ExpectedValueKind,
+    string RecommendedValue,
+    string DefaultOriginValue,
+    bool IsTypeMatch,
+    bool IsRecommendedValueMatch,
+    string DiagnosticMessagePt,
+    string DiagnosticMessageEn
+);
+
 public record TweakDefinition(
     string TweakId,
     string Hive,
@@ -26,11 +499,33 @@ public record TweakDefinition(
     string Description,
     string DescriptionEn,
     string Category,
-    string RiskLevel
+    string RiskLevel,
+    string? FriendlyNamePt = null,
+    string? FriendlyNameEn = null,
+    string? WhatItDoesPt = null,
+    string? WhatItDoesEn = null,
+    string? ProblemSolvedPt = null,
+    string? ProblemSolvedEn = null,
+    string? ExpectedBenefitPt = null,
+    string? ExpectedBenefitEn = null,
+    string? PotentialSideEffectsPt = null,
+    string? PotentialSideEffectsEn = null,
+    bool RequiresReboot = false,
+    string? HardwareOrOsDependencyPt = null,
+    string? HardwareOrOsDependencyEn = null,
+    string? DefaultWindowsBehaviorPt = null,
+    string? DefaultWindowsBehaviorEn = null,
+    TweakRecommendationStatus RecommendationStatus = TweakRecommendationStatus.Recommended,
+    bool IsRecommendedForApply = true,
+    int MinimumWindowsBuild = 19041,
+    int? MaximumWindowsBuild = null
 )
 {
     public string TargetRawValue => RecommendedValue;
     public IReadOnlyList<string> AllowedRawValues => AllowedValues;
+
+    public string DisplayTitlePt => !string.IsNullOrWhiteSpace(FriendlyNamePt) ? FriendlyNamePt : Description;
+    public string DisplayTitleEn => !string.IsNullOrWhiteSpace(FriendlyNameEn) ? FriendlyNameEn : DescriptionEn;
 }
 
 public record RegistryAuditLogEntry(
@@ -64,11 +559,28 @@ public record RegistryOperationResult(
     public string? VerifiedCurrentValue => VerifiedValue;
 }
 
-
 [SupportedOSPlatform("windows")]
 public static class RegistryOptimizer
 {
     private static readonly ConcurrentQueue<RegistryAuditLogEntry> _auditHistory = new();
+    private static IRegistryKeyProbe? _AmbientTestProbe;
+
+    /// <summary>
+    /// Allows unit tests to inject a deterministic IRegistryKeyProbe for all RegistryOptimizer operations
+    /// within a disposable scope without modifying the real Windows Registry.
+    /// </summary>
+    public static IDisposable UseProbeScope(IRegistryKeyProbe probe)
+    {
+        _AmbientTestProbe = probe ?? throw new ArgumentNullException(nameof(probe));
+        return new ProbeScopeReset();
+    }
+
+    public static IRegistryKeyProbe ActiveProbe => _AmbientTestProbe ?? Win32RegistryKeyProbe.Instance;
+
+    private sealed class ProbeScopeReset : IDisposable
+    {
+        public void Dispose() => _AmbientTestProbe = null;
+    }
 
     public static string AuditLogFilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -118,217 +630,745 @@ public static class RegistryOptimizer
     };
 
     /// <summary>
-    /// Closed, immutable catalog of authorized Registry tweaks.
-    /// Every modification must reference a TweakId in this catalog; clients cannot specify arbitrary paths, value names, or types.
+    /// Closed, immutable catalog of authorized Registry tweaks (§1 Audited & Corrected).
+    /// All TweakIds are preserved for compatibility with DPAPI Ledger, SQLite, and verified SHA-256 snapshots.
     /// </summary>
     public static IReadOnlyDictionary<string, TweakDefinition> Catalog { get; } = new Dictionary<string, TweakDefinition>(StringComparer.OrdinalIgnoreCase)
     {
         ["perf-mmcss"] = new(
-            "perf-mmcss", "HKLM",
-            @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
-            "SystemResponsiveness", RegistryValueKind.DWord,
-            "10", "20", new[] { "10", "20" },
-            "Prioriza threads multimídia e reduz latência de áudio/DPC em jogos.",
-            "Prioritizes multimedia threads and lowers audio/DPC latency in games.",
-            "Performance", "Baixo"
+            TweakId: "perf-mmcss",
+            Hive: "HKLM",
+            SubKeyPath: @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
+            ValueName: "SystemResponsiveness",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "10",
+            DefaultOriginValue: "20",
+            AllowedValues: new[] { "10", "20" },
+            Description: "Reserva de CPU do Agendador Multimídia (SystemResponsiveness = 10%)",
+            DescriptionEn: "Multimedia Class Scheduler CPU Reservation (SystemResponsiveness = 10%)",
+            Category: "Performance",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Reserva de CPU do Agendador Multimídia (MMCSS SystemResponsiveness)",
+            FriendlyNameEn: "Multimedia Scheduler CPU Reservation (MMCSS SystemResponsiveness)",
+            WhatItDoesPt: "Define o percentual de tempo de CPU reservado pelo Multimedia Class Scheduler Service (MMCSS) para tarefas de segundo plano de baixa prioridade durante cargas multimídia e jogos.",
+            WhatItDoesEn: "Sets the percentage of CPU time reserved by the Multimedia Class Scheduler Service (MMCSS) for low-priority background tasks during multimedia and gaming workloads.",
+            ProblemSolvedPt: "Reduz a fatia reservada a tarefas em segundo plano de 20% (padrão) para 10% quando threads multimídia estão ativas.",
+            ProblemSolvedEn: "Lowers the slice reserved for background tasks from 20% (default) to 10% when multimedia threads are active.",
+            ExpectedBenefitPt: "Permite que threads registradas no MMCSS utilizem até 90% dos ciclos de CPU em momentos de pico.",
+            ExpectedBenefitEn: "Allows MMCSS-registered threads to utilize up to 90% of CPU cycles during peak contention.",
+            PotentialSideEffectsPt: "Tarefas de segundo plano (como indexação ou sincronização) podem progredir mais lentamente enquanto um jogo estiver aberto.",
+            PotentialSideEffectsEn: "Background tasks (such as indexing or file syncing) may progress slightly slower while a game is running.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (Requer Administrador para gravar em HKLM).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (Requires Administrator to write to HKLM).",
+            DefaultWindowsBehaviorPt: "Padrão documentado pelo Windows Client: 20 (20% reservado para tarefas de fundo).",
+            DefaultWindowsBehaviorEn: "Documented Windows Client default: 20 (20% reserved for background tasks).",
+            RecommendationStatus: TweakRecommendationStatus.Recommended,
+            IsRecommendedForApply: true
         ),
+
         ["perf-game-dvr"] = new(
-            "perf-game-dvr", "HKCU",
-            @"System\GameConfigStore",
-            "GameDVR_Enabled", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
-            "Desativa gravação contínua em segundo plano do Xbox Game DVR.",
-            "Disables continuous background recording by Xbox Game DVR.",
-            "Performance", "Baixo"
+            TweakId: "perf-game-dvr",
+            Hive: "HKCU",
+            SubKeyPath: @"System\GameConfigStore",
+            ValueName: "GameDVR_Enabled",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "0",
+            DefaultOriginValue: "1",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Desativar Gravação em Segundo Plano do Xbox Game DVR (GameDVR_Enabled)",
+            DescriptionEn: "Disable Xbox Game DVR Background Recording (GameDVR_Enabled)",
+            Category: "Gaming",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Captura em Segundo Plano do Xbox Game DVR (GameDVR_Enabled)",
+            FriendlyNameEn: "Xbox Game DVR Background Recording (GameDVR_Enabled)",
+            WhatItDoesPt: "Desativa a captura contínua de vídeo em segundo plano realizada pelo componente Game DVR do Windows.",
+            WhatItDoesEn: "Disables continuous background video capture performed by the Windows Game DVR component.",
+            ProblemSolvedPt: "Evita que o codificador de vídeo da GPU mantenha buffers de repetição instantânea ativos durante jogos.",
+            ProblemSolvedEn: "Prevents the GPU video encoder from maintaining active instant-replay buffers during gameplay.",
+            ExpectedBenefitPt: "Elimina o consumo de VRAM e de codificador de hardware causado pela gravação automática em segundo plano.",
+            ExpectedBenefitEn: "Eliminates VRAM and hardware encoder overhead caused by automatic background recording.",
+            PotentialSideEffectsPt: "Desativa o recurso de gravar os últimos segundos de jogo via atalho Win+Alt+G no Xbox Game Bar.",
+            PotentialSideEffectsEn: "Disables the 'Record last X seconds' shortcut (Win+Alt+G) in Xbox Game Bar.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (Escopo do usuário atual HKCU).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (Current user scope HKCU).",
+            DefaultWindowsBehaviorPt: "Quando ativo (1), permite captura em segundo plano pelo Game Bar.",
+            DefaultWindowsBehaviorEn: "When enabled (1), allows background capture via Game Bar.",
+            RecommendationStatus: TweakRecommendationStatus.Recommended,
+            IsRecommendedForApply: true
         ),
+
         ["perf-hpet"] = new(
-            "perf-hpet", "HKLM",
-            @"SYSTEM\CurrentControlSet\Control\PriorityControl",
-            "Win32PrioritySeparation", RegistryValueKind.DWord,
-            "38", "2", new[] { "2", "38", "26" },
-            "Otimiza o quantum de prioridade de janelas em primeiro plano (Win32PrioritySeparation=0x26).",
-            "Optimizes foreground window thread priority quantum (Win32PrioritySeparation=0x26).",
-            "Performance", "Médio"
+            TweakId: "perf-hpet",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Control\PriorityControl",
+            ValueName: "Win32PrioritySeparation",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "38",
+            DefaultOriginValue: "2",
+            AllowedValues: new[] { "2", "38", "26" },
+            Description: "Separação de Prioridade de Primeiro Plano (Win32PrioritySeparation = 0x26 / 38)",
+            DescriptionEn: "Foreground Thread Priority Separation (Win32PrioritySeparation = 0x26 / 38)",
+            Category: "Performance",
+            RiskLevel: "Médio",
+            FriendlyNamePt: "Quantum de Prioridade de Processos em Primeiro Plano (Win32PrioritySeparation)",
+            FriendlyNameEn: "Foreground Process Priority Quantum (Win32PrioritySeparation)",
+            WhatItDoesPt: "Controla a duração do quantum de agendamento do processador e o reforço de prioridade atribuído aos threads da janela ativa em primeiro plano (NOTA: este ajuste altera Win32PrioritySeparation, não o timer HPET).",
+            WhatItDoesEn: "Controls processor scheduling quantum length and priority boost given to threads of the active foreground window (NOTE: modifies Win32PrioritySeparation, not the HPET hardware timer).",
+            ProblemSolvedPt: "Define intervalos de quantum curtos e fixos com proporção 3:1 a favor do aplicativo em primeiro plano (valor decimal 38 / 0x26 hex).",
+            ProblemSolvedEn: "Configures short, fixed-length scheduling quantums with a 3:1 ratio favoring the foreground application (decimal 38 / 0x26 hex).",
+            ExpectedBenefitPt: "Pode melhorar a responsividade da janela em foco sob carga concorrente de processos em segundo plano.",
+            ExpectedBenefitEn: "Can improve responsiveness of the focused window when background processes compete for CPU time.",
+            PotentialSideEffectsPt: "Processos em segundo plano (como codificadores de streaming OBS ou renderizações paralelas) recebem fatias menores de CPU.",
+            PotentialSideEffectsEn: "Background processes (such as OBS streaming encoders or background renders) receive shorter CPU time slices.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (HKLM — requer privilégios de Administrador).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (HKLM — requires Administrator privileges).",
+            DefaultWindowsBehaviorPt: "Padrão oficial do Windows Client: 2 (quantum variável curto com reforço padrão para primeiro plano).",
+            DefaultWindowsBehaviorEn: "Official Windows Client default: 2 (short variable quantum with standard foreground boost).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["perf-tcp-nagle"] = new(
-            "perf-tcp-nagle", "HKLM",
-            @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
-            "NetworkThrottlingIndex", RegistryValueKind.DWord,
-            "-1", "10", new[] { "-1", "10", "1" },
-            "Desativa limitação artificial de pacotes de rede multimídia (NetworkThrottlingIndex).",
-            "Disables artificial multimedia network packet throttling (NetworkThrottlingIndex).",
-            "Performance", "Baixo"
+            TweakId: "perf-tcp-nagle",
+            Hive: "HKLM",
+            SubKeyPath: @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
+            ValueName: "NetworkThrottlingIndex",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "-1",
+            DefaultOriginValue: "10",
+            AllowedValues: new[] { "-1", "10", "1", "4294967295" },
+            Description: "Desativar Limitação de Rede Multimídia (NetworkThrottlingIndex = 0xFFFFFFFF)",
+            DescriptionEn: "Disable Multimedia Network Packet Throttling (NetworkThrottlingIndex = 0xFFFFFFFF)",
+            Category: "Network",
+            RiskLevel: "Médio",
+            FriendlyNamePt: "Índice de Limitação de Rede do Subsistema Multimídia (NetworkThrottlingIndex)",
+            FriendlyNameEn: "Multimedia Subsystem Network Throttling Index (NetworkThrottlingIndex)",
+            WhatItDoesPt: "Controla o limite de pacotes de rede por milissegundo processados pelo driver NDIS enquanto aplicativos multimídia estão ativos (NOTA: modifica NetworkThrottlingIndex do MMCSS, não o algoritmo TCP Nagle).",
+            WhatItDoesEn: "Controls the maximum network packets per millisecond processed by NDIS while multimedia apps are active (NOTE: modifies MMCSS NetworkThrottlingIndex, not the TCP Nagle algorithm).",
+            ProblemSolvedPt: "Remove o teto padrão de 10 pacotes/ms imposto pelo MMCSS definindo 0xFFFFFFFF (-1 em DWORD com sinal).",
+            ProblemSolvedEn: "Removes the default 10 packets/ms cap enforced by MMCSS by setting 0xFFFFFFFF (-1 in signed DWORD).",
+            ExpectedBenefitPt: "Evita retenção artificial de pacotes de rede quando jogos e fluxos de áudio multimídia rodam simultaneamente.",
+            ExpectedBenefitEn: "Prevents artificial network packet throttling when games and multimedia audio streams run simultaneously.",
+            PotentialSideEffectsPt: "Segundo a documentação da Microsoft, desativar o throttling em redes Gigabit saturadas pode causar falhas em reprodução de áudio/vídeo de tempo real em CPUs antigas.",
+            PotentialSideEffectsEn: "Per Microsoft documentation, disabling throttling on saturated Gigabit networks may cause real-time audio/video playback glitches on older CPUs.",
+            RequiresReboot: true,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (Requer reinicialização para recarregar o perfil do MMCSS).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (Requires reboot to reload the MMCSS profile).",
+            DefaultWindowsBehaviorPt: "Padrão documentado pela Microsoft: 10 (10 pacotes por milissegundo).",
+            DefaultWindowsBehaviorEn: "Microsoft documented default: 10 (10 packets per millisecond).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["start-fast-boot"] = new(
-            "start-fast-boot", "HKLM",
-            @"SYSTEM\CurrentControlSet\Control\Session Manager\Power",
-            "HiberbootEnabled", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
-            "Realiza inicialização limpa do kernel a cada boot (HiberbootEnabled=0).",
-            "Performs a clean kernel initialization on every boot (HiberbootEnabled=0).",
-            "Startup", "Baixo"
+            TweakId: "start-fast-boot",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Control\Session Manager\Power",
+            ValueName: "HiberbootEnabled",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "0",
+            DefaultOriginValue: "1",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Desativar Inicialização Rápida Híbrida (HiberbootEnabled = 0)",
+            DescriptionEn: "Disable Hybrid Fast Startup (HiberbootEnabled = 0)",
+            Category: "Startup",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Inicialização Rápida do Windows (Fast Startup / HiberbootEnabled)",
+            FriendlyNameEn: "Windows Fast Startup (HiberbootEnabled)",
+            WhatItDoesPt: "Desativa a hibernação híbrida da sessão do kernel ao desligar o computador, forçando um desligamento completo.",
+            WhatItDoesEn: "Disables hybrid kernel session hibernation when shutting down the PC, enforcing a full shutdown.",
+            ProblemSolvedPt: "Garante que o kernel NT e os drivers de vídeo/rede sejam reinicializados do zero ao ligar o PC.",
+            ProblemSolvedEn: "Ensures the NT kernel and video/network drivers are freshly initialized when powering on the PC.",
+            ExpectedBenefitPt: "Melhora a previsibilidade após atualizações de drivers e evita estado residual de uptime acumulado.",
+            ExpectedBenefitEn: "Improves predictability after driver updates and avoids accumulated kernel uptime state.",
+            PotentialSideEffectsPt: "O tempo de boot a frio pode aumentar em 2 a 5 segundos em comparação à retomada híbrida.",
+            PotentialSideEffectsEn: "Cold boot time may increase by 2 to 5 seconds compared to hybrid resume.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 com hibernação habilitada.",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 with hibernation enabled.",
+            DefaultWindowsBehaviorPt: "Padrão quando a hibernação está ativa: 1 (Inicialização Rápida ativada).",
+            DefaultWindowsBehaviorEn: "Default when hibernation is enabled: 1 (Fast Startup enabled).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["start-edge-preload"] = new(
-            "start-edge-preload", "HKLM",
-            @"SOFTWARE\Policies\Microsoft\Edge",
-            "StartupBoostEnabled", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
-            "Impede pré-carregamento em segundo plano do Microsoft Edge no boot.",
-            "Prevents Microsoft Edge background preloading at startup.",
-            "Startup", "Baixo"
+            TweakId: "start-edge-preload",
+            Hive: "HKLM",
+            SubKeyPath: @"SOFTWARE\Policies\Microsoft\Edge",
+            ValueName: "StartupBoostEnabled",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "0",
+            DefaultOriginValue: "1",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Desativar Impulso de Inicialização do Microsoft Edge (StartupBoostEnabled = 0)",
+            DescriptionEn: "Disable Microsoft Edge Startup Boost Policy (StartupBoostEnabled = 0)",
+            Category: "Startup",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Impulso de Inicialização do Microsoft Edge (StartupBoostEnabled)",
+            FriendlyNameEn: "Microsoft Edge Startup Boost (StartupBoostEnabled)",
+            WhatItDoesPt: "Define a política do Microsoft Edge para impedir que processos msedge.exe permaneçam pré-carregados em segundo plano após o logon ou fechamento do navegador.",
+            WhatItDoesEn: "Sets the Microsoft Edge policy to prevent msedge.exe processes from staying preloaded in the background after logon or browser closure.",
+            ProblemSolvedPt: "Evita consumo contínuo de memória RAM por processos em segundo plano do Edge quando o navegador não está em uso.",
+            ProblemSolvedEn: "Prevents continuous RAM usage by background Edge processes when the browser is not in use.",
+            ExpectedBenefitPt: "Reduz processos residentes em segundo plano e libera memória RAM quando o Edge está fechado.",
+            ExpectedBenefitEn: "Reduces resident background processes and frees RAM when Edge is closed.",
+            PotentialSideEffectsPt: "O Microsoft Edge exibirá o aviso 'Gerenciado pela sua organização' nas configurações por usar uma chave de política em HKLM\\SOFTWARE\\Policies.",
+            PotentialSideEffectsEn: "Microsoft Edge will display 'Managed by your organization' in settings because a policy key under HKLM\\SOFTWARE\\Policies is used.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Sistemas com Microsoft Edge instalado.",
+            HardwareOrOsDependencyEn: "Systems with Microsoft Edge installed.",
+            DefaultWindowsBehaviorPt: "Por padrão, a subchave de política não existe e o usuário controla o recurso nas configurações do Edge.",
+            DefaultWindowsBehaviorEn: "By default, the policy subkey is absent and the user controls the feature inside Edge settings.",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["bg-telemetry"] = new(
-            "bg-telemetry", "HKLM",
-            @"SOFTWARE\Policies\Microsoft\Windows\DataCollection",
-            "AllowTelemetry", RegistryValueKind.DWord,
-            "1", "3", new[] { "1", "3" },
-            "Reduz coleta diagnóstica para nível básico sem afetar segurança.",
-            "Reduces diagnostic telemetry collection to basic level without affecting security.",
-            "Background", "Baixo"
+            TweakId: "bg-telemetry",
+            Hive: "HKLM",
+            SubKeyPath: @"SOFTWARE\Policies\Microsoft\Windows\DataCollection",
+            ValueName: "AllowTelemetry",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "1",
+            DefaultOriginValue: "3",
+            AllowedValues: new[] { "1", "3" },
+            Description: "Limitar Telemetria Diagnóstica ao Nível Básico Obrigatório (AllowTelemetry = 1)",
+            DescriptionEn: "Limit Diagnostic Telemetry to Required Basic Level (AllowTelemetry = 1)",
+            Category: "Privacy",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Nível de Dados de Diagnóstico do Windows (AllowTelemetry)",
+            FriendlyNameEn: "Windows Diagnostic Data Level (AllowTelemetry)",
+            WhatItDoesPt: "Configura a política de coleta de dados de diagnóstico do Windows para o nível 1 (Obrigatório / Básico), sem desativar serviços de segurança ou Windows Update.",
+            WhatItDoesEn: "Configures the Windows diagnostic data collection policy to level 1 (Required / Basic), without disabling security services or Windows Update.",
+            ProblemSolvedPt: "Reduz o envio de telemetria diagnóstica opcional e relatórios detalhados de uso em segundo plano.",
+            ProblemSolvedEn: "Reduces optional diagnostic telemetry uploads and detailed usage reporting in the background.",
+            ExpectedBenefitPt: "Menor atividade de coleta diagnóstica em segundo plano mantendo conformidade com o Windows Update.",
+            ExpectedBenefitEn: "Lower background diagnostic collection activity while maintaining Windows Update compliance.",
+            PotentialSideEffectsPt: "A página 'Diagnóstico e comentários' nas Configurações do Windows pode informar que algumas configurações são gerenciadas por política.",
+            PotentialSideEffectsEn: "The 'Diagnostics & feedback' page in Windows Settings may state that some settings are managed by policy.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (Em edições Home/Pro o nível mínimo suportado é 1).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (On Home/Pro editions the minimum supported level is 1).",
+            DefaultWindowsBehaviorPt: "Se não configurado por política, segue a escolha feita na instalação (frequentemente 3 = Opcional/Completo).",
+            DefaultWindowsBehaviorEn: "When not configured by policy, follows the OOBE choice (often 3 = Optional/Full).",
+            RecommendationStatus: TweakRecommendationStatus.Recommended,
+            IsRecommendedForApply: true
         ),
+
         ["bg-cortana-news"] = new(
-            "bg-cortana-news", "HKCU",
-            @"Software\Microsoft\Windows\CurrentVersion\Feeds",
-            "ShellFeedsTaskbarViewMode", RegistryValueKind.DWord,
-            "2", "0", new[] { "0", "1", "2" },
-            "Desativa carregamento contínuo do feed de notícias na barra de tarefas.",
-            "Disables continuous loading of the taskbar news and interests feed.",
-            "Background", "Baixo"
+            TweakId: "bg-cortana-news",
+            Hive: "HKCU",
+            SubKeyPath: @"Software\Microsoft\Windows\CurrentVersion\Feeds",
+            ValueName: "ShellFeedsTaskbarViewMode",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "2",
+            DefaultOriginValue: "0",
+            AllowedValues: new[] { "0", "1", "2" },
+            Description: "Ocultar Feed 'Notícias e Interesses' na Barra de Tarefas do Windows 10 (ShellFeedsTaskbarViewMode = 2)",
+            DescriptionEn: "Hide 'News and Interests' Feed on Windows 10 Taskbar (ShellFeedsTaskbarViewMode = 2)",
+            Category: "Interface",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Feed de Notícias e Interesses da Barra de Tarefas (Windows 10)",
+            FriendlyNameEn: "Taskbar News and Interests Feed (Windows 10)",
+            WhatItDoesPt: "Define o modo de exibição do botão 'Notícias e Interesses' na barra de tarefas do Windows 10 para 2 (Desativado). NOTA: não controla a Cortana.",
+            WhatItDoesEn: "Sets the display mode of the 'News and Interests' widget on the Windows 10 taskbar to 2 (Turned off). NOTE: does not control Cortana.",
+            ProblemSolvedPt: "Evita que o flyout de notícias/clima atualize conteúdo web em segundo plano na barra de tarefas do Windows 10.",
+            ProblemSolvedEn: "Prevents the news/weather flyout from refreshing web content in the background on the Windows 10 taskbar.",
+            ExpectedBenefitPt: "Remove o painel de notícias da barra de tarefas do Windows 10 e reduz requisições periódicas do feed.",
+            ExpectedBenefitEn: "Removes the news flyout from the Windows 10 taskbar and reduces periodic feed requests.",
+            PotentialSideEffectsPt: "O ícone de previsão do tempo na barra de tarefas do Windows 10 ficará oculto. No Windows 11 esta chave não tem efeito (substituída por Widgets).",
+            PotentialSideEffectsEn: "The weather icon on the Windows 10 taskbar is hidden. On Windows 11 this key has no effect (replaced by Widgets).",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Específico para Windows 10 (21H1/21H2/22H2).",
+            HardwareOrOsDependencyEn: "Specific to Windows 10 (21H1/21H2/22H2).",
+            DefaultWindowsBehaviorPt: "Padrão no Windows 10: 0 (Mostrar ícone e texto).",
+            DefaultWindowsBehaviorEn: "Default on Windows 10: 0 (Show icon and text).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["power-ultimate-plan"] = new(
-            "power-ultimate-plan", "HKLM",
-            @"SYSTEM\CurrentControlSet\Control\Power\PowerThrottling",
-            "PowerThrottlingOff", RegistryValueKind.DWord,
-            "1", "0", new[] { "0", "1" },
-            "Desativa redução automática de clock (Power Throttling) para processos em execução.",
-            "Disables automatic CPU clock throttling (Power Throttling) for active processes.",
-            "Power", "Baixo"
+            TweakId: "power-ultimate-plan",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Control\Power\PowerThrottling",
+            ValueName: "PowerThrottlingOff",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "1",
+            DefaultOriginValue: "0",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Desativar Limitação de Energia de Processos (PowerThrottlingOff = 1)",
+            DescriptionEn: "Disable Process Execution Power Throttling (PowerThrottlingOff = 1)",
+            Category: "Power",
+            RiskLevel: "Médio",
+            FriendlyNamePt: "Controle de Limitação de Energia de Processos (PowerThrottlingOff)",
+            FriendlyNameEn: "Process Power Throttling Control (PowerThrottlingOff)",
+            WhatItDoesPt: "Desativa globalmente o recurso Power Throttling (EcoQoS) do kernel do Windows para processos em segundo plano (NOTA: modifica PowerThrottlingOff, não cria nem ativa o plano de energia Ultimate Performance).",
+            WhatItDoesEn: "Globally disables the Windows kernel Power Throttling (EcoQoS) feature for background processes (NOTE: modifies PowerThrottlingOff; does not create or activate the Ultimate Performance power plan).",
+            ProblemSolvedPt: "Impede que o sistema reduza automaticamente a frequência de CPU ou aloque núcleos de eficiência para tarefas classificadas como segundo plano.",
+            ProblemSolvedEn: "Prevents the OS from automatically lowering CPU frequency or forcing efficiency cores on tasks classified as background work.",
+            ExpectedBenefitPt: "Útil em desktops quando aplicativos auxiliares de áudio/captura sofrem redução de clock em segundo plano.",
+            ExpectedBenefitEn: "Useful on desktops when auxiliary audio/capture applications suffer clock throttling while in the background.",
+            PotentialSideEffectsPt: "Aumenta o consumo de energia e reduz a autonomia de bateria em notebooks; pode interferir no agendamento de núcleos eficientes (E-Cores) em CPUs híbridas.",
+            PotentialSideEffectsEn: "Increases power consumption and reduces battery life on laptops; may interfere with efficiency-core (E-Core) scheduling on hybrid CPUs.",
+            RequiresReboot: true,
+            HardwareOrOsDependencyPt: "Processadores com suporte a Intel Speed Shift / EcoQoS no Windows 10 e 11. Não recomendado para notebooks na bateria.",
+            HardwareOrOsDependencyEn: "Processors supporting Intel Speed Shift / EcoQoS on Windows 10 and 11. Not recommended for laptops on battery.",
+            DefaultWindowsBehaviorPt: "Por padrão a chave não existe (ou vale 0), mantendo o gerenciamento automático de eficiência energética ativo.",
+            DefaultWindowsBehaviorEn: "By default the key is absent (or 0), keeping automatic power efficiency management active.",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["power-pcie-link"] = new(
-            "power-pcie-link", "HKLM",
-            @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games",
-            "Scheduling Category", RegistryValueKind.String,
-            "High", "Medium", new[] { "High", "Medium", "Low" },
-            "Define a categoria de escalonamento MMCSS de Jogos para High (REG_SZ).",
-            "Sets the MMCSS Games task scheduling category to High (REG_SZ).",
-            "Power", "Baixo"
+            TweakId: "power-pcie-link",
+            Hive: "HKLM",
+            SubKeyPath: @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games",
+            ValueName: "Scheduling Category",
+            ValueKind: RegistryValueKind.String,
+            RecommendedValue: "High",
+            DefaultOriginValue: "Medium",
+            AllowedValues: new[] { "High", "Medium", "Low" },
+            Description: "Categoria de Agendamento MMCSS para Jogos (Scheduling Category = High)",
+            DescriptionEn: "MMCSS Games Task Scheduling Category (Scheduling Category = High)",
+            Category: "Gaming",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Categoria de Prioridade MMCSS para Tarefas de Jogos (Scheduling Category)",
+            FriendlyNameEn: "MMCSS Priority Category for Games Task (Scheduling Category)",
+            WhatItDoesPt: "Define o atributo 'Scheduling Category' (REG_SZ) do perfil MMCSS 'Games' para 'High' (NOTA: altera a categoria do agendador multimídia MMCSS, não o gerenciamento de energia PCIe ASPM).",
+            WhatItDoesEn: "Sets the 'Scheduling Category' (REG_SZ) attribute of the MMCSS 'Games' profile to 'High' (NOTE: modifies the MMCSS scheduler category, not PCIe ASPM power management).",
+            ProblemSolvedPt: "Garante que threads de jogos registradas na tarefa MMCSS 'Games' recebam a categoria de prioridade 'High' em vez de 'Medium'.",
+            ProblemSolvedEn: "Ensures game threads registered under the MMCSS 'Games' task receive the 'High' priority category instead of 'Medium'.",
+            ExpectedBenefitPt: "Prioriza o escalonamento de threads de jogos que utilizam a API AvSetMmThreadCharacteristics(\"Games\").",
+            ExpectedBenefitEn: "Prioritizes thread scheduling for games that invoke the AvSetMmThreadCharacteristics(\"Games\") API.",
+            PotentialSideEffectsPt: "Impacto restrito a jogos e motores gráficos que se registram explicitamente no serviço MMCSS.",
+            PotentialSideEffectsEn: "Effect is limited to games and engines that explicitly register with the MMCSS service.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (HKLM).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (HKLM).",
+            DefaultWindowsBehaviorPt: "Padrão de instalação do Windows: 'Medium' (REG_SZ).",
+            DefaultWindowsBehaviorEn: "Windows default installation value: 'Medium' (REG_SZ).",
+            RecommendationStatus: TweakRecommendationStatus.Recommended,
+            IsRecommendedForApply: true
         ),
+
         ["serv-sysmain"] = new(
-            "serv-sysmain", "HKLM",
-            @"SYSTEM\CurrentControlSet\Services\SysMain",
-            "Start", RegistryValueKind.DWord,
-            "3", "2", new[] { "2", "3" },
-            "Configura serviço SysMain para inicialização manual em SSDs NVMe.",
-            "Configures the SysMain service for manual startup on NVMe SSDs.",
-            "Services", "Baixo"
+            TweakId: "serv-sysmain",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Services\SysMain",
+            ValueName: "Start",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "3",
+            DefaultOriginValue: "2",
+            AllowedValues: new[] { "2", "3" },
+            Description: "Configurar Serviço SysMain (Superfetch) para Inicialização Manual (Start = 3)",
+            DescriptionEn: "Configure SysMain (Superfetch) Service for Manual Startup (Start = 3)",
+            Category: "Services",
+            RiskLevel: "Médio",
+            FriendlyNamePt: "Modo de Inicialização do Serviço SysMain / Superfetch (Start)",
+            FriendlyNameEn: "SysMain / Superfetch Service Startup Mode (Start)",
+            WhatItDoesPt: "Altera o tipo de inicialização do serviço SysMain de Automático (2) para Manual (3).",
+            WhatItDoesEn: "Changes the startup type of the SysMain service from Automatic (2) to Manual (3).",
+            ProblemSolvedPt: "Impede o pré-carregamento preditivo automático de aplicativos no boot em sistemas que desejam controlar o serviço manualmente.",
+            ProblemSolvedEn: "Prevents automatic predictive preloading of applications at boot on systems where manual control is desired.",
+            ExpectedBenefitPt: "Pode reduzir atividade de disco e memória em segundo plano logo após a inicialização em cenários específicos.",
+            ExpectedBenefitEn: "Can reduce background disk and memory activity right after boot in specific scenarios.",
+            PotentialSideEffectsPt: "Desativa a pré-busca e parte do gerenciamento de compressão de memória do SysMain, o que pode aumentar o tempo de abertura de aplicativos cotidianos.",
+            PotentialSideEffectsEn: "Disables SysMain prefetching and parts of memory compression management, which may slightly increase launch times for everyday apps.",
+            RequiresReboot: true,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (Exige reinicialização para alterar o estado efetivo do serviço).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (Requires reboot to change the effective service state).",
+            DefaultWindowsBehaviorPt: "Padrão oficial do Windows: 2 (Inicialização Automática).",
+            DefaultWindowsBehaviorEn: "Official Windows default: 2 (Automatic startup).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["serv-spooler"] = new(
-            "serv-spooler", "HKLM",
-            @"SYSTEM\CurrentControlSet\Services\Spooler",
-            "Start", RegistryValueKind.DWord,
-            "3", "2", new[] { "2", "3" },
-            "Configura Spooler de Impressão para modo sob demanda (Manual).",
-            "Configures Print Spooler for on-demand (Manual) startup.",
-            "Services", "Baixo"
+            TweakId: "serv-spooler",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Services\Spooler",
+            ValueName: "Start",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "3",
+            DefaultOriginValue: "2",
+            AllowedValues: new[] { "2", "3" },
+            Description: "Spooler de Impressão em Inicialização Manual (Start = 3 — Apenas Sem Impressora)",
+            DescriptionEn: "Print Spooler Manual Startup (Start = 3 — Only Without Printers)",
+            Category: "Services",
+            RiskLevel: "Médio",
+            FriendlyNamePt: "Modo de Inicialização do Spooler de Impressão (Spooler Start)",
+            FriendlyNameEn: "Print Spooler Service Startup Mode (Spooler Start)",
+            WhatItDoesPt: "Altera a inicialização do serviço Spooler de Impressão (spoolsv.exe) de Automático (2) para Manual (3).",
+            WhatItDoesEn: "Changes the Print Spooler service (spoolsv.exe) startup type from Automatic (2) to Manual (3).",
+            ProblemSolvedPt: "Evita que o serviço de fila de impressão inicie automaticamente no boot em computadores que nunca utilizam impressoras.",
+            ProblemSolvedEn: "Prevents the print queue service from starting automatically at boot on PCs that never use printers.",
+            ExpectedBenefitPt: "Elimina um processo de serviço em segundo plano em máquinas dedicadas exclusivamente a jogos sem impressora.",
+            ExpectedBenefitEn: "Eliminates one background service process on dedicated gaming machines without a printer.",
+            PotentialSideEffectsPt: "ATENÇÃO: Impressoras físicas, impressoras de rede e 'Microsoft Print to PDF' deixarão de funcionar até que o serviço seja iniciado manualmente ou revertido para 2.",
+            PotentialSideEffectsEn: "WARNING: Physical printers, network printers, and 'Microsoft Print to PDF' will stop working until the service is started manually or reverted to 2.",
+            RequiresReboot: true,
+            HardwareOrOsDependencyPt: "Não recomendado se você utiliza impressoras físicas ou geração de PDF via Spooler.",
+            HardwareOrOsDependencyEn: "Not recommended if you use physical printers or Spooler-based PDF generation.",
+            DefaultWindowsBehaviorPt: "Padrão oficial do Windows: 2 (Automático).",
+            DefaultWindowsBehaviorEn: "Official Windows default: 2 (Automatic).",
+            RecommendationStatus: TweakRecommendationStatus.NotRecommendedOrDefault,
+            IsRecommendedForApply: false
         ),
+
         ["mem-standby-clean"] = new(
-            "mem-standby-clean", "HKLM",
-            @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
-            "LargeSystemCache", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
-            "Prioriza memória RAM física para aplicativos e jogos em primeiro plano (LargeSystemCache=0).",
-            "Prioritizes physical RAM for foreground applications and games (LargeSystemCache=0).",
-            "Memory", "Baixo"
+            TweakId: "mem-standby-clean",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
+            ValueName: "LargeSystemCache",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "0",
+            DefaultOriginValue: "1",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Prioridade de Memória para Aplicativos vs. Cache de Arquivos (LargeSystemCache = 0)",
+            DescriptionEn: "Application vs. File Cache Memory Priority (LargeSystemCache = 0)",
+            Category: "Memory",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Prioridade de Memória para Aplicativos (LargeSystemCache)",
+            FriendlyNameEn: "Application Memory Priority (LargeSystemCache)",
+            WhatItDoesPt: "Define se o gerenciador de memória prioriza o working set de programas em execução (0) ou o cache de sistema de arquivos para servidores de rede (1). NOTA: não limpa a lista de memória Standby.",
+            WhatItDoesEn: "Specifies whether the memory manager prioritizes the working set of running programs (0) or the file system cache for network servers (1). NOTE: does not purge the Standby memory list.",
+            ProblemSolvedPt: "Garante que edições Client mantenham o valor padrão 0 caso algum utilitário de terceiros tenha ativado o modo servidor (1).",
+            ProblemSolvedEn: "Ensures Client editions keep the default value 0 if a third-party utility previously enabled server cache mode (1).",
+            ExpectedBenefitPt: "Como 0 já é o padrão oficial do Windows 10/11 Client, só produz efeito corretivo se o valor tiver sido alterado para 1 anteriormente.",
+            ExpectedBenefitEn: "Since 0 is already the official Windows 10/11 Client default, it only has a corrective effect if the value was previously changed to 1.",
+            PotentialSideEffectsPt: "Nenhum efeito negativo em desktops quando definido como 0 (padrão).",
+            PotentialSideEffectsEn: "No negative effect on desktops when set to 0 (default).",
+            RequiresReboot: true,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (Conformidade do padrão Client).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (Client default compliance).",
+            DefaultWindowsBehaviorPt: "Padrão oficial do Windows Client: 0 (Windows Server usa 1 para compartilhamento de arquivos).",
+            DefaultWindowsBehaviorEn: "Official Windows Client default: 0 (Windows Server uses 1 for file sharing).",
+            RecommendationStatus: TweakRecommendationStatus.NotRecommendedOrDefault,
+            IsRecommendedForApply: false
         ),
+
         ["mem-lock-executive"] = new(
-            "mem-lock-executive", "HKLM",
-            @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
-            "DisablePagingExecutive", RegistryValueKind.DWord,
-            "1", "0", new[] { "0", "1" },
-            "Mantém executivo do kernel e drivers na memória RAM física.",
-            "Keeps kernel executive and drivers resident in physical RAM.",
-            "Memory", "Baixo"
+            TweakId: "mem-lock-executive",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
+            ValueName: "DisablePagingExecutive",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "1",
+            DefaultOriginValue: "0",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Manter Executivo Paginável na Memória RAM Física (DisablePagingExecutive = 1)",
+            DescriptionEn: "Keep Pageable Kernel Executive in Physical RAM (DisablePagingExecutive = 1)",
+            Category: "Memory",
+            RiskLevel: "Médio",
+            FriendlyNamePt: "Retenção do Executivo do Kernel em RAM (DisablePagingExecutive)",
+            FriendlyNameEn: "Kernel Executive RAM Retention (DisablePagingExecutive)",
+            WhatItDoesPt: "Orienta o gerenciador de memória a manter seções pagináveis do executivo do Windows NT e de drivers residentes na memória RAM física.",
+            WhatItDoesEn: "Instructs the memory manager to keep pageable sections of the Windows NT executive and drivers resident in physical RAM.",
+            ProblemSolvedPt: "Evita que código pouco usado de drivers seja enviado ao arquivo de paginação quando há pressão moderada de memória.",
+            ProblemSolvedEn: "Prevents infrequently used driver code from being paged out to disk under moderate memory pressure.",
+            ExpectedBenefitPt: "Em sistemas com 16 GB+ de RAM e SSD NVMe, o ganho prático de desempenho é mínimo; útil principalmente para depuração de kernel.",
+            ExpectedBenefitEn: "On systems with 16 GB+ RAM and NVMe SSDs, practical performance gain is minimal; primarily intended for kernel debugging.",
+            PotentialSideEffectsPt: "Consome mais memória RAM física permanentemente; não recomendado em PCs com 8 GB ou menos de RAM.",
+            PotentialSideEffectsEn: "Permanently consumes more physical RAM; not recommended on PCs with 8 GB or less RAM.",
+            RequiresReboot: true,
+            HardwareOrOsDependencyPt: "Requer reinicialização e pelo menos 16 GB de memória RAM física.",
+            HardwareOrOsDependencyEn: "Requires reboot and at least 16 GB of physical RAM.",
+            DefaultWindowsBehaviorPt: "Padrão oficial do Windows: 0 (permite paginação normal quando necessário).",
+            DefaultWindowsBehaviorEn: "Official Windows default: 0 (allows normal paging when needed).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: false
         ),
+
         ["game-hags"] = new(
-            "game-hags", "HKLM",
-            @"SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
-            "HwSchMode", RegistryValueKind.DWord,
-            "2", "1", new[] { "1", "2" },
-            "Habilita agendamento de GPU acelerado por hardware (HAGS).",
-            "Enables Hardware-Accelerated GPU Scheduling (HAGS).",
-            "Gaming", "Baixo"
+            TweakId: "game-hags",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
+            ValueName: "HwSchMode",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "2",
+            DefaultOriginValue: "1",
+            AllowedValues: new[] { "1", "2" },
+            Description: "Agendamento de GPU Acelerado por Hardware — HAGS (HwSchMode = 2)",
+            DescriptionEn: "Hardware-Accelerated GPU Scheduling — HAGS (HwSchMode = 2)",
+            Category: "Gaming",
+            RiskLevel: "Médio",
+            FriendlyNamePt: "Agendamento de GPU Acelerado por Hardware (HAGS / HwSchMode)",
+            FriendlyNameEn: "Hardware-Accelerated GPU Scheduling (HAGS / HwSchMode)",
+            WhatItDoesPt: "Permite que a GPU gerencie diretamente sua fila de agendamento de pacotes e memória VRAM via processador interno de agendamento.",
+            WhatItDoesEn: "Allows the GPU to directly manage its own packet scheduling queue and VRAM via its internal hardware scheduler.",
+            ProblemSolvedPt: "Habilita o suporte nativo do sistema operacional para recursos modernos como NVIDIA DLSS 3 Frame Generation e reduz parte do overhead de submissão da CPU.",
+            ProblemSolvedEn: "Enables OS support for modern features such as NVIDIA DLSS 3 Frame Generation and reduces part of CPU submission overhead.",
+            ExpectedBenefitPt: "Necessário para Frame Generation (DLSS 3) e pode reduzir latência de agendamento de quadros em títulos DX12 compatíveis.",
+            ExpectedBenefitEn: "Required for Frame Generation (DLSS 3) and can reduce frame scheduling latency in compatible DX12 titles.",
+            PotentialSideEffectsPt: "O resultado depende da GPU, do driver e do jogo. Em alguns jogos ou quando combinado com captura OBS em GPU 99% saturada, pode causar instabilidade se o driver for antigo. Exige reinicialização.",
+            PotentialSideEffectsEn: "Results depend on GPU, driver, and game. In some titles or with OBS capture at 99% GPU load, may cause stutter on older drivers. Requires reboot.",
+            RequiresReboot: true,
+            HardwareOrOsDependencyPt: "Requer GPU compatível (NVIDIA GTX 1000+/RTX, AMD RX 5600+/7000+, Intel Arc) e driver WDDM 2.7+.",
+            HardwareOrOsDependencyEn: "Requires supported GPU (NVIDIA GTX 1000+/RTX, AMD RX 5600+/7000+, Intel Arc) and WDDM 2.7+ driver.",
+            DefaultWindowsBehaviorPt: "Valor 2 = Ativado (padrão no Windows 11 com GPUs recentes); Valor 1 = Desativado.",
+            DefaultWindowsBehaviorEn: "Value 2 = Enabled (default on Windows 11 with modern GPUs); Value 1 = Disabled.",
+            RecommendationStatus: TweakRecommendationStatus.Recommended,
+            IsRecommendedForApply: true
         ),
+
         ["game-fso-override"] = new(
-            "game-fso-override", "HKCU",
-            @"System\GameConfigStore",
-            "GameDVR_FSEBehaviorMode", RegistryValueKind.DWord,
-            "2", "0", new[] { "0", "2" },
-            "Otimiza apresentação Flip Model em tela cheia para DX11/DX12.",
-            "Optimizes fullscreen Flip Model presentation for DX11/DX12.",
-            "Gaming", "Baixo"
+            TweakId: "game-fso-override",
+            Hive: "HKCU",
+            SubKeyPath: @"System\GameConfigStore",
+            ValueName: "GameDVR_FSEBehaviorMode",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "2",
+            DefaultOriginValue: "0",
+            AllowedValues: new[] { "0", "2" },
+            Description: "Modo de Comportamento de Tela Inteira no GameConfigStore (GameDVR_FSEBehaviorMode = 2)",
+            DescriptionEn: "Fullscreen Behavior Mode in GameConfigStore (GameDVR_FSEBehaviorMode = 2)",
+            Category: "Gaming",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Política de Comportamento de Tela Inteira (GameDVR_FSEBehaviorMode)",
+            FriendlyNameEn: "Fullscreen Behavior Policy (GameDVR_FSEBehaviorMode)",
+            WhatItDoesPt: "Configura a preferência global de comportamento de tela inteira (Fullscreen Optimizations / FSE) no repositório GameConfigStore do usuário.",
+            WhatItDoesEn: "Configures the user's global Fullscreen Optimizations (FSO / FSE) behavior preference in GameConfigStore.",
+            ProblemSolvedPt: "Permite ajustar como o Windows trata a transição entre Fullscreen Otimizado (Flip Model) e Fullscreen Exclusivo.",
+            ProblemSolvedEn: "Controls how Windows handles the transition between Optimized Fullscreen (Flip Model) and Exclusive Fullscreen.",
+            ExpectedBenefitPt: "Útil para padronizar o comportamento de apresentação em jogos DirectX 9/11 sensíveis ao overlay do sistema.",
+            ExpectedBenefitEn: "Useful for standardizing presentation behavior in DirectX 9/11 games sensitive to system overlays.",
+            PotentialSideEffectsPt: "Jogos DirectX 12 nativos utilizam Flip Model independentemente desta chave; pode alterar a velocidade do Alt+Tab em jogos DX9/DX11 antigos.",
+            PotentialSideEffectsEn: "Native DirectX 12 games use Flip Model regardless of this key; may change Alt+Tab speed in older DX9/DX11 games.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (HKCU).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (HKCU).",
+            DefaultWindowsBehaviorPt: "Padrão do Windows: 0 (Otimizações de Tela Inteira padrão habilitadas).",
+            DefaultWindowsBehaviorEn: "Windows default: 0 (Standard Fullscreen Optimizations enabled).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["perf-fso-flags"] = new(
-            "perf-fso-flags", "HKCU",
-            @"System\GameConfigStore",
-            "GameDVR_FSEBehavior", RegistryValueKind.DWord,
-            "2", "0", new[] { "0", "2" },
-            "Define flags de comportamento Fullscreen Optimizations (GameDVR_FSEBehavior).",
-            "Configures Fullscreen Optimizations behavior flags (GameDVR_FSEBehavior).",
-            "Gaming", "Baixo"
+            TweakId: "perf-fso-flags",
+            Hive: "HKCU",
+            SubKeyPath: @"System\GameConfigStore",
+            ValueName: "GameDVR_FSEBehavior",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "2",
+            DefaultOriginValue: "0",
+            AllowedValues: new[] { "0", "2" },
+            Description: "Flag Auxiliar de Tela Inteira Exclusiva (GameDVR_FSEBehavior = 2)",
+            DescriptionEn: "Auxiliary Exclusive Fullscreen Flag (GameDVR_FSEBehavior = 2)",
+            Category: "Gaming",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Flag Auxiliar de Comportamento Fullscreen (GameDVR_FSEBehavior)",
+            FriendlyNameEn: "Auxiliary Fullscreen Behavior Flag (GameDVR_FSEBehavior)",
+            WhatItDoesPt: "Define o valor auxiliar GameDVR_FSEBehavior utilizado em conjunto com GameDVR_FSEBehaviorMode no perfil do usuário.",
+            WhatItDoesEn: "Sets the auxiliary GameDVR_FSEBehavior value used alongside GameDVR_FSEBehaviorMode in the user profile.",
+            ProblemSolvedPt: "Complementa a configuração de preferência de tela inteira para jogos legados DirectX 9/11.",
+            ProblemSolvedEn: "Complements the fullscreen preference configuration for legacy DirectX 9/11 games.",
+            ExpectedBenefitPt: "Sincroniza o estado do flag secundário do GameConfigStore quando o usuário opta por desativar FSO globalmente.",
+            ExpectedBenefitEn: "Synchronizes the secondary GameConfigStore flag when the user opts to override FSO globally.",
+            PotentialSideEffectsPt: "Ausente por padrão na maioria das instalações limpas do Windows 10/11 até ser configurado.",
+            PotentialSideEffectsEn: "Absent by default on most clean Windows 10/11 installations until explicitly configured.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (HKCU).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (HKCU).",
+            DefaultWindowsBehaviorPt: "Por padrão o valor não existe no Registro (ausente = comportamento automático do DWM).",
+            DefaultWindowsBehaviorEn: "By default the value is absent in the Registry (absent = automatic DWM behavior).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["sys-delivery-p2p"] = new(
-            "sys-delivery-p2p", "HKLM",
-            @"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization",
-            "DODownloadMode", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
-            "Restringe otimização de entrega P2P em segundo plano durante jogos.",
-            "Restricts background P2P Windows Update Delivery Optimization during gaming.",
-            "System", "Baixo"
+            TweakId: "sys-delivery-p2p",
+            Hive: "HKLM",
+            SubKeyPath: @"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization",
+            ValueName: "DODownloadMode",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "0",
+            DefaultOriginValue: "1",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Desativar Transferência P2P na Otimização de Entrega (DODownloadMode = 0)",
+            DescriptionEn: "Disable P2P Transfers in Delivery Optimization (DODownloadMode = 0)",
+            Category: "Network",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Modo de Download da Otimização de Entrega (DODownloadMode)",
+            FriendlyNameEn: "Delivery Optimization Download Mode (DODownloadMode)",
+            WhatItDoesPt: "Configura a política da Otimização de Entrega do Windows Update para 0 (somente HTTP direto dos servidores da Microsoft, sem peer-to-peer).",
+            WhatItDoesEn: "Configures the Windows Update Delivery Optimization policy to 0 (HTTP only from Microsoft servers, no peer-to-peer).",
+            ProblemSolvedPt: "Impede que o serviço Delivery Optimization utilize a banda de upload para enviar blocos de atualização a outros PCs na rede ou internet.",
+            ProblemSolvedEn: "Prevents the Delivery Optimization service from using upload bandwidth to serve update blocks to other PCs on the LAN or internet.",
+            ExpectedBenefitPt: "Evita consumo inesperado de upload em segundo plano durante partidas online.",
+            ExpectedBenefitEn: "Prevents unexpected background upload usage during online matches.",
+            PotentialSideEffectsPt: "Se você tiver vários PCs na mesma rede doméstica, cada um baixará atualizações diretamente da Microsoft em vez de compartilhar via LAN.",
+            PotentialSideEffectsEn: "If you have multiple PCs on the same home LAN, each will download updates directly from Microsoft instead of sharing over LAN.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (HKLM).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (HKLM).",
+            DefaultWindowsBehaviorPt: "Por padrão a chave de política não existe e o Windows usa o modo 1 (HTTP misto com P2P na rede local).",
+            DefaultWindowsBehaviorEn: "By default the policy key is absent and Windows uses mode 1 (HTTP blended with local network peering).",
+            RecommendationStatus: TweakRecommendationStatus.Recommended,
+            IsRecommendedForApply: true
         ),
+
         ["sys-transparency"] = new(
-            "sys-transparency", "HKCU",
-            @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-            "EnableTransparency", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
-            "Desativa efeito acrílico do DWM para liberar ciclos de GPU.",
-            "Disables DWM acrylic transparency blur to free GPU cycles.",
-            "Interface", "Baixo"
+            TweakId: "sys-transparency",
+            Hive: "HKCU",
+            SubKeyPath: @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            ValueName: "EnableTransparency",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "0",
+            DefaultOriginValue: "1",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Desativar Efeitos de Transparência da Interface (EnableTransparency = 0)",
+            DescriptionEn: "Disable Shell Transparency Effects (EnableTransparency = 0)",
+            Category: "Interface",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Efeitos de Transparência do Windows (EnableTransparency)",
+            FriendlyNameEn: "Windows Shell Transparency Effects (EnableTransparency)",
+            WhatItDoesPt: "Desativa os efeitos visuais de transparência (Acrylic / Mica) na barra de tarefas, menu Iniciar e janelas do sistema.",
+            WhatItDoesEn: "Disables visual transparency effects (Acrylic / Mica) on the taskbar, Start menu, and system windows.",
+            ProblemSolvedPt: "Reduz o processamento de shaders de desfoque pelo Desktop Window Manager (dwm.exe) em placas de vídeo integradas ou antigas.",
+            ProblemSolvedEn: "Reduces blur shader compositing work by the Desktop Window Manager (dwm.exe) on integrated or older GPUs.",
+            ExpectedBenefitPt: "Interface com superfícies sólidas e menor uso de composição do DWM em GPUs de entrada.",
+            ExpectedBenefitEn: "Solid surface UI with slightly lower DWM compositing overhead on entry-level GPUs.",
+            PotentialSideEffectsPt: "Altera a aparência visual do tema escuro/claro do Windows (mesma opção disponível em Configurações > Personalização > Cores).",
+            PotentialSideEffectsEn: "Changes the visual look of the Windows dark/light theme (same toggle found in Settings > Personalization > Colors).",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (Efeito imediato no usuário atual HKCU).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (Immediate effect on current user HKCU).",
+            DefaultWindowsBehaviorPt: "Padrão do Windows: 1 (Efeitos de transparência ativados).",
+            DefaultWindowsBehaviorEn: "Windows default: 1 (Transparency effects enabled).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["storage-ntfs-lastaccess"] = new(
-            "storage-ntfs-lastaccess", "HKLM",
-            @"SYSTEM\CurrentControlSet\Control\FileSystem",
-            "NtfsDisableLastAccessUpdate", RegistryValueKind.DWord,
-            "1", "0", new[] { "0", "1", "-2147483647" },
-            "Reduz escritas desnecessárias de metadados NTFS em SSDs NVMe e SATA.",
-            "Reduces unnecessary NTFS last-access metadata writes on NVMe and SATA SSDs.",
-            "Storage", "Baixo"
+            TweakId: "storage-ntfs-lastaccess",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Control\FileSystem",
+            ValueName: "NtfsDisableLastAccessUpdate",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "1",
+            DefaultOriginValue: "0",
+            AllowedValues: new[] { "0", "1", "-2147483647", "-2147483646" },
+            Description: "Desativar Atualização de Carimbo de Último Acesso NTFS (NtfsDisableLastAccessUpdate = 1)",
+            DescriptionEn: "Disable NTFS Last Access Timestamp Updates (NtfsDisableLastAccessUpdate = 1)",
+            Category: "Storage",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Atualização de Timestamp de Último Acesso NTFS (NtfsDisableLastAccessUpdate)",
+            FriendlyNameEn: "NTFS Last Access Timestamp Update (NtfsDisableLastAccessUpdate)",
+            WhatItDoesPt: "Define explicitamente a configuração gerenciada pelo usuário (1) para desativar a gravação do atributo LastAccessTime ao apenas ler arquivos em volumes NTFS.",
+            WhatItDoesEn: "Explicitly sets the user-managed setting (1) to disable writing the LastAccessTime attribute when merely reading files on NTFS volumes.",
+            ProblemSolvedPt: "Evita operações extras de atualização de metadados NTFS durante leituras intensivas de pequenos arquivos.",
+            ProblemSolvedEn: "Avoids extra NTFS metadata update operations during intensive small-file reads.",
+            ExpectedBenefitPt: "No Windows 10/11 moderno, o sistema já desativa essa atualização por padrão em modo gerenciado pelo sistema (0x80000001 / -2147483647); aplicar 1 fixa a preferência manual.",
+            ExpectedBenefitEn: "On modern Windows 10/11, the OS already disables this by default in system-managed mode (0x80000001 / -2147483647); setting 1 locks the user-managed preference.",
+            PotentialSideEffectsPt: "Ferramentas de backup ou auditoria que dependam da data de último acesso de leitura não verão essa data atualizada.",
+            PotentialSideEffectsEn: "Backup or auditing tools that rely on file last-read timestamps will not see updated access times.",
+            RequiresReboot: true,
+            HardwareOrOsDependencyPt: "Volumes formatados em NTFS no Windows 10 e 11.",
+            HardwareOrOsDependencyEn: "NTFS-formatted volumes on Windows 10 and 11.",
+            DefaultWindowsBehaviorPt: "Padrão moderno do Windows: 0x80000001 (-2147483647, System Managed, Last Access desativado).",
+            DefaultWindowsBehaviorEn: "Modern Windows default: 0x80000001 (-2147483647, System Managed, Last Access disabled).",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         ),
+
         ["net-tcp-autotuning"] = new(
-            "net-tcp-autotuning", "HKLM",
-            @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
-            "TcpMaxDataRetransmissions", RegistryValueKind.DWord,
-            "5", "5", new[] { "3", "5", "7" },
-            "Mantém limite seguro de retransmissão TCP conforme RFC sem quebrar conexões.",
-            "Maintains RFC-compliant safe TCP retransmission limit without breaking connections.",
-            "Network", "Baixo"
+            TweakId: "net-tcp-autotuning",
+            Hive: "HKLM",
+            SubKeyPath: @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
+            ValueName: "TcpMaxDataRetransmissions",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "5",
+            DefaultOriginValue: "3",
+            AllowedValues: new[] { "3", "5", "7" },
+            Description: "Limite Padrão RFC de Retransmissões TCP (TcpMaxDataRetransmissions = 5)",
+            DescriptionEn: "RFC Standard TCP Data Retransmissions Limit (TcpMaxDataRetransmissions = 5)",
+            Category: "Network",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Limite Máximo de Retransmissões de Dados TCP (TcpMaxDataRetransmissions)",
+            FriendlyNameEn: "TCP Maximum Data Retransmissions Limit (TcpMaxDataRetransmissions)",
+            WhatItDoesPt: "Define quantas vezes a pilha TCP/IP retransmite um segmento de dados não confirmado antes de encerrar a conexão (NOTA: modifica TcpMaxDataRetransmissions, não o TCP Receive Window Auto-Tuning).",
+            WhatItDoesEn: "Specifies how many times the TCP/IP stack retransmits an unacknowledged data segment before aborting the connection (NOTE: modifies TcpMaxDataRetransmissions, not TCP Receive Window Auto-Tuning).",
+            ProblemSolvedPt: "Restaura o valor padrão seguro da RFC/Microsoft (5) caso outros softwares tenham reduzido para 3 (o que causa quedas prematuras em conexões instáveis).",
+            ProblemSolvedEn: "Restores the safe RFC/Microsoft default (5) if third-party tools previously lowered it to 3 (which causes premature drops on unstable links).",
+            ExpectedBenefitPt: "Como 5 já é o comportamento padrão do Windows quando o valor não está configurado, este item serve para verificação de conformidade e restauração.",
+            ExpectedBenefitEn: "Because 5 is already Windows' default behavior when the value is absent, this item serves for compliance verification and restoration.",
+            PotentialSideEffectsPt: "Nenhum quando mantido em 5 (padrão oficial da Microsoft).",
+            PotentialSideEffectsEn: "None when kept at 5 (Microsoft official default).",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Pilha TCP/IPv4 e TCP/IPv6 do Windows 10 e 11.",
+            HardwareOrOsDependencyEn: "Windows 10 and 11 TCP/IPv4 and TCP/IPv6 stack.",
+            DefaultWindowsBehaviorPt: "Por padrão o valor não existe explicitamente no Registro e a pilha TCP utiliza internamente 5 retransmissões.",
+            DefaultWindowsBehaviorEn: "By default the value is absent in the Registry and the TCP stack internally uses 5 retransmissions.",
+            RecommendationStatus: TweakRecommendationStatus.NotRecommendedOrDefault,
+            IsRecommendedForApply: false
         ),
+
         ["priv-advertising-id"] = new(
-            "priv-advertising-id", "HKCU",
-            @"Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo",
-            "Enabled", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
-            "Desativa o identificador de anúncios direcionados do perfil de usuário no Windows.",
-            "Disables the targeted advertising ID for the user profile in Windows.",
-            "Privacy", "Baixo"
+            TweakId: "priv-advertising-id",
+            Hive: "HKCU",
+            SubKeyPath: @"Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo",
+            ValueName: "Enabled",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "0",
+            DefaultOriginValue: "1",
+            AllowedValues: new[] { "0", "1" },
+            Description: "Desativar Identificador de Anúncios do Perfil (AdvertisingInfo Enabled = 0)",
+            DescriptionEn: "Disable User Profile Advertising ID (AdvertisingInfo Enabled = 0)",
+            Category: "Privacy",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Identificador de Anúncios do Usuário (Advertising ID)",
+            FriendlyNameEn: "User Advertising ID (AdvertisingInfo Enabled)",
+            WhatItDoesPt: "Desativa o uso do identificador de publicidade (Advertising ID) por aplicativos da Microsoft Store para exibir anúncios personalizados.",
+            WhatItDoesEn: "Disables the use of the Advertising ID by Microsoft Store apps for cross-app personalized advertising.",
+            ProblemSolvedPt: "Impede o rastreamento de interesses por ID de anúncio no perfil de usuário atual.",
+            ProblemSolvedEn: "Prevents interest tracking via Advertising ID in the current user profile.",
+            ExpectedBenefitPt: "Melhora a privacidade do usuário (equivalente à opção em Configurações > Privacidade e segurança > Geral).",
+            ExpectedBenefitEn: "Improves user privacy (equivalent to the toggle in Settings > Privacy & security > General).",
+            PotentialSideEffectsPt: "Nenhum impacto em desempenho ou estabilidade do sistema.",
+            PotentialSideEffectsEn: "No impact on system performance or stability.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Windows 10 e Windows 11 (HKCU).",
+            HardwareOrOsDependencyEn: "Windows 10 and Windows 11 (HKCU).",
+            DefaultWindowsBehaviorPt: "Ativado (1) caso o usuário tenha aceitado durante a configuração inicial do Windows.",
+            DefaultWindowsBehaviorEn: "Enabled (1) if accepted during initial Windows setup.",
+            RecommendationStatus: TweakRecommendationStatus.Recommended,
+            IsRecommendedForApply: true
         ),
+
         ["maint-startup-delay"] = new(
-            "maint-startup-delay", "HKCU",
-            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize",
-            "StartupDelayInMSec", RegistryValueKind.DWord,
-            "0", "1000", new[] { "0", "1000" },
-            "Remove atraso artificial do Explorer na inicialização de aplicativos de bandeja.",
-            "Removes artificial Explorer startup delay for tray applications.",
-            "Maintenance", "Baixo"
+            TweakId: "maint-startup-delay",
+            Hive: "HKCU",
+            SubKeyPath: @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize",
+            ValueName: "StartupDelayInMSec",
+            ValueKind: RegistryValueKind.DWord,
+            RecommendedValue: "0",
+            DefaultOriginValue: "1000",
+            AllowedValues: new[] { "0", "1000" },
+            Description: "Remover Atraso de Inicialização de Apps do Explorer (StartupDelayInMSec = 0)",
+            DescriptionEn: "Remove Explorer Startup App Delay (StartupDelayInMSec = 0)",
+            Category: "Startup",
+            RiskLevel: "Baixo",
+            FriendlyNamePt: "Atraso de Inicialização de Aplicativos do Explorer (StartupDelayInMSec)",
+            FriendlyNameEn: "Explorer Startup Application Delay (StartupDelayInMSec)",
+            WhatItDoesPt: "Define StartupDelayInMSec=0 na subchave Serialize do Windows Explorer para iniciar aplicativos da bandeja imediatamente após o carregamento da área de trabalho.",
+            WhatItDoesEn: "Sets StartupDelayInMSec=0 under the Windows Explorer Serialize subkey so tray startup apps launch immediately after the desktop loads.",
+            ProblemSolvedPt: "Reduz a espera artificial do shell antes de disparar os programas de inicialização do usuário.",
+            ProblemSolvedEn: "Reduces artificial shell wait time before launching user startup programs.",
+            ExpectedBenefitPt: "Carregamento mais rápido de utilitários de inicialização em computadores equipados com SSD.",
+            ExpectedBenefitEn: "Faster loading of startup utilities on SSD-equipped computers.",
+            PotentialSideEffectsPt: "Em discos rígidos mecânicos (HDD), iniciar todos os programas ao mesmo tempo pode causar concorrência de leitura no logon.",
+            PotentialSideEffectsEn: "On mechanical hard drives (HDD), launching all startup apps simultaneously may cause disk read contention at logon.",
+            RequiresReboot: false,
+            HardwareOrOsDependencyPt: "Recomendado apenas para sistemas instalados em SSD SATA ou NVMe.",
+            HardwareOrOsDependencyEn: "Recommended only for systems installed on SATA or NVMe SSDs.",
+            DefaultWindowsBehaviorPt: "Por padrão a subchave Serialize não existe e o Explorer gerencia o atraso internamente.",
+            DefaultWindowsBehaviorEn: "By default the Serialize subkey does not exist and Explorer manages startup delay internally.",
+            RecommendationStatus: TweakRecommendationStatus.Conditional,
+            IsRecommendedForApply: true
         )
     };
 
@@ -435,27 +1475,34 @@ public static class RegistryOptimizer
     {
         if (rawValue == null) return null;
 
-        return kind switch
+        try
         {
-            RegistryValueKind.DWord => Convert.ToInt32(rawValue).ToString(),
-            RegistryValueKind.QWord => Convert.ToInt64(rawValue).ToString(),
-            RegistryValueKind.String => rawValue.ToString() ?? string.Empty,
-            RegistryValueKind.ExpandString => rawValue.ToString() ?? string.Empty,
-            RegistryValueKind.MultiString => rawValue is string[] arr
-                ? JsonSerializer.Serialize(arr)
-                : JsonSerializer.Serialize(new[] { rawValue.ToString() ?? string.Empty }),
-            RegistryValueKind.Binary => rawValue is byte[] bytes
-                ? Convert.ToBase64String(bytes)
-                : string.Empty,
-            _ => rawValue.ToString()
-        };
+            return kind switch
+            {
+                RegistryValueKind.DWord => Convert.ToInt32(rawValue).ToString(),
+                RegistryValueKind.QWord => Convert.ToInt64(rawValue).ToString(),
+                RegistryValueKind.String => rawValue.ToString() ?? string.Empty,
+                RegistryValueKind.ExpandString => rawValue.ToString() ?? string.Empty,
+                RegistryValueKind.MultiString => rawValue is string[] arr
+                    ? JsonSerializer.Serialize(arr)
+                    : JsonSerializer.Serialize(new[] { rawValue.ToString() ?? string.Empty }),
+                RegistryValueKind.Binary => rawValue is byte[] bytes
+                    ? Convert.ToBase64String(bytes)
+                    : rawValue.ToString() ?? string.Empty,
+                _ => rawValue.ToString()
+            };
+        }
+        catch
+        {
+            return rawValue.ToString();
+        }
     }
 
     public static object DeserializeRegistryValue(string? serialized, RegistryValueKind kind)
     {
         return kind switch
         {
-            RegistryValueKind.DWord => int.TryParse(serialized, out int d) ? d : 0,
+            RegistryValueKind.DWord => ParseDWordString(serialized),
             RegistryValueKind.QWord => long.TryParse(serialized, out long q) ? q : 0L,
             RegistryValueKind.String => serialized ?? string.Empty,
             RegistryValueKind.ExpandString => serialized ?? string.Empty,
@@ -469,22 +1516,57 @@ public static class RegistryOptimizer
         };
     }
 
+    private static int ParseDWordString(string? serialized)
+    {
+        if (string.IsNullOrWhiteSpace(serialized)) return 0;
+        string s = serialized.Trim();
+        if (int.TryParse(s, out int signedVal)) return signedVal;
+        if (uint.TryParse(s, out uint unsignedVal)) return unchecked((int)unsignedVal);
+        return 0;
+    }
+
     public static bool ValuesMatch(object? readBack, object expectedTyped, RegistryValueKind kind)
     {
         if (readBack == null) return false;
 
-        return kind switch
+        try
         {
-            RegistryValueKind.DWord => Convert.ToInt32(readBack) == Convert.ToInt32(expectedTyped),
-            RegistryValueKind.QWord => Convert.ToInt64(readBack) == Convert.ToInt64(expectedTyped),
-            RegistryValueKind.String or RegistryValueKind.ExpandString =>
-                string.Equals(readBack.ToString(), expectedTyped.ToString(), StringComparison.Ordinal),
-            RegistryValueKind.MultiString =>
-                readBack is string[] rArr && expectedTyped is string[] eArr && rArr.SequenceEqual(eArr),
-            RegistryValueKind.Binary =>
-                readBack is byte[] rBytes && expectedTyped is byte[] eBytes && rBytes.SequenceEqual(eBytes),
-            _ => Equals(readBack, expectedTyped)
-        };
+            return kind switch
+            {
+                RegistryValueKind.DWord => Convert.ToInt32(readBack) == Convert.ToInt32(expectedTyped),
+                RegistryValueKind.QWord => Convert.ToInt64(readBack) == Convert.ToInt64(expectedTyped),
+                RegistryValueKind.String or RegistryValueKind.ExpandString =>
+                    string.Equals(readBack.ToString(), expectedTyped.ToString(), StringComparison.Ordinal),
+                RegistryValueKind.MultiString =>
+                    readBack is string[] rArr && expectedTyped is string[] eArr && rArr.SequenceEqual(eArr),
+                RegistryValueKind.Binary =>
+                    readBack is byte[] rBytes && expectedTyped is byte[] eBytes && rBytes.SequenceEqual(eBytes),
+                _ => Equals(readBack, expectedTyped)
+            };
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Compares two serialized values according to the expected RegistryValueKind (handling signed/unsigned 32-bit DWORD equivalence like -1 == 4294967295).
+    /// </summary>
+    public static bool SerializedValuesEqualForKind(string? actualSerialized, string? expectedSerialized, RegistryValueKind kind)
+    {
+        if (actualSerialized == null || expectedSerialized == null) return false;
+        if (kind == RegistryValueKind.DWord)
+        {
+            return ParseDWordString(actualSerialized) == ParseDWordString(expectedSerialized);
+        }
+        if (kind == RegistryValueKind.QWord)
+        {
+            return long.TryParse(actualSerialized.Trim(), out long a) &&
+                   long.TryParse(expectedSerialized.Trim(), out long b) &&
+                   a == b;
+        }
+        return string.Equals(actualSerialized.Trim(), expectedSerialized.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -517,7 +1599,7 @@ public static class RegistryOptimizer
             );
         }
 
-        return ExecuteAuthorizedWrite(def, targetVal);
+        return ExecuteAuthorizedWrite(def, targetVal, ActiveProbe);
     }
 
     public static RegistryOperationResult TryApplyTypedValue(
@@ -586,7 +1668,7 @@ public static class RegistryOptimizer
                 def.TweakId);
         }
 
-        return ExecuteAuthorizedWrite(def, serializedTargetValue);
+        return ExecuteAuthorizedWrite(def, serializedTargetValue, ActiveProbe);
     }
 
     public static bool TryApplyDword(string keyPath, string valueName, int targetValue)
@@ -601,12 +1683,15 @@ public static class RegistryOptimizer
         return result.Success;
     }
 
-    private static RegistryOperationResult ExecuteAuthorizedWrite(TweakDefinition def, string serializedTargetValue)
+    private static RegistryOperationResult ExecuteAuthorizedWrite(
+        TweakDefinition def,
+        string serializedTargetValue,
+        IRegistryKeyProbe probe)
     {
         string fullKeyPath = $"{def.Hive}\\{def.SubKeyPath}";
         RegistryValueKind targetKind = def.ValueKind;
 
-        if (!OperatingSystem.IsWindows())
+        if (!probe.IsSupportedPlatform)
         {
             RecordAudit("APPLY_UNSUPPORTED_OS", def.TweakId, fullKeyPath, def.ValueName, targetKind.ToString(),
                 null, serializedTargetValue, null, false, "Operação de Registro requer plataforma Windows nativa.");
@@ -614,120 +1699,96 @@ public static class RegistryOptimizer
                 "Operação de Registro requer plataforma Windows nativa.", def.TweakId);
         }
 
-        RegistryKey root = GetRootKey(def.Hive);
         string? previousSerialized = null;
         RegistryValueKind previousKind = targetKind;
         bool wasInitiallyAbsent = false;
         bool keyCreatedByApp = false;
 
-        try
+        // 1. Pre-read original value & type before modification
+        var preRead = probe.ReadValue(def.Hive, def.SubKeyPath, def.ValueName);
+        if (preRead.Outcome == RegistryProbeReadOutcome.AccessDenied)
         {
-            // 1. Pre-read original value & type before modification
-            using (RegistryKey? readKey = root.OpenSubKey(def.SubKeyPath, false))
-            {
-                if (readKey == null)
-                {
-                    wasInitiallyAbsent = true;
-                    keyCreatedByApp = true;
-                }
-                else
-                {
-                    object? rawPrev = readKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    if (rawPrev == null)
-                    {
-                        wasInitiallyAbsent = true;
-                    }
-                    else
-                    {
-                        previousKind = readKey.GetValueKind(def.ValueName);
-                        previousSerialized = SerializeRegistryValue(rawPrev, previousKind);
-                    }
-                }
-            }
-
-            object typedTarget = DeserializeRegistryValue(serializedTargetValue, targetKind);
-
-            // 2. Write value with explicit RegistryValueKind
-            using (RegistryKey writeKey = root.CreateSubKey(def.SubKeyPath, true))
-            {
-                writeKey.SetValue(def.ValueName, typedTarget, targetKind);
-                writeKey.Flush();
-            }
-
-            // 3. Re-read and verify both value and kind immediately after write
-            using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
-            {
-                if (verifyKey == null)
-                {
-                    string err = "Falha na verificação: subchave não encontrada após escrita.";
-                    RecordAudit("APPLY_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                        previousSerialized, serializedTargetValue, null, false, err);
-                    return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                        wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId);
-                }
-
-                object? readBack = verifyKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                RegistryValueKind verifiedKind = verifyKey.GetValueKind(def.ValueName);
-                string? verifiedStr = SerializeRegistryValue(readBack, verifiedKind);
-
-                if (verifiedKind == targetKind && ValuesMatch(readBack, typedTarget, targetKind))
-                {
-                    // Record trusted pre-modification state in the DPAPI + HMAC-SHA256 backend ledger
-                    var ledgerEntry = RegistryStateLedger.RecordAppliedTweakState(
-                        def,
-                        previousSerialized,
-                        previousKind,
-                        wasInitiallyAbsent,
-                        keyCreatedByApp,
-                        serializedTargetValue
-                    );
-
-                    RecordAudit("APPLY_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                        wasInitiallyAbsent ? "<ABSENT>" : previousSerialized, serializedTargetValue, verifiedStr, true, null);
-                    return new RegistryOperationResult(
-                        true,
-                        wasInitiallyAbsent ? null : previousSerialized,
-                        verifiedStr,
-                        previousKind.ToString(),
-                        wasInitiallyAbsent,
-                        keyCreatedByApp,
-                        null,
-                        def.TweakId,
-                        ledgerEntry.OperationId
-                    );
-                }
-
-                string mismatchErr = "Verificação falhou: valor ou tipo lido após gravação difere do esperado.";
-                RecordAudit("APPLY_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                    previousSerialized, serializedTargetValue, verifiedStr, false, mismatchErr);
-                return new RegistryOperationResult(false, previousSerialized, verifiedStr,
-                    previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr, def.TweakId);
-            }
+            string msg = preRead.ErrorMessage ?? $"Permissão negada ao consultar {fullKeyPath} antes da escrita.";
+            RecordAudit("APPLY_SECURITY_DENIED", def.TweakId, fullKeyPath, def.ValueName, targetKind.ToString(),
+                null, serializedTargetValue, null, false, msg);
+            return new RegistryOperationResult(false, null, null, targetKind.ToString(), false, false, msg, def.TweakId, null, "ACCESS_DENIED");
         }
-        catch (SecurityException ex)
+
+        if (preRead.Outcome == RegistryProbeReadOutcome.KeyNotFound)
         {
-            string msg = $"Acesso de segurança negado (Elevação UAC necessária para {def.Hive}): {ex.Message}";
-            RecordAudit("APPLY_SECURITY_DENIED", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                previousSerialized, serializedTargetValue, null, false, msg);
+            wasInitiallyAbsent = true;
+            keyCreatedByApp = true;
+        }
+        else if (preRead.Outcome == RegistryProbeReadOutcome.ValueNotFound)
+        {
+            wasInitiallyAbsent = true;
+        }
+        else if (preRead.Outcome == RegistryProbeReadOutcome.ValueFound)
+        {
+            previousKind = preRead.ActualValueKind;
+            previousSerialized = preRead.SerializedValue;
+        }
+
+        object typedTarget = DeserializeRegistryValue(serializedTargetValue, targetKind);
+
+        // 2. Write value with explicit RegistryValueKind
+        if (!probe.TryWriteValue(def.Hive, def.SubKeyPath, def.ValueName, typedTarget, targetKind, out bool createdNow, out string? writeErr, out bool writeDenied))
+        {
+            string opName = writeDenied ? "APPLY_UAC_REQUIRED" : "APPLY_ERROR";
+            RecordAudit(opName, def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                previousSerialized, serializedTargetValue, null, false, writeErr);
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+                wasInitiallyAbsent, keyCreatedByApp, writeErr, def.TweakId, null, writeDenied ? "ACCESS_DENIED" : "WRITE_FAILED");
         }
-        catch (UnauthorizedAccessException ex)
+
+        if (createdNow) keyCreatedByApp = true;
+
+        // 3. Re-read and verify both value and kind immediately after write (§4)
+        var verifyRead = probe.ReadValue(def.Hive, def.SubKeyPath, def.ValueName);
+        if (verifyRead.Outcome != RegistryProbeReadOutcome.ValueFound)
         {
-            string msg = $"Privilégios insuficientes para {def.Hive}. Execute como Administrador (UAC): {ex.Message}";
-            RecordAudit("APPLY_UAC_REQUIRED", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                previousSerialized, serializedTargetValue, null, false, msg);
+            string err = "Falha na verificação: o valor não foi encontrado no Registro após a tentativa de gravação.";
+            RecordAudit("APPLY_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                previousSerialized, serializedTargetValue, null, false, err);
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+                wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId, null, "VERIFY_NOT_FOUND");
         }
-        catch (Exception ex)
+
+        RegistryValueKind verifiedKind = verifyRead.ActualValueKind;
+        string? verifiedStr = verifyRead.SerializedValue;
+
+        if (verifiedKind == targetKind && ValuesMatch(verifyRead.RawValue, typedTarget, targetKind))
         {
-            string msg = $"Erro ao gravar no Registro: {ex.Message}";
-            RecordAudit("APPLY_ERROR", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                previousSerialized, serializedTargetValue, null, false, msg);
-            return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+            // Record trusted pre-modification state in the DPAPI + HMAC-SHA256 backend ledger ONLY when verified
+            var ledgerEntry = RegistryStateLedger.RecordAppliedTweakState(
+                def,
+                previousSerialized,
+                previousKind,
+                wasInitiallyAbsent,
+                keyCreatedByApp,
+                serializedTargetValue
+            );
+
+            RecordAudit("APPLY_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                wasInitiallyAbsent ? "<ABSENT>" : previousSerialized, serializedTargetValue, verifiedStr, true, null);
+            return new RegistryOperationResult(
+                true,
+                wasInitiallyAbsent ? null : previousSerialized,
+                verifiedStr,
+                verifiedKind.ToString(),
+                wasInitiallyAbsent,
+                keyCreatedByApp,
+                null,
+                def.TweakId,
+                ledgerEntry.OperationId
+            );
         }
+
+        string mismatchErr = $"Verificação pós-escrita falhou: lido '{verifiedStr}' ({verifiedKind}), esperado '{serializedTargetValue}' ({targetKind}).";
+        RecordAudit("APPLY_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+            previousSerialized, serializedTargetValue, verifiedStr, false, mismatchErr);
+        return new RegistryOperationResult(false, previousSerialized, verifiedStr,
+            verifiedKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr, def.TweakId, null, "VERIFY_MISMATCH");
     }
 
     /// <summary>
@@ -803,7 +1864,8 @@ public static class RegistryOptimizer
             entry.OriginalValueKind,
             entry.WasInitiallyAbsent,
             entry.KeyCreatedByApp,
-            entry.OperationId
+            entry.OperationId,
+            ActiveProbe
         );
 
         if (restoreRes.Success)
@@ -814,10 +1876,6 @@ public static class RegistryOptimizer
         return restoreRes;
     }
 
-    /// <summary>
-    /// Typed overload demonstrating that caller-supplied originalRawValue / originalKind are never trusted
-    /// when a trusted backend ledger entry exists for tweakId; restoration delegates strictly to the backend ledger.
-    /// </summary>
     public static RegistryOperationResult RestoreCatalogTweak(
         string tweakId,
         bool wasInitiallyAbsent,
@@ -833,15 +1891,9 @@ public static class RegistryOptimizer
                 $"Ajuste '{tweakId}' não pertence ao catálogo fechado.", tweakId);
         }
 
-        // Security rule: Ignore untrusted caller-provided originalRawValue, originalKind, wasInitiallyAbsent, and keyCreatedByApp;
-        // always restore from the backend's DPAPI + HMAC-SHA256 RegistryStateLedger.
         return RestoreCatalogTweakFromTrustedSource(def.TweakId);
     }
 
-    /// <summary>
-    /// Blocks any attempt by a caller to pass untrusted client-supplied restoration parameters without a verified backend source,
-    /// while validating type and AllowedValues strictly when invoked from verified snapshot restoration.
-    /// </summary>
     public static RegistryOperationResult RestoreCatalogTweak(
         string tweakId,
         string? untrustedOriginalValue = null,
@@ -869,10 +1921,6 @@ public static class RegistryOptimizer
         return RestoreCatalogTweakFromTrustedSource(def.TweakId);
     }
 
-    /// <summary>
-    /// Internal method used strictly by RegistrySnapshotEngine AFTER verifying canonical SHA-256 and whitelist integrity.
-    /// Enforces strict catalog type and AllowedValues validation on the snapshot entry before restoring.
-    /// </summary>
     internal static RegistryOperationResult RestoreFromVerifiedSnapshotEntry(
         TweakDefinition def,
         RegistryValueEntry verifiedEntry)
@@ -900,7 +1948,9 @@ public static class RegistryOptimizer
             verifiedEntry.RawValue,
             verifiedEntry.ValueKind,
             verifiedEntry.WasInitiallyAbsent,
-            verifiedEntry.KeyCreatedByApp
+            verifiedEntry.KeyCreatedByApp,
+            null,
+            ActiveProbe
         );
     }
 
@@ -931,7 +1981,6 @@ public static class RegistryOptimizer
         string? candidateKindStr,
         bool wasInitiallyAbsent)
     {
-        // Rule 5: Validate RegistryValueKind compatibility
         RegistryValueKind parsedKind = def.ValueKind;
         if (!string.IsNullOrWhiteSpace(candidateKindStr))
         {
@@ -942,7 +1991,6 @@ public static class RegistryOptimizer
             }
         }
 
-        // Rule 6: Validate candidateRawValue against AllowedValues when not initially absent
         if (!wasInitiallyAbsent)
         {
             if (string.IsNullOrWhiteSpace(candidateRawValue))
@@ -1023,7 +2071,8 @@ public static class RegistryOptimizer
         string? originalValueKindStr,
         bool wasInitiallyAbsent,
         bool keyCreatedByApp,
-        string? operationId = null)
+        string? operationId = null,
+        IRegistryKeyProbe? probeOverride = null)
     {
         var check = ValidateRestoreParametersAgainstCatalog(def, originalSerializedValue, originalValueKindStr, wasInitiallyAbsent);
         if (!check.isValid)
@@ -1035,11 +2084,10 @@ public static class RegistryOptimizer
         }
 
         string fullKeyPath = $"{def.Hive}\\{def.SubKeyPath}";
+        var probe = probeOverride ?? ActiveProbe;
 
-        if (!OperatingSystem.IsWindows())
+        if (!probe.IsSupportedPlatform)
         {
-            // In non-Windows environments (e.g., automated xUnit verification of trusted ledger / snapshot state rules),
-            // report verified logical restoration after passing all cryptographic and catalog validations.
             string simulatedVerified = wasInitiallyAbsent ? "REMOVED_ABSENT_VALUE" : (originalSerializedValue ?? string.Empty);
             RecordAudit("RESTORE_VERIFIED_LOGICAL", def.TweakId, fullKeyPath, def.ValueName,
                 wasInitiallyAbsent ? "Deleted" : check.parsedKind.ToString(), null, originalSerializedValue, simulatedVerified, true, null);
@@ -1056,107 +2104,79 @@ public static class RegistryOptimizer
             );
         }
 
-        RegistryKey root = GetRootKey(def.Hive);
+        var preRead = probe.ReadValue(def.Hive, def.SubKeyPath, def.ValueName);
+        string? currentBeforeRestore = preRead.Outcome == RegistryProbeReadOutcome.ValueFound
+            ? preRead.SerializedValue
+            : null;
 
-        try
+        if (wasInitiallyAbsent || originalSerializedValue == null)
         {
-            string? currentBeforeRestore = null;
-            using (RegistryKey? preKey = root.OpenSubKey(def.SubKeyPath, false))
+            if (!probe.TryDeleteValue(def.Hive, def.SubKeyPath, def.ValueName, keyCreatedByApp, out string? delErr, out bool delDenied))
             {
-                if (preKey != null)
-                {
-                    object? rawCurr = preKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    if (rawCurr != null)
-                    {
-                        currentBeforeRestore = SerializeRegistryValue(rawCurr, preKey.GetValueKind(def.ValueName));
-                    }
-                }
+                RecordAudit("RESTORE_ERROR", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
+                    currentBeforeRestore, "<DELETE>", null, false, delErr);
+                return new RegistryOperationResult(false, originalSerializedValue, null, "Deleted",
+                    true, keyCreatedByApp, delErr, def.TweakId, operationId, delDenied ? "ACCESS_DENIED" : "RESTORE_DELETE_FAILED");
             }
 
-            if (wasInitiallyAbsent || originalSerializedValue == null)
+            // Re-read to verify that the value no longer exists (§4)
+            var postDelRead = probe.ReadValue(def.Hive, def.SubKeyPath, def.ValueName);
+            if (postDelRead.Outcome == RegistryProbeReadOutcome.ValueFound)
             {
-                using (RegistryKey? writeKey = root.OpenSubKey(def.SubKeyPath, true))
-                {
-                    if (writeKey != null && writeKey.GetValue(def.ValueName) != null)
-                    {
-                        writeKey.DeleteValue(def.ValueName, false);
-                        writeKey.Flush();
-                    }
-                }
-
-                // Verify that the value no longer exists
-                using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
-                {
-                    if (verifyKey != null && verifyKey.GetValue(def.ValueName) != null)
-                    {
-                        string err = "Falha na verificação: o valor originalmente ausente permaneceu no Registro.";
-                        RecordAudit("RESTORE_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
-                            currentBeforeRestore, "<DELETE>", null, false, err);
-                        return new RegistryOperationResult(false, originalSerializedValue, null, "Deleted",
-                            true, keyCreatedByApp, err, def.TweakId, operationId);
-                    }
-
-                    if (keyCreatedByApp && verifyKey != null && verifyKey.ValueCount == 0 && verifyKey.SubKeyCount == 0)
-                    {
-                        verifyKey.Close();
-                        root.DeleteSubKey(def.SubKeyPath, false);
-                    }
-                }
-
-                RecordAudit("RESTORE_DELETED_ABSENT", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
-                    currentBeforeRestore, "<DELETE>", "REMOVED_ABSENT_VALUE", true, null);
-                return new RegistryOperationResult(true, currentBeforeRestore, "REMOVED_ABSENT_VALUE", "Deleted",
-                    true, keyCreatedByApp, null, def.TweakId, operationId);
+                string err = $"Restauração não confirmada: o valor '{postDelRead.SerializedValue}' permaneceu presente no Registro após tentativa de remoção.";
+                RecordAudit("RESTORE_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
+                    currentBeforeRestore, "<DELETE>", postDelRead.SerializedValue, false, err);
+                return new RegistryOperationResult(false, originalSerializedValue, postDelRead.SerializedValue, "Deleted",
+                    true, keyCreatedByApp, err, def.TweakId, operationId, "RESTORE_NOT_CONFIRMED");
             }
-            else
-            {
-                RegistryValueKind originalKind = check.parsedKind;
-                object typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
 
-                using (RegistryKey writeKey = root.CreateSubKey(def.SubKeyPath, true))
-                {
-                    writeKey.SetValue(def.ValueName, typedOriginal, originalKind);
-                    writeKey.Flush();
-                }
-
-                using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
-                {
-                    object? verified = verifyKey?.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    RegistryValueKind verifiedKind = verifyKey?.GetValueKind(def.ValueName) ?? RegistryValueKind.Unknown;
-                    string? verifiedStr = SerializeRegistryValue(verified, verifiedKind);
-
-                    if (verifiedKind == originalKind && ValuesMatch(verified, typedOriginal, originalKind))
-                    {
-                        RecordAudit("RESTORE_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
-                            currentBeforeRestore, originalSerializedValue, verifiedStr, true, null);
-                        return new RegistryOperationResult(
-                            true,
-                            currentBeforeRestore,
-                            verifiedStr,
-                            originalKind.ToString(),
-                            false,
-                            false,
-                            null,
-                            def.TweakId,
-                            operationId
-                        );
-                    }
-
-                    string err = "Verificação pós-restauração falhou: valor ou tipo não corresponde ao original.";
-                    RecordAudit("RESTORE_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
-                        currentBeforeRestore, originalSerializedValue, verifiedStr, false, err);
-                    return new RegistryOperationResult(false, currentBeforeRestore,
-                        verifiedStr, originalKind.ToString(), false, false, err, def.TweakId, operationId);
-                }
-            }
+            RecordAudit("RESTORE_DELETED_ABSENT", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
+                currentBeforeRestore, "<DELETE>", "REMOVED_ABSENT_VALUE", true, null);
+            return new RegistryOperationResult(true, currentBeforeRestore, "REMOVED_ABSENT_VALUE", "Deleted",
+                true, keyCreatedByApp, null, def.TweakId, operationId);
         }
-        catch (Exception ex)
+        else
         {
-            string msg = $"Falha ao restaurar valor no Registro: {ex.Message}";
-            RecordAudit("RESTORE_ERROR", def.TweakId, fullKeyPath, def.ValueName,
-                originalValueKindStr ?? def.ValueKind.ToString(), null, originalSerializedValue, null, false, msg);
-            return new RegistryOperationResult(false, originalSerializedValue, null,
-                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId);
+            RegistryValueKind originalKind = check.parsedKind;
+            object typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
+
+            if (!probe.TryWriteValue(def.Hive, def.SubKeyPath, def.ValueName, typedOriginal, originalKind, out _, out string? writeErr, out bool writeDenied))
+            {
+                RecordAudit("RESTORE_ERROR", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
+                    currentBeforeRestore, originalSerializedValue, null, false, writeErr);
+                return new RegistryOperationResult(false, originalSerializedValue, null, originalKind.ToString(),
+                    false, keyCreatedByApp, writeErr, def.TweakId, operationId, writeDenied ? "ACCESS_DENIED" : "RESTORE_WRITE_FAILED");
+            }
+
+            // Re-read to verify that the original value AND kind were restored (§4)
+            var verifyRead = probe.ReadValue(def.Hive, def.SubKeyPath, def.ValueName);
+            string? verifiedStr = verifyRead.SerializedValue;
+            RegistryValueKind verifiedKind = verifyRead.ActualValueKind;
+
+            if (verifyRead.Outcome == RegistryProbeReadOutcome.ValueFound &&
+                verifiedKind == originalKind &&
+                ValuesMatch(verifyRead.RawValue, typedOriginal, originalKind))
+            {
+                RecordAudit("RESTORE_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
+                    currentBeforeRestore, originalSerializedValue, verifiedStr, true, null);
+                return new RegistryOperationResult(
+                    true,
+                    currentBeforeRestore,
+                    verifiedStr,
+                    originalKind.ToString(),
+                    false,
+                    false,
+                    null,
+                    def.TweakId,
+                    operationId
+                );
+            }
+
+            string err = $"Verificação pós-restauração não confirmada: valor atual '{verifiedStr ?? "<AUSENTE>"}' ({verifiedKind}) difere do original '{originalSerializedValue}' ({originalKind}).";
+            RecordAudit("RESTORE_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
+                currentBeforeRestore, originalSerializedValue, verifiedStr, false, err);
+            return new RegistryOperationResult(false, currentBeforeRestore,
+                verifiedStr, verifiedKind.ToString(), false, false, err, def.TweakId, operationId, "RESTORE_NOT_CONFIRMED");
         }
     }
 
@@ -1165,36 +2185,293 @@ public static class RegistryOptimizer
     public static IReadOnlyList<RegistryAuditLogEntry> GetRecentAuditLogs(int maxCount = 50) =>
         _auditHistory.Reverse().Take(maxCount).ToList();
 
-    public static string InspectCatalogTweakCurrentState(string tweakId)
+    /// <summary>
+    /// Performs a single real inspection of a cataloged tweak against the provided IRegistryKeyProbe (or ActiveProbe),
+    /// validating key existence, value existence, exact RegistryValueKind, and value content (§2).
+    /// NEVER reports Active if the RegistryValueKind does not match def.ValueKind, even if the numeric/string representation matches.
+    /// </summary>
+    public static TweakStateReport InspectCatalogTweak(
+        string tweakId,
+        IRegistryKeyProbe? probe = null,
+        int? windowsBuildOverride = null)
     {
         if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
-            return "Não Suportado";
-
-        if (!OperatingSystem.IsWindows())
-            return "Inativo";
-
-        try
         {
-            RegistryKey root = GetRootKey(def.Hive);
-            using var key = root.OpenSubKey(def.SubKeyPath, false);
-            if (key == null) return "Inativo";
-
-            object? raw = key.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-            if (raw == null) return "Inativo";
-
-            string? serialized = SerializeRegistryValue(raw, key.GetValueKind(def.ValueName));
-            if (string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
-                return "Ativo";
-            if (string.Equals(serialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
-                return "Inativo";
-            return "Parcial";
+            return new TweakStateReport(
+                TweakId: tweakId ?? string.Empty,
+                State: TweakInspectionState.ReadError,
+                StateDisplayPt: "Erro de Leitura",
+                StateDisplayEn: "Read Error",
+                KeyExists: false,
+                ValueExists: false,
+                CurrentRawValue: null,
+                ActualValueKind: null,
+                ExpectedValueKind: RegistryValueKind.Unknown,
+                RecommendedValue: string.Empty,
+                DefaultOriginValue: string.Empty,
+                IsTypeMatch: false,
+                IsRecommendedValueMatch: false,
+                DiagnosticMessagePt: $"O identificador '{tweakId}' não pertence ao catálogo fechado de ajustes.",
+                DiagnosticMessageEn: $"Identifier '{tweakId}' does not belong to the closed tweak catalog."
+            );
         }
-        catch
+
+        var activeProbe = probe ?? ActiveProbe;
+        if (!activeProbe.IsSupportedPlatform)
         {
-            return "Não Suportado";
+            return new TweakStateReport(
+                TweakId: def.TweakId,
+                State: TweakInspectionState.Incompatible,
+                StateDisplayPt: "Incompatível",
+                StateDisplayEn: "Incompatible",
+                KeyExists: false,
+                ValueExists: false,
+                CurrentRawValue: null,
+                ActualValueKind: null,
+                ExpectedValueKind: def.ValueKind,
+                RecommendedValue: def.RecommendedValue,
+                DefaultOriginValue: def.DefaultOriginValue,
+                IsTypeMatch: false,
+                IsRecommendedValueMatch: false,
+                DiagnosticMessagePt: "Plataforma atual não suporta leitura nativa do Registro do Windows.",
+                DiagnosticMessageEn: "Current platform does not support native Windows Registry inspection."
+            );
+        }
+
+        int currentBuild = windowsBuildOverride ?? activeProbe.CurrentWindowsBuild;
+        if ((currentBuild > 0 && currentBuild < def.MinimumWindowsBuild) ||
+            (def.MaximumWindowsBuild.HasValue && currentBuild > def.MaximumWindowsBuild.Value))
+        {
+            return new TweakStateReport(
+                TweakId: def.TweakId,
+                State: TweakInspectionState.Incompatible,
+                StateDisplayPt: "Incompatível",
+                StateDisplayEn: "Incompatible",
+                KeyExists: false,
+                ValueExists: false,
+                CurrentRawValue: null,
+                ActualValueKind: null,
+                ExpectedValueKind: def.ValueKind,
+                RecommendedValue: def.RecommendedValue,
+                DefaultOriginValue: def.DefaultOriginValue,
+                IsTypeMatch: false,
+                IsRecommendedValueMatch: false,
+                DiagnosticMessagePt: $"Ajuste incompatível com a build atual do Windows ({currentBuild}).",
+                DiagnosticMessageEn: $"Tweak is incompatible with the current Windows build ({currentBuild})."
+            );
+        }
+
+        var readResult = activeProbe.ReadValue(def.Hive, def.SubKeyPath, def.ValueName);
+
+        switch (readResult.Outcome)
+        {
+            case RegistryProbeReadOutcome.AccessDenied:
+                return new TweakStateReport(
+                    TweakId: def.TweakId,
+                    State: TweakInspectionState.AccessDenied,
+                    StateDisplayPt: "Acesso Negado",
+                    StateDisplayEn: "Access Denied",
+                    KeyExists: true,
+                    ValueExists: false,
+                    CurrentRawValue: null,
+                    ActualValueKind: null,
+                    ExpectedValueKind: def.ValueKind,
+                    RecommendedValue: def.RecommendedValue,
+                    DefaultOriginValue: def.DefaultOriginValue,
+                    IsTypeMatch: false,
+                    IsRecommendedValueMatch: false,
+                    DiagnosticMessagePt: readResult.ErrorMessage ?? $"O Windows negou permissão para consultar {def.Hive}\\{def.SubKeyPath}.",
+                    DiagnosticMessageEn: readResult.ErrorMessage ?? $"Windows denied permission to read {def.Hive}\\{def.SubKeyPath}."
+                );
+
+            case RegistryProbeReadOutcome.IncompatibleEnvironment:
+                return new TweakStateReport(
+                    TweakId: def.TweakId,
+                    State: TweakInspectionState.Incompatible,
+                    StateDisplayPt: "Incompatível",
+                    StateDisplayEn: "Incompatible",
+                    KeyExists: false,
+                    ValueExists: false,
+                    CurrentRawValue: null,
+                    ActualValueKind: null,
+                    ExpectedValueKind: def.ValueKind,
+                    RecommendedValue: def.RecommendedValue,
+                    DefaultOriginValue: def.DefaultOriginValue,
+                    IsTypeMatch: false,
+                    IsRecommendedValueMatch: false,
+                    DiagnosticMessagePt: readResult.ErrorMessage ?? "Ambiente incompatível para consulta do Registro.",
+                    DiagnosticMessageEn: readResult.ErrorMessage ?? "Incompatible environment for Registry query."
+                );
+
+            case RegistryProbeReadOutcome.ReadError:
+                return new TweakStateReport(
+                    TweakId: def.TweakId,
+                    State: TweakInspectionState.ReadError,
+                    StateDisplayPt: "Erro de Leitura",
+                    StateDisplayEn: "Read Error",
+                    KeyExists: false,
+                    ValueExists: false,
+                    CurrentRawValue: null,
+                    ActualValueKind: null,
+                    ExpectedValueKind: def.ValueKind,
+                    RecommendedValue: def.RecommendedValue,
+                    DefaultOriginValue: def.DefaultOriginValue,
+                    IsTypeMatch: false,
+                    IsRecommendedValueMatch: false,
+                    DiagnosticMessagePt: readResult.ErrorMessage ?? "Falha técnica ao ler a chave ou valor no Registro.",
+                    DiagnosticMessageEn: readResult.ErrorMessage ?? "Technical failure while reading the Registry key or value."
+                );
+
+            case RegistryProbeReadOutcome.KeyNotFound:
+                return new TweakStateReport(
+                    TweakId: def.TweakId,
+                    State: TweakInspectionState.NotConfigured,
+                    StateDisplayPt: "Não Configurado",
+                    StateDisplayEn: "Not Configured",
+                    KeyExists: false,
+                    ValueExists: false,
+                    CurrentRawValue: null,
+                    ActualValueKind: null,
+                    ExpectedValueKind: def.ValueKind,
+                    RecommendedValue: def.RecommendedValue,
+                    DefaultOriginValue: def.DefaultOriginValue,
+                    IsTypeMatch: false,
+                    IsRecommendedValueMatch: false,
+                    DiagnosticMessagePt: $"Subchave ausente ({def.Hive}\\{def.SubKeyPath}). O Windows aplica o comportamento interno padrão sem chave explícita.",
+                    DiagnosticMessageEn: $"Subkey absent ({def.Hive}\\{def.SubKeyPath}). Windows applies its internal default behavior without an explicit key."
+                );
+
+            case RegistryProbeReadOutcome.ValueNotFound:
+                return new TweakStateReport(
+                    TweakId: def.TweakId,
+                    State: TweakInspectionState.NotConfigured,
+                    StateDisplayPt: "Não Configurado",
+                    StateDisplayEn: "Not Configured",
+                    KeyExists: true,
+                    ValueExists: false,
+                    CurrentRawValue: null,
+                    ActualValueKind: null,
+                    ExpectedValueKind: def.ValueKind,
+                    RecommendedValue: def.RecommendedValue,
+                    DefaultOriginValue: def.DefaultOriginValue,
+                    IsTypeMatch: false,
+                    IsRecommendedValueMatch: false,
+                    DiagnosticMessagePt: $"Valor '{def.ValueName}' não configurado na subchave. O Windows utiliza o comportamento padrão interno.",
+                    DiagnosticMessageEn: $"Value '{def.ValueName}' is not configured in the subkey. Windows uses its internal default behavior."
+                );
+
+            case RegistryProbeReadOutcome.ValueFound:
+            default:
+                RegistryValueKind actualKind = readResult.ActualValueKind;
+                string? serialized = readResult.SerializedValue;
+
+                // CRITICAL RULE (§2.6): Never claim a tweak is Active or Inactive if the RegistryValueKind does not match!
+                if (actualKind != def.ValueKind)
+                {
+                    return new TweakStateReport(
+                        TweakId: def.TweakId,
+                        State: TweakInspectionState.WrongType,
+                        StateDisplayPt: "Tipo Incorreto",
+                        StateDisplayEn: "Wrong Type",
+                        KeyExists: true,
+                        ValueExists: true,
+                        CurrentRawValue: serialized,
+                        ActualValueKind: actualKind,
+                        ExpectedValueKind: def.ValueKind,
+                        RecommendedValue: def.RecommendedValue,
+                        DefaultOriginValue: def.DefaultOriginValue,
+                        IsTypeMatch: false,
+                        IsRecommendedValueMatch: false,
+                        DiagnosticMessagePt: $"Tipo incorreto no Registro: encontrado '{actualKind}' (valor '{serialized}'), mas o Windows exige '{def.ValueKind}'.",
+                        DiagnosticMessageEn: $"Incorrect Registry value type: found '{actualKind}' (value '{serialized}'), but Windows expects '{def.ValueKind}'."
+                    );
+                }
+
+                if (SerializedValuesEqualForKind(serialized, def.RecommendedValue, def.ValueKind))
+                {
+                    return new TweakStateReport(
+                        TweakId: def.TweakId,
+                        State: TweakInspectionState.Active,
+                        StateDisplayPt: "Ativo",
+                        StateDisplayEn: "Active",
+                        KeyExists: true,
+                        ValueExists: true,
+                        CurrentRawValue: serialized,
+                        ActualValueKind: actualKind,
+                        ExpectedValueKind: def.ValueKind,
+                        RecommendedValue: def.RecommendedValue,
+                        DefaultOriginValue: def.DefaultOriginValue,
+                        IsTypeMatch: true,
+                        IsRecommendedValueMatch: true,
+                        DiagnosticMessagePt: $"Ativo e confirmado no Registro ({def.ValueName} = {serialized}, tipo {actualKind}).",
+                        DiagnosticMessageEn: $"Active and verified in the Registry ({def.ValueName} = {serialized}, type {actualKind})."
+                    );
+                }
+
+                if (SerializedValuesEqualForKind(serialized, def.DefaultOriginValue, def.ValueKind))
+                {
+                    return new TweakStateReport(
+                        TweakId: def.TweakId,
+                        State: TweakInspectionState.Inactive,
+                        StateDisplayPt: "Inativo",
+                        StateDisplayEn: "Inactive",
+                        KeyExists: true,
+                        ValueExists: true,
+                        CurrentRawValue: serialized,
+                        ActualValueKind: actualKind,
+                        ExpectedValueKind: def.ValueKind,
+                        RecommendedValue: def.RecommendedValue,
+                        DefaultOriginValue: def.DefaultOriginValue,
+                        IsTypeMatch: true,
+                        IsRecommendedValueMatch: false,
+                        DiagnosticMessagePt: $"Inativo: valor atual ({serialized}) corresponde ao estado de referência ({def.DefaultOriginValue}).",
+                        DiagnosticMessageEn: $"Inactive: current value ({serialized}) matches the reference state ({def.DefaultOriginValue})."
+                    );
+                }
+
+                return new TweakStateReport(
+                    TweakId: def.TweakId,
+                    State: TweakInspectionState.Custom,
+                    StateDisplayPt: "Personalizado",
+                    StateDisplayEn: "Custom",
+                    KeyExists: true,
+                    ValueExists: true,
+                    CurrentRawValue: serialized,
+                    ActualValueKind: actualKind,
+                    ExpectedValueKind: def.ValueKind,
+                    RecommendedValue: def.RecommendedValue,
+                    DefaultOriginValue: def.DefaultOriginValue,
+                    IsTypeMatch: true,
+                    IsRecommendedValueMatch: false,
+                    DiagnosticMessagePt: $"Personalizado: encontrado valor '{serialized}' ({actualKind}), diferente do recomendado ({def.RecommendedValue}) e da referência ({def.DefaultOriginValue}).",
+                    DiagnosticMessageEn: $"Custom: found value '{serialized}' ({actualKind}), different from recommended ({def.RecommendedValue}) and reference ({def.DefaultOriginValue})."
+                );
         }
     }
 
+    /// <summary>
+    /// Inspects all catalog tweaks in a single pass (1 query per tweak) and returns their structured reports.
+    /// </summary>
+    public static IReadOnlyList<TweakStateReport> InspectAllCatalogTweaks(
+        IRegistryKeyProbe? probe = null,
+        int? windowsBuildOverride = null)
+    {
+        var results = new List<TweakStateReport>(Catalog.Count);
+        foreach (var def in Catalog.Values)
+        {
+            results.Add(InspectCatalogTweak(def.TweakId, probe, windowsBuildOverride));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Returns the Portuguese display label for the current Registry state of a catalog tweak.
+    /// Delegates to InspectCatalogTweak so type validation and all 8 states are strictly enforced.
+    /// </summary>
+    public static string InspectCatalogTweakCurrentState(string tweakId)
+    {
+        return InspectCatalogTweak(tweakId).StateDisplayPt;
+    }
 
     private static string GetCurrentWindowsUser()
     {

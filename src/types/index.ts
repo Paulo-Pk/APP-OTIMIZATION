@@ -30,12 +30,25 @@ export type TweakCategory =
   | 'gaming'
   | 'system';
 
+export type TweakInspectionStateCode =
+  | 'Active'
+  | 'Inactive'
+  | 'Custom'
+  | 'NotConfigured'
+  | 'AccessDenied'
+  | 'WrongType'
+  | 'Incompatible'
+  | 'ReadError';
+
 export interface SystemTweak {
   id: string;
   name: string;
+  nameEn?: string;
   category: TweakCategory;
   description: string;
+  descriptionEn?: string;
   expectedBenefit: string;
+  expectedBenefitEn?: string;
   risk: RiskLevel;
   level: OptimizationLevel;
   currentValue: string;
@@ -45,8 +58,23 @@ export interface SystemTweak {
   valueName?: string;
   valueKind?: 'DWord' | 'QWord' | 'String' | 'ExpandString' | 'MultiString' | 'Binary';
   targetRawValue?: string;
+  defaultOriginValue?: string;
   commandScript?: string;
   reversible: boolean;
+  whatItDoes?: string;
+  whatItDoesEn?: string;
+  problemSolved?: string;
+  problemSolvedEn?: string;
+  potentialSideEffects?: string;
+  potentialSideEffectsEn?: string;
+  requiresReboot?: boolean;
+  hardwareOrOsDependency?: string;
+  hardwareOrOsDependencyEn?: string;
+  defaultWindowsBehavior?: string;
+  defaultWindowsBehaviorEn?: string;
+  recommendationStatus?: 'Recommended' | 'Conditional' | 'NotRecommendedOrDefault';
+  isRecommendedForApply?: boolean;
+  inspectionState?: TweakInspectionStateCode;
 }
 
 export interface GpuTelemetry {

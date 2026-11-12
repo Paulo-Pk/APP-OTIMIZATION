@@ -274,7 +274,12 @@ public class RegistryOptimizerTests
     [Fact]
     public void RestoreCatalogTweak_ClientCannotChooseArbitraryOriginalValue_BackendUsesLedgerInstead()
     {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
         RegistryStateLedger.ClearLedgerForTesting();
+
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 1, RegistryValueKind.DWord);
 
         // Apply tweak to HKCU\System\GameConfigStore\GameDVR_Enabled
         var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
@@ -292,28 +297,223 @@ public class RegistryOptimizerTests
         );
 
         Assert.True(restoreResult.Success);
+        Assert.Equal("1", restoreResult.VerifiedCurrentValue);
         Assert.NotEqual("999999", restoreResult.VerifiedCurrentValue);
     }
 
     [Fact]
     public void RestoreCatalogTweakFromTrustedSource_WhenValueWasInitiallyAbsent_RemovesValueAndVerifiesAbsence()
     {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
         RegistryStateLedger.ClearLedgerForTesting();
-        var def = RegistryOptimizer.Catalog["perf-fso-flags"];
 
-        // Ensure value is absent before recording
-        using (var baseKey = RegistryKey.OpenBaseKey(RegistryOptimizer.ParseRegistryHive(def.Hive), RegistryView.Registry64))
-        using (var subKey = baseKey.OpenSubKey(def.SubKeyPath, writable: true))
-        {
-            subKey?.DeleteValue(def.ValueName, throwOnMissingValue: false);
-        }
+        var def = RegistryOptimizer.Catalog["perf-fso-flags"];
+        probe.EnsureSubKeyExists(def.Hive, def.SubKeyPath);
+        probe.RemoveValue(def.Hive, def.SubKeyPath, def.ValueName);
 
         var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-fso-flags", "2");
         Assert.True(applyResult.Success);
         Assert.True(applyResult.WasInitiallyAbsent);
 
+        var activeReport = RegistryOptimizer.InspectCatalogTweak("perf-fso-flags");
+        Assert.Equal(TweakInspectionState.Active, activeReport.State);
+
         var restoreResult = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-fso-flags", applyResult.OperationId);
         Assert.True(restoreResult.Success);
         Assert.Equal("REMOVED_ABSENT_VALUE", restoreResult.VerifiedCurrentValue);
+
+        var postRestoreReport = RegistryOptimizer.InspectCatalogTweak("perf-fso-flags");
+        Assert.Equal(TweakInspectionState.NotConfigured, postRestoreReport.State);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_ExistingValues_DistinguishesActiveAndInactive()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+
+        // 1. Default reference value (1) -> INACTIVE
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 1, RegistryValueKind.DWord);
+        var inactiveReport = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal(TweakInspectionState.Inactive, inactiveReport.State);
+        Assert.Equal("INATIVO", inactiveReport.StateBadgePt);
+        Assert.Equal("1", inactiveReport.CurrentRawValue);
+        Assert.Equal(RegistryValueKind.DWord, inactiveReport.ActualValueKind);
+
+        // 2. Recommended value (0) with matching DWord kind -> ACTIVE
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 0, RegistryValueKind.DWord);
+        var activeReport = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal(TweakInspectionState.Active, activeReport.State);
+        Assert.Equal("ATIVO", activeReport.StateBadgePt);
+        Assert.Equal("0", activeReport.CurrentRawValue);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_MissingKeyOrMissingValue_ReturnsNotConfigured()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+
+        var def = RegistryOptimizer.Catalog["start-edge-preload"];
+
+        // 1. Subkey does not exist at all
+        probe.RemoveSubKey(def.Hive, def.SubKeyPath);
+        var keyMissingReport = RegistryOptimizer.InspectCatalogTweak("start-edge-preload");
+        Assert.Equal(TweakInspectionState.NotConfigured, keyMissingReport.State);
+        Assert.False(keyMissingReport.KeyExists);
+        Assert.False(keyMissingReport.ValueExists);
+        Assert.Equal("NÃO CONFIGURADO", keyMissingReport.StateBadgePt);
+
+        // 2. Subkey exists, but value does not exist
+        probe.EnsureSubKeyExists(def.Hive, def.SubKeyPath);
+        var valueMissingReport = RegistryOptimizer.InspectCatalogTweak("start-edge-preload");
+        Assert.Equal(TweakInspectionState.NotConfigured, valueMissingReport.State);
+        Assert.True(valueMissingReport.KeyExists);
+        Assert.False(valueMissingReport.ValueExists);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_WrongValueKind_EvenWithMatchingTextRepresentation_ReturnsWrongTypeAndNeverActive()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"]; // expects REG_DWORD = 0
+
+        // Value is "0", which matches RecommendedValue textually, but stored as REG_SZ (String) instead of REG_DWORD
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, "0", RegistryValueKind.String);
+
+        var report = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal(TweakInspectionState.WrongType, report.State);
+        Assert.NotEqual(TweakInspectionState.Active, report.State);
+        Assert.Equal("TIPO INCORRETO", report.StateBadgePt);
+        Assert.Equal(RegistryValueKind.String, report.ActualValueKind);
+        Assert.Equal(RegistryValueKind.DWord, report.ExpectedValueKind);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_CustomValue_ReturnsCustomState()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+
+        var def = RegistryOptimizer.Catalog["perf-hpet"]; // Win32PrioritySeparation: Recommended=38, Default=2
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 24, RegistryValueKind.DWord);
+
+        var report = RegistryOptimizer.InspectCatalogTweak("perf-hpet");
+        Assert.Equal(TweakInspectionState.Custom, report.State);
+        Assert.Equal("PERSONALIZADO", report.StateBadgePt);
+        Assert.Equal("24", report.CurrentRawValue);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_AccessDeniedAndReadErrorAndIncompatible_ReturnExactStates()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+
+        // 1. Access Denied on HKLM subkey
+        var defHpet = RegistryOptimizer.Catalog["perf-hpet"];
+        probe.SetAccessDenied(defHpet.Hive, defHpet.SubKeyPath);
+        var deniedReport = RegistryOptimizer.InspectCatalogTweak("perf-hpet");
+        Assert.Equal(TweakInspectionState.AccessDenied, deniedReport.State);
+        Assert.Equal("ACESSO NEGADO", deniedReport.StateBadgePt);
+
+        // 2. Read Error on subkey
+        var defSysMain = RegistryOptimizer.Catalog["serv-sysmain"];
+        probe.SetReadError(defSysMain.Hive, defSysMain.SubKeyPath);
+        var errorReport = RegistryOptimizer.InspectCatalogTweak("serv-sysmain");
+        Assert.Equal(TweakInspectionState.ReadError, errorReport.State);
+        Assert.Equal("ERRO DE LEITURA", errorReport.StateBadgePt);
+
+        // 3. Incompatible Windows build (bg-cortana-news is Windows 10 taskbar feed, incompatible on Win11 Build 22631 when absent)
+        probe.CurrentWindowsBuild = 22631;
+        var win10FeedReport = RegistryOptimizer.InspectCatalogTweak("bg-cortana-news");
+        Assert.Equal(TweakInspectionState.Incompatible, win10FeedReport.State);
+        Assert.Equal("INCOMPATÍVEL", win10FeedReport.StateBadgePt);
+    }
+
+    [Fact]
+    public void ApplyAndRestoreCatalogTweak_VerifiesPostOperationStateTransitions_AndDetectsUnconfirmedOperations()
+    {
+        var probe = new SimulatedRegistryKeyProbe();
+        using var scope = RegistryOptimizer.UseProbeScope(probe);
+        RegistryStateLedger.ClearLedgerForTesting();
+
+        var def = RegistryOptimizer.Catalog["bg-telemetry"]; // AllowTelemetry: Recommended=1, Default=3
+        probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 3, RegistryValueKind.DWord);
+
+        // Initial state must be Inactive (3)
+        Assert.Equal(TweakInspectionState.Inactive, RegistryOptimizer.InspectCatalogTweak("bg-telemetry").State);
+
+        // If write is silently ignored by OS/policy, ApplyCatalogTweak must fail post-write verification
+        probe.SimulateWriteIgnore = true;
+        var failedApply = RegistryOptimizer.ApplyCatalogTweak("bg-telemetry", "1");
+        Assert.False(failedApply.Success);
+        Assert.Equal(TweakInspectionState.Inactive, RegistryOptimizer.InspectCatalogTweak("bg-telemetry").State);
+
+        // Normal write succeeds and transitions state to Active (1)
+        probe.SimulateWriteIgnore = false;
+        var okApply = RegistryOptimizer.ApplyCatalogTweak("bg-telemetry", "1");
+        Assert.True(okApply.Success);
+        Assert.Equal(TweakInspectionState.Active, RegistryOptimizer.InspectCatalogTweak("bg-telemetry").State);
+
+        // Restore transitions state back to Inactive (3)
+        var okRestore = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("bg-telemetry", okApply.OperationId);
+        Assert.True(okRestore.Success);
+        var postRestore = RegistryOptimizer.InspectCatalogTweak("bg-telemetry");
+        Assert.Equal(TweakInspectionState.Inactive, postRestore.State);
+        Assert.Equal("3", postRestore.CurrentRawValue);
+    }
+
+    [Fact]
+    public void CatalogAudit_All23Entries_HaveAccurateMetadataAndCorrectedMisidentifications()
+    {
+        Assert.Equal(23, RegistryOptimizer.Catalog.Count);
+
+        // Verify the 6 previously misidentified tweaks now document their real Registry target honestly
+        var hpet = RegistryOptimizer.Catalog["perf-hpet"];
+        Assert.Equal("Win32PrioritySeparation", hpet.ValueName);
+        Assert.Contains("Win32PrioritySeparation", hpet.FriendlyNamePt);
+        Assert.Contains("não o timer HPET", hpet.WhatItDoesPt);
+
+        var nagle = RegistryOptimizer.Catalog["perf-tcp-nagle"];
+        Assert.Equal("NetworkThrottlingIndex", nagle.ValueName);
+        Assert.Contains("NetworkThrottlingIndex", nagle.FriendlyNamePt);
+        Assert.Contains("não o algoritmo TCP Nagle", nagle.WhatItDoesPt);
+
+        var autoTuning = RegistryOptimizer.Catalog["net-tcp-autotuning"];
+        Assert.Equal("TcpMaxDataRetransmissions", autoTuning.ValueName);
+        Assert.False(autoTuning.IsRecommendedForApply);
+        Assert.Equal(TweakRecommendationStatus.NotRecommendedOrDefault, autoTuning.RecommendationStatus);
+
+        var pcie = RegistryOptimizer.Catalog["power-pcie-link"];
+        Assert.Equal("Scheduling Category", pcie.ValueName);
+        Assert.Equal("Gaming", pcie.Category);
+        Assert.Contains("MMCSS", pcie.FriendlyNamePt);
+
+        var standby = RegistryOptimizer.Catalog["mem-standby-clean"];
+        Assert.Equal("LargeSystemCache", standby.ValueName);
+        Assert.False(standby.IsRecommendedForApply);
+
+        var ultimate = RegistryOptimizer.Catalog["power-ultimate-plan"];
+        Assert.Equal("PowerThrottlingOff", ultimate.ValueName);
+        Assert.Contains("PowerThrottlingOff", ultimate.FriendlyNamePt);
+
+        // Verify every catalog entry has complete PT-BR and EN-US technical explanations
+        foreach (var entry in RegistryOptimizer.Catalog.Values)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(entry.FriendlyNamePt), $"Missing FriendlyNamePt for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.FriendlyNameEn), $"Missing FriendlyNameEn for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.WhatItDoesPt), $"Missing WhatItDoesPt for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.WhatItDoesEn), $"Missing WhatItDoesEn for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.ProblemSolvedPt), $"Missing ProblemSolvedPt for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.ExpectedBenefitPt), $"Missing ExpectedBenefitPt for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.PotentialSideEffectsPt), $"Missing PotentialSideEffectsPt for {entry.TweakId}");
+            Assert.False(string.IsNullOrWhiteSpace(entry.DefaultWindowsBehaviorPt), $"Missing DefaultWindowsBehaviorPt for {entry.TweakId}");
+        }
     }
 }

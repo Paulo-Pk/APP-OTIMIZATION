@@ -600,15 +600,32 @@
                 <!-- Catalog Quick Execution Table -->
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Ajustes do Catálogo Fechado com Verificação Pós-Escrita" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,4"/>
-                        <TextBlock Text="Cada aplicação grava o valor original real no Ledger DPAPI antes de modificar a chave e confirma o valor por releitura." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,14"/>
+                        <Grid Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Ajustes do Catálogo Fechado com Verificação Pós-Escrita" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,4"/>
+                                <TextBlock Text="{Binding TweakStatesSummaryText}" FontSize="11.5" Foreground="#94A3B8" FontFamily="Consolas"/>
+                            </StackPanel>
+                            <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionSecondaryButton}" Command="{Binding RefreshTweakStatesCommand}" Padding="12,6">
+                                <TextBlock Text="ATUALIZAR ESTADOS"/>
+                            </Button>
+                        </Grid>
                         <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" MaxHeight="420">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="ID" Binding="{Binding TweakId}" Width="160"/>
-                                <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="120"/>
-                                <DataGridTextColumn Header="Descrição" Binding="{Binding Name}" Width="*"/>
-                                <DataGridTextColumn Header="Risco" Binding="{Binding RiskLevel}" Width="95"/>
-                                <DataGridTextColumn Header="Verificação" Binding="{Binding VerificationState}" Width="165"/>
+                                <DataGridTextColumn Header="Ajuste" Binding="{Binding Name}" Width="220"/>
+                                <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="115"/>
+                                <DataGridTemplateColumn Header="Estado Real" Width="155">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{Binding StateBackgroundHex}" BorderBrush="{Binding StateColorHex}" BorderThickness="1" CornerRadius="5" Padding="8,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,2">
+                                                <TextBlock Text="{Binding StateBadgeText}" Foreground="{Binding StateColorHex}" FontSize="10.5" FontWeight="Bold" FontFamily="Consolas"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Valor Atual" Binding="{Binding CurrentRawValueDisplay}" Width="155"/>
+                                <DataGridTextColumn Header="Recomendado" Binding="{Binding RecommendedValue}" Width="95"/>
+                                <DataGridTextColumn Header="Risco" Binding="{Binding RiskLevel}" Width="85"/>
+                                <DataGridTextColumn Header="Benefício Esperado" Binding="{Binding ExpectedBenefit}" Width="*"/>
                                 <DataGridTemplateColumn Header="Ações" Width="210">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
@@ -980,36 +997,72 @@
             <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
-                        <StackPanel>
-                            <TextBlock Text="CATÁLOGO FECHADO AUDITADO COM REVERSÃO INDIVIDUAL" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
-                            <TextBlock Text="Windows Tweaks — Otimizações Reais de Registro" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="Nenhuma chave fora da whitelist é tocada. Toda operação registra o estado anterior real no Ledger DPAPI+HMAC." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="CATÁLOGO FECHADO AUDITADO · INSPEÇÃO REAL DE CHAVE, VALOR E TIPO" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
+                            <TextBlock Text="Windows Tweaks — Auditoria Técnica &amp; Otimizações de Registro" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Cada ajuste consulta diretamente o Registro do Windows (existência da chave, valor e RegistryValueKind), valida pós-escrita e preserva reversão DPAPI+HMAC." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,8" TextWrapping="Wrap"/>
+                            <Border Background="#090C14" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="6" Padding="10,6" HorizontalAlignment="Left">
+                                <TextBlock Text="{Binding TweakStatesSummaryText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#E2E8F0" FontFamily="Consolas"/>
+                            </Border>
                         </StackPanel>
-                        <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionSecondaryButton}" Command="{Binding CreateSnapshotCommand}">
-                            <TextBlock Text="Criar Snapshot Antes de Alterar"/>
-                        </Button>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                            <Button Style="{StaticResource ActionPrimaryButton}" Command="{Binding RefreshTweakStatesCommand}" Margin="0,0,10,0" Padding="14,8">
+                                <TextBlock Text="ATUALIZAR ESTADOS" FontWeight="Bold"/>
+                            </Button>
+                            <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding CreateSnapshotCommand}" Padding="14,8">
+                                <TextBlock Text="Criar Snapshot SHA-256"/>
+                            </Button>
+                        </StackPanel>
                     </Grid>
                 </Border>
 
-                <Border Style="{StaticResource CardBorderStyle}">
-                    <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="520">
+                <!-- Catalog Table -->
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                    <DataGrid ItemsSource="{Binding CatalogTweaks}"
+                              SelectedItem="{Binding SelectedTweakForDetails, Mode=TwoWay}"
+                              AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="390">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="ID" Binding="{Binding TweakId}" Width="155"/>
-                            <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="115"/>
-                            <DataGridTextColumn Header="Descrição" Binding="{Binding Name}" Width="*"/>
-                            <DataGridTextColumn Header="Caminho do Registro" Binding="{Binding RegistryPath}" Width="250"/>
-                            <DataGridTextColumn Header="Valor" Binding="{Binding ValueName}" Width="130"/>
-                            <DataGridTextColumn Header="Recomendado" Binding="{Binding RecommendedValue}" Width="95"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding VerificationState}" Width="155"/>
-                            <DataGridTemplateColumn Header="Ações" Width="195">
+                            <DataGridTemplateColumn Header="Ajuste &amp; Descrição Curta" Width="280">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <StackPanel Orientation="Horizontal" Margin="4,2">
-                                            <Button Content="Aplicar" Style="{StaticResource ActionPrimaryButton}" Padding="10,4" Margin="0,0,6,0"
+                                        <StackPanel Margin="4,3">
+                                            <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding ShortDescription}" FontSize="10.5" Foreground="#94A3B8" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                            <TextBlock Text="{Binding TweakId}" FontSize="9.5" Foreground="#64748B" FontFamily="Consolas" Margin="0,1,0,0"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="110"/>
+                            <DataGridTemplateColumn Header="Estado Real" Width="155">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{Binding StateBackgroundHex}" BorderBrush="{Binding StateColorHex}" BorderThickness="1" CornerRadius="5" Padding="8,3" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,2">
+                                            <TextBlock Text="{Binding StateBadgeText}" Foreground="{Binding StateColorHex}" FontSize="10.5" FontWeight="Bold" FontFamily="Consolas"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Risco" Binding="{Binding RiskLevel}" Width="80"/>
+                            <DataGridTextColumn Header="Valor Atual" Binding="{Binding CurrentRawValueDisplay}" Width="155"/>
+                            <DataGridTextColumn Header="Recomendado" Binding="{Binding RecommendedValue}" Width="95"/>
+                            <DataGridTextColumn Header="Benefício Esperado" Binding="{Binding ExpectedBenefit}" Width="*"/>
+                            <DataGridTemplateColumn Header="Ações" Width="295">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="4,2">
+                                            <Button Content="Aplicar" Style="{StaticResource ActionPrimaryButton}" Padding="9,4" Margin="0,0,5,0"
                                                     Command="{Binding DataContext.ApplyTweakCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                     CommandParameter="{Binding}"/>
-                                            <Button Content="Restaurar" Style="{StaticResource ActionSecondaryButton}" Padding="10,4"
+                                            <Button Content="Reverter" Style="{StaticResource ActionSecondaryButton}" Padding="9,4" Margin="0,0,5,0"
                                                     Command="{Binding DataContext.RestoreSingleTweakCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}"/>
+                                            <Button Content="Explicação Detalhada" Style="{StaticResource ActionSecondaryButton}" Padding="9,4"
+                                                    Command="{Binding DataContext.SelectTweakDetailsCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                     CommandParameter="{Binding}"/>
                                         </StackPanel>
                                     </DataTemplate>
@@ -1017,6 +1070,94 @@
                             </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
+                </Border>
+
+                <!-- Detailed Technical Explanation Panel (Bound to SelectedTweakForDetails) -->
+                <Border Style="{StaticResource CardBorderStyle}" DataContext="{Binding SelectedTweakForDetails}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <TextBlock Text="EXPLICAÇÃO TÉCNICA DETALHADA DO AJUSTE" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <Border Background="#141926" BorderBrush="#262F45" BorderThickness="1" CornerRadius="4" Padding="6,2" Margin="0,0,8,0">
+                                        <TextBlock Text="{Binding TweakId}" FontSize="10" FontWeight="Bold" Foreground="#94A3B8" FontFamily="Consolas"/>
+                                    </Border>
+                                    <Border Background="#141926" BorderBrush="#262F45" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                                        <TextBlock Text="{Binding RecommendationBadgeText}" FontSize="10" FontWeight="Bold" Foreground="#E2E8F0" FontFamily="Consolas"/>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="{Binding Name}" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                <TextBlock Text="{Binding ShortDescription}" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Border Grid.Column="1" Background="{Binding StateBackgroundHex}" BorderBrush="{Binding StateColorHex}" BorderThickness="1" CornerRadius="6" Padding="12,6" VerticalAlignment="Top">
+                                <StackPanel>
+                                    <TextBlock Text="ESTADO REAL NO REGISTRO" FontSize="9" FontWeight="Bold" Foreground="#94A3B8"/>
+                                    <TextBlock Text="{Binding StateBadgeText}" FontSize="13" FontWeight="Bold" Foreground="{Binding StateColorHex}" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="14"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <Border Style="{StaticResource SubtleInnerCardStyle}" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="O QUE ESTE AJUSTE REALMENTE FAZ" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding WhatItDoes}" FontSize="12" Foreground="#E2E8F0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource SubtleInnerCardStyle}" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="QUAL PROBLEMA RESOLVE &amp; BENEFÍCIO ESPERADO" FontSize="10" FontWeight="Bold" Foreground="#10B981" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding ProblemSolved}" FontSize="12" Foreground="#E2E8F0" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                        <TextBlock Text="{Binding ExpectedBenefit, StringFormat=Benefício: {0}}" FontSize="11.5" FontWeight="SemiBold" Foreground="#34D399" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource SubtleInnerCardStyle}">
+                                    <StackPanel>
+                                        <TextBlock Text="COMPORTAMENTO PADRÃO DOCUMENTADO PELO WINDOWS" FontSize="10" FontWeight="Bold" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding DefaultWindowsBehavior}" FontSize="11.5" Foreground="#CBD5E1" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <Border Style="{StaticResource SubtleInnerCardStyle}" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="POSSÍVEIS EFEITOS NEGATIVOS &amp; RISCOS" FontSize="10" FontWeight="Bold" Foreground="#F59E0B" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding PotentialSideEffects}" FontSize="12" Foreground="#E2E8F0" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                        <TextBlock Text="{Binding RiskLevel, StringFormat=Nível de Risco: {0}}" FontSize="11.5" FontWeight="SemiBold" Foreground="#FBBF24"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource SubtleInnerCardStyle}" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="REINICIALIZAÇÃO &amp; DEPENDÊNCIAS DE HARDWARE / WINDOWS" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding RequiresRebootText, StringFormat=Exige Reinicialização: {0}}" FontSize="11.5" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding HardwareOrOsDependency}" FontSize="11.5" Foreground="#CBD5E1" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource SubtleInnerCardStyle}">
+                                    <StackPanel>
+                                        <TextBlock Text="INSPEÇÃO DIRETA DA CHAVE E VALOR NO REGISTRO" FontSize="10" FontWeight="Bold" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding RegistryPath, StringFormat=Chave: {0}}" FontSize="11" Foreground="#CBD5E1" FontFamily="Consolas" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding ValueName, StringFormat=Valor: {0}}" FontSize="11" Foreground="#CBD5E1" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding CurrentRawValueDisplay, StringFormat=Valor Atual Lido: {0}}" FontSize="11.5" FontWeight="Bold" Foreground="#FFFFFF" FontFamily="Consolas" Margin="0,4,0,0"/>
+                                        <TextBlock Text="{Binding RecommendedValue, StringFormat=Valor Recomendado: {0}}" FontSize="11.5" FontWeight="Bold" Foreground="#10B981" FontFamily="Consolas" Margin="0,2,0,4"/>
+                                        <TextBlock Text="{Binding DiagnosticMessage}" FontSize="11" Foreground="#94A3B8" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </DataTemplate>
