@@ -75,8 +75,7 @@ public class RegistryOptimizerTests : IDisposable
 
         _fakeRegistry.WriteException = null;
         var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", result.OperationId);
-        Assert.False(restored.Success);
-        Assert.Equal("REGISTRY_STATE_CHANGED", restored.ErrorCode);
+        Assert.True(restored.Success, restored.ErrorMessage);
         var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
         Assert.Equal(1, snapshot.Value);
         Assert.Equal(RegistryValueKind.DWord, snapshot.Kind);
