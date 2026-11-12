@@ -972,6 +972,22 @@
                     </Grid>
                 </Border>
 
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Resultado do diagnóstico" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding SystemDoctorSummaryText}" FontSize="13" Foreground="#E2E8F0" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <DataGrid ItemsSource="{Binding SystemDoctorFindings}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="230">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Área" Binding="{Binding Category}" Width="125"/>
+                                <DataGridTextColumn Header="Resultado" Binding="{Binding Title}" Width="230"/>
+                                <DataGridTextColumn Header="Nível" Binding="{Binding Severity}" Width="85"/>
+                                <DataGridTextColumn Header="O que foi encontrado" Binding="{Binding Evidence}" Width="2*"/>
+                                <DataGridTextColumn Header="O que fazer" Binding="{Binding RecommendedAction}" Width="2*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
                         <TextBlock Text="Matriz Auditável de Capacidades Reais dos 17 Módulos" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
