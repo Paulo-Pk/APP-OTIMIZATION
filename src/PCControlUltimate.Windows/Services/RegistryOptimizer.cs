@@ -2954,11 +2954,39 @@ public static class RegistryOptimizer
 
     /// <summary>
     /// Returns the Portuguese display label for the current Registry state of a catalog tweak.
-    /// Delegates to InspectCatalogTweak so type validation and all 8 states are strictly enforced.
+    /// Explicitly validates the real RegistryValueKind (from GetValueKind) against def.ValueKind
+    /// and returns "Tipo Incorreto" when they differ, never classifying an incompatible type as Active or Inactive.
+    /// Preserves AccessDenied and ReadError handling and never modifies the Registry during inspection.
     /// </summary>
-    public static string InspectCatalogTweakCurrentState(string tweakId)
+    public static string InspectCatalogTweakCurrentState(
+        string tweakId,
+        IRegistryKeyProbe? probe = null,
+        int? windowsBuildOverride = null)
     {
-        return InspectCatalogTweak(tweakId).StateDisplayPt;
+        if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
+        {
+            return "Erro de Leitura";
+        }
+
+        var report = InspectCatalogTweak(def.TweakId, probe, windowsBuildOverride);
+
+        if (report.ValueExists && report.ActualValueKind.HasValue && report.ActualValueKind.Value != def.ValueKind)
+        {
+            return "Tipo Incorreto";
+        }
+
+        return report.State switch
+        {
+            TweakInspectionState.WrongType => "Tipo Incorreto",
+            TweakInspectionState.AccessDenied => "Acesso Negado",
+            TweakInspectionState.ReadError => "Erro de Leitura",
+            TweakInspectionState.Incompatible => "Incompatível",
+            TweakInspectionState.NotConfigured => "Não Configurado",
+            TweakInspectionState.Active => "Ativo",
+            TweakInspectionState.Inactive => "Inativo",
+            TweakInspectionState.Custom => "Personalizado",
+            _ => report.StateDisplayPt
+        };
     }
 
     private static string GetCurrentWindowsUser()

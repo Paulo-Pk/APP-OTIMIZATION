@@ -770,7 +770,39 @@ public class RegistryOptimizerTests
     [Fact]
     public void CatalogAudit_All23Entries_HaveAccurateMetadataAndCorrectedMisidentifications()
     {
+        string[] expectedIds = new[]
+        {
+            "perf-mmcss",
+            "perf-game-dvr",
+            "perf-hpet",
+            "perf-tcp-nagle",
+            "start-fast-boot",
+            "start-edge-preload",
+            "bg-telemetry",
+            "bg-cortana-news",
+            "power-ultimate-plan",
+            "power-pcie-link",
+            "serv-sysmain",
+            "serv-spooler",
+            "mem-standby-clean",
+            "mem-lock-executive",
+            "game-hags",
+            "game-fso-override",
+            "perf-fso-flags",
+            "sys-delivery-p2p",
+            "sys-transparency",
+            "storage-ntfs-lastaccess",
+            "net-tcp-autotuning",
+            "priv-advertising-id",
+            "maint-startup-delay"
+        };
+
+        Assert.Equal(23, expectedIds.Length);
         Assert.Equal(23, RegistryOptimizer.Catalog.Count);
+        foreach (var id in expectedIds)
+        {
+            Assert.True(RegistryOptimizer.Catalog.ContainsKey(id), $"Catalog is missing expected ID '{id}'.");
+        }
 
         // Verify the 6 previously misidentified tweaks now document their real Registry target honestly
         var hpet = RegistryOptimizer.Catalog["perf-hpet"];
@@ -785,6 +817,7 @@ public class RegistryOptimizerTests
 
         var autoTuning = RegistryOptimizer.Catalog["net-tcp-autotuning"];
         Assert.Equal("TcpMaxDataRetransmissions", autoTuning.ValueName);
+        Assert.Equal("5", autoTuning.DefaultOriginValue);
         Assert.False(autoTuning.IsRecommendedForApply);
         Assert.Equal(TweakRecommendationStatus.NotRecommendedOrDefault, autoTuning.RecommendationStatus);
 
@@ -837,27 +870,35 @@ public class RegistryOptimizerTests
 
         // 1. Expected DWORD and found as DWORD with recommended value -> "Ativo"
         probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, 10, RegistryValueKind.DWord);
-        Assert.Equal("Ativo", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+        Assert.Equal("Ativo", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss", probe));
 
         // 2. Expected DWORD, but found as STRING ("10") -> "Tipo Incorreto" (never "Ativo" or "Inativo")
         probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, "10", RegistryValueKind.String);
-        Assert.Equal("Tipo Incorreto", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+        Assert.Equal("Tipo Incorreto", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss", probe));
 
         // 3. Expected DWORD, but found as STRING with default value ("20") -> still "Tipo Incorreto"
         probe.SetValue(def.Hive, def.SubKeyPath, def.ValueName, "20", RegistryValueKind.String);
-        Assert.Equal("Tipo Incorreto", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+        Assert.Equal("Tipo Incorreto", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss", probe));
 
         // 4. Value absent -> "Não Configurado", and subkey/value must remain untouched by inspection
         probe.RemoveSubKey(def.Hive, def.SubKeyPath);
-        Assert.Equal("Não Configurado", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
+        Assert.Equal("Não Configurado", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss", probe));
         Assert.False(probe.SubKeyExists(def.Hive, def.SubKeyPath));
 
         // 5. Access denied -> "Acesso Negado" with IsUndeterminable = true and "Estado Não Determinável" classification
         probe.SetAccessDenied(def.Hive, def.SubKeyPath);
-        Assert.Equal("Acesso Negado", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss"));
-        var deniedReport = RegistryOptimizer.InspectCatalogTweak("perf-mmcss");
+        Assert.Equal("Acesso Negado", RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss", probe));
+        var deniedReport = RegistryOptimizer.InspectCatalogTweak("perf-mmcss", probe);
         Assert.True(deniedReport.IsUndeterminable);
         Assert.Equal("Estado Não Determinável", deniedReport.StateClassificationPt);
+
+        // 6. Read error -> "Erro de Leitura" with IsUndeterminable = true and "Estado Não Determinável" classification
+        var defSysMain = RegistryOptimizer.Catalog["serv-sysmain"];
+        probe.SetReadError(defSysMain.Hive, defSysMain.SubKeyPath);
+        Assert.Equal("Erro de Leitura", RegistryOptimizer.InspectCatalogTweakCurrentState("serv-sysmain", probe));
+        var readErrorReport = RegistryOptimizer.InspectCatalogTweak("serv-sysmain", probe);
+        Assert.True(readErrorReport.IsUndeterminable);
+        Assert.Equal("Estado Não Determinável", readErrorReport.StateClassificationPt);
     }
 
     [Fact]

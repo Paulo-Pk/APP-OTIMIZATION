@@ -381,212 +381,6 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 </Project>`,
   },
   {
-    path: 'src/PCControlUltimate.Windows/Services/PrivilegedAgentServer.cs',
-    content: `using System;
-using System.IO;
-using System.Net;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using PCControlUltimate.Core.Interfaces;
-
-namespace PCControlUltimate.Windows.Services;
-
-public class PrivilegedAgentServer : IDisposable
-{
-    private readonly HttpListener _listener;
-    private readonly IHardwareMonitorService _hardwareMonitor;
-    private CancellationTokenSource? _cts;
-    public const int DefaultPort = 52194;
-
-    public PrivilegedAgentServer(IHardwareMonitorService hardwareMonitor)
-    {
-        _hardwareMonitor = hardwareMonitor;
-        _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://127.0.0.1:{DefaultPort}/");
-    }
-
-    public void Start()
-    {
-        _cts = new CancellationTokenSource();
-        _listener.Start();
-        Task.Run(() => ListenLoopAsync(_cts.Token));
-    }
-
-    private async Task ListenLoopAsync(CancellationToken token)
-    {
-        while (!token.IsCancellationRequested && _listener.IsListening)
-        {
-            try
-            {
-                var context = await _listener.GetContextAsync();
-                _ = HandleRequestAsync(context);
-            }
-            catch (Exception)
-            {
-                if (token.IsCancellationRequested) break;
-            }
-        }
-    }
-
-    private async Task HandleRequestAsync(HttpListenerContext context)
-    {
-        var req = context.Request;
-        var res = context.Response;
-
-        res.AddHeader("Access-Control-Allow-Origin", "*");
-        res.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        res.AddHeader("Access-Control-Allow-Headers", "Content-Type");
-
-        if (req.HttpMethod == "OPTIONS")
-        {
-            res.StatusCode = 204;
-            res.Close();
-            return;
-        }
-
-        try
-        {
-            var path = req.Url?.AbsolutePath.ToLowerInvariant() ?? "";
-
-            if (path == "/api/status")
-            {
-                var status = new
-                {
-                    version = "2.4.0",
-                    os = Environment.OSVersion.ToString(),
-                    isElevated = UacElevationBridge.IsRunningAsAdministrator(),
-                    timestamp = DateTime.UtcNow
-                };
-                await SendJsonAsync(res, status);
-                return;
-            }
-
-            if (path == "/api/telemetry")
-            {
-                var snapshot = await _hardwareMonitor.CaptureSnapshotAsync();
-                await SendJsonAsync(res, snapshot);
-                return;
-            }
-
-            if (path == "/api/tweaks/apply" && req.HttpMethod == "POST")
-            {
-                using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
-                var body = await reader.ReadToEndAsync();
-                var tweakDoc = JsonDocument.Parse(body);
-                
-                string subKey = tweakDoc.RootElement.GetProperty("keyPath").GetString() ?? "";
-                string valueName = tweakDoc.RootElement.GetProperty("valueName").GetString() ?? "";
-                int targetValue = tweakDoc.RootElement.GetProperty("targetValue").GetInt32();
-
-                bool success = RegistryOptimizer.TryApplyDword(subKey, valueName, targetValue, out var prevVal);
-                
-                await SendJsonAsync(res, new
-                {
-                    success,
-                    previousValue = prevVal?.ToString() ?? "0",
-                    verifiedValue = targetValue.ToString()
-                });
-                return;
-            }
-
-            if (path == "/api/tweaks/restore" && req.HttpMethod == "POST")
-            {
-                using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
-                var body = await reader.ReadToEndAsync();
-                var doc = JsonDocument.Parse(body);
-                string subKey = doc.RootElement.GetProperty("keyPath").GetString() ?? "";
-                string valueName = doc.RootElement.GetProperty("valueName").GetString() ?? "";
-                string origValStr = doc.RootElement.GetProperty("originalValue").GetString() ?? "0";
-                int origVal = int.TryParse(origValStr, out int v) ? v : 0;
-
-                bool success = RegistryOptimizer.TryApplyDword(subKey, valueName, origVal, out _);
-                await SendJsonAsync(res, new { success, verified = success });
-                return;
-            }
-
-            if (path == "/api/snapshot/create" && req.HttpMethod == "POST")
-            {
-                var snapshotResult = RegistrySnapshotEngine.CreateBackup();
-                await SendJsonAsync(res, snapshotResult);
-                return;
-            }
-
-            if (path == "/api/display/info")
-            {
-                var disp = DisplaySettingsService.GetPrimaryDisplayInfo();
-                await SendJsonAsync(res, disp);
-                return;
-            }
-
-            if (path == "/api/debloat/purge" && req.HttpMethod == "POST")
-            {
-                using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
-                var body = await reader.ReadToEndAsync();
-                var doc = JsonDocument.Parse(body);
-                string categoryKey = doc.RootElement.GetProperty("categoryKey").GetString() ?? "";
-                long freed = DiskCleanerEngine.PurgeCategory(categoryKey);
-                await SendJsonAsync(res, new { freedBytes = freed });
-                return;
-            }
-
-            res.StatusCode = 404;
-            res.Close();
-        }
-        catch (Exception ex)
-        {
-            res.StatusCode = 500;
-            byte[] errBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { error = ex.Message }));
-            res.ContentType = "application/json";
-            await res.OutputStream.WriteAsync(errBytes);
-            res.Close();
-        }
-    }
-
-    private async Task SendJsonAsync(HttpListenerResponse res, object data)
-    {
-        res.ContentType = "application/json";
-        res.StatusCode = 200;
-        byte[] bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(data));
-        res.ContentLength64 = bytes.Length;
-        await res.OutputStream.WriteAsync(bytes);
-        res.Close();
-    }
-
-    public void Dispose()
-    {
-        _cts?.Cancel();
-        _listener.Stop();
-        _listener.Close();
-    }
-}`,
-  },
-  {
-    path: 'src/PCControlUltimate.Windows/Services/RegistryOptimizer.cs',
-    content: `using System;
-
-namespace PCControlUltimate.Windows.Services;
-
-public static class RegistryOptimizer
-{
-    public static bool TryApplyDword(string subKeyPath, string valueName, int targetValue, out object? previousValue)
-    {
-        previousValue = "0";
-        try
-        {
-            // Windows Registry Access via Microsoft.Win32.Registry
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-}`,
-  },
-  {
     path: 'src/PCControlUltimate.Windows/Services/UacElevationBridge.cs',
     content: `using System;
 using System.Security.Principal;
@@ -611,46 +405,6 @@ public static class UacElevationBridge
 }`,
   },
   {
-    path: 'src/PCControlUltimate.Windows/Services/RegistrySnapshotEngine.cs',
-    content: `using System;
-using System.IO;
-using System.Security.Cryptography;
-using System.Text;
-
-namespace PCControlUltimate.Windows.Services;
-
-public static class RegistrySnapshotEngine
-{
-    public static object CreateBackup()
-    {
-        string backupDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PCControlUltimate", "Backups");
-        Directory.CreateDirectory(backupDir);
-
-        string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-        string filePath = Path.Combine(backupDir, $"RegistrySnapshot_{timestamp}.reg.bak");
-
-        string header = $"Windows Registry Editor Version 5.00\\n; PC Control Ultimate Backup - {DateTime.UtcNow:O}\\n";
-        File.WriteAllText(filePath, header, Encoding.Unicode);
-
-        using var sha = SHA256.Create();
-        using var stream = File.OpenRead(filePath);
-        byte[] hash = sha.ComputeHash(stream);
-        string hashStr = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
-
-        var fi = new FileInfo(filePath);
-
-        return new
-        {
-            success = true,
-            snapshotId = $"snap-{Guid.NewGuid()}",
-            filePath = filePath,
-            fileSizeBytes = fi.Length,
-            checksumSha256 = hashStr
-        };
-    }
-}`,
-  },
-  {
     path: 'src/PCControlUltimate.Windows/Services/DisplaySettingsService.cs',
     content: `using System;
 
@@ -667,42 +421,6 @@ public static class DisplaySettingsService
             monitorName = "Primary Gaming Display",
             resolution = "2560x1440"
         };
-    }
-}`,
-  },
-  {
-    path: 'src/PCControlUltimate.Windows/Services/DiskCleanerEngine.cs',
-    content: `using System;
-using System.IO;
-
-namespace PCControlUltimate.Windows.Services;
-
-public static class DiskCleanerEngine
-{
-    public static long PurgeCategory(string categoryKey)
-    {
-        string targetDir = categoryKey switch
-        {
-            "cache-dx-shaders" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "D3DSCache"),
-            "temp-windows" => @"C:\\Windows\\Temp",
-            "temp-user" => Path.GetTempPath(),
-            _ => string.Empty
-        };
-
-        if (string.IsNullOrEmpty(targetDir) || !Directory.Exists(targetDir)) return 0;
-
-        long freed = 0;
-        try
-        {
-            var dir = new DirectoryInfo(targetDir);
-            foreach (var file in dir.EnumerateFiles())
-            {
-                try { long size = file.Length; file.Delete(); freed += size; } catch { }
-            }
-        }
-        catch { }
-
-        return freed;
     }
 }`,
   },
@@ -911,47 +629,6 @@ public partial class App : Application
 }`,
   },
   {
-    path: 'src/PCControlUltimate.App/MainWindow.xaml',
-    content: `<Window x:Class="PCControlUltimate.App.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PC CONTROL ULTIMATE v2.4.0 — Professional Windows Optimization"
-        Height="820" Width="1280"
-        MinHeight="720" MinWidth="1024"
-        WindowStartupLocation="CenterScreen"
-        Background="{StaticResource BackgroundBrush}">
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="64" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <!-- Header -->
-        <Border Grid.Row="0" Background="#0F121B" BorderBrush="#1E2333" BorderThickness="0,0,0,1">
-            <Grid Margin="20,0">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="PC CONTROL " Foreground="#FFFFFF" FontWeight="Black" FontSize="18" />
-                    <TextBlock Text="ULTIMATE" Foreground="#A855F7" FontWeight="Black" FontSize="18" />
-                    <Border Background="#201533" CornerRadius="4" Margin="12,0,0,0" Padding="6,2">
-                        <TextBlock Text="v2.4.0 PRO" Foreground="#C084FC" FontSize="11" FontWeight="Bold" />
-                    </Border>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- Main Workspace -->
-        <Grid Grid.Row="1">
-            <TextBlock Text="PC CONTROL ULTIMATE — Solução Windows Desktop Ativa"
-                       Foreground="#A855F7"
-                       FontSize="16"
-                       FontWeight="Bold"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center" />
-        </Grid>
-    </Grid>
-</Window>`,
-  },
-  {
     path: 'src/PCControlUltimate.App/MainWindow.xaml.cs',
     content: `using System.Windows;
 
@@ -980,6 +657,7 @@ public partial class MainWindow : Window
     <ProjectReference Include="../../src/PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
     <ProjectReference Include="../../src/PCControlUltimate.Diagnostics/PCControlUltimate.Diagnostics.csproj" />
     <ProjectReference Include="../../src/PCControlUltimate.Security/PCControlUltimate.Security.csproj" />
+    <ProjectReference Include="../../src/PCControlUltimate.Windows/PCControlUltimate.Windows.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
@@ -1050,7 +728,7 @@ Filename: "{app}\\PCControlUltimate.App.exe"; Description: "{cm:LaunchProgram,PC
   },
 ];
 
-console.log('Writing physical .NET 10 solution files to disk...');
+console.log('Checking physical .NET 10 solution files on disk (preserving existing implementations)...');
 
 for (const f of files) {
   const fullPath = path.join(rootDir, f.path);
@@ -1058,8 +736,13 @@ for (const f of files) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  if (fs.existsSync(fullPath)) {
+    console.log('Preserved existing production file:', f.path);
+    continue;
+  }
   fs.writeFileSync(fullPath, f.content, 'utf8');
-  console.log('Created:', f.path);
+  console.log('Created missing file:', f.path);
 }
 
-console.log('All 9 projects in PCControlUltimate.sln scaffolded successfully on disk!');
+console.log('All projects in PCControlUltimate.sln verified without overwriting production files!');
+
