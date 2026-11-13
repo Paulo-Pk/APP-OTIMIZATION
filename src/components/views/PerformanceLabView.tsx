@@ -93,7 +93,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
         setSessions((prev) => [newSession, ...prev]);
         setStatusMessage(t.performanceLab.captureSuccess);
       } else {
-        setStatusMessage(t.performanceLab.agentRequiredPresentMon);
+        setStatusMessage(nativeResult?.error || t.performanceLab.agentRequiredPresentMon);
       }
     } catch (error) {
       setStatusMessage(error instanceof Error ? `Não foi possível concluir a captura: ${error.message}` : 'Não foi possível concluir a captura PresentMon.');
