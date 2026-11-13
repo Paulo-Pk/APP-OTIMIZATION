@@ -1158,23 +1158,23 @@
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
-                            <TextBlock Text="CATÁLOGO FECHADO AUDITADO COM REVERSÃO INDIVIDUAL" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
+                            <TextBlock Text="AJUSTES DO WINDOWS COM OPÇÃO DE RESTAURAÇÃO" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
                             <TextBlock Text="Ajustes do Windows" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="Opções para mudar o comportamento do Windows. Cada ajuste mostra o que faz e só pode ser aplicado quando o estado atual é conhecido." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                            <TextBlock Text="Escolha o que deseja ajustar. O aplicativo confere a configuração e guarda o estado anterior antes de aplicar a mudança." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <Button Style="{StaticResource ActionSecondaryButton}" Margin="0,0,8,0" Command="{Binding RefreshTweakStatesCommand}" IsEnabled="{Binding CanRefreshTweakStates}">
                                 <TextBlock Text="{Binding RefreshTweakStatesButtonText}"/>
                             </Button>
                             <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding CreateSnapshotCommand}">
-                                <TextBlock Text="Criar Snapshot Antes de Alterar"/>
+                                <TextBlock Text="Salvar cópia de segurança"/>
                             </Button>
                         </StackPanel>
                     </Grid>
                 </Border>
 
                 <TextBlock Text="{Binding TweakStatesSummaryText}" Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,8"/>
-                <TextBlock Text="Antes de aplicar, confira a explicação e crie um ponto de restauração do sistema. Se o Windows indicar que uma configuração é personalizada, desconhecida ou sem acesso, o aplicativo bloqueia a alteração para não sobrescrever suas escolhas. Use Restaurar para voltar ao estado salvo pelo aplicativo." Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,12"/>
+                <TextBlock Text="Antes de aplicar, leia o resumo e salve uma cópia de segurança. Se o Windows não permitir confirmar uma configuração, o aplicativo bloqueia a mudança para proteger suas escolhas. Você pode usar Restaurar quando houver uma cópia válida." Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,12"/>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="520">
@@ -1183,7 +1183,7 @@
                             <DataTemplate>
                                 <Border Background="#0A0C13" BorderBrush="#273047" BorderThickness="1" CornerRadius="6" Padding="10" Margin="6">
                                     <StackPanel>
-                                        <TextBlock Text="Detalhes técnicos (somente consulta)" Foreground="#C4B5FD" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
+                                        <TextBlock Text="Detalhes avançados (opcional)" Foreground="#C4B5FD" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
                                         <TextBlock Text="{Binding RegistryPath}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap"/>
                                         <TextBlock Text="{Binding ValueName}" Foreground="#94A3B8" FontSize="10"/>
                                         <TextBlock Text="{Binding RecommendedValue}" Foreground="#94A3B8" FontSize="10"/>
@@ -1195,9 +1195,9 @@
 
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Grupo" Binding="{Binding Category}" Width="110"/>
-                            <DataGridTextColumn Header="O que este ajuste faz" Binding="{Binding Name}" Width="2*"/>
+                            <DataGridTextColumn Header="O que muda" Binding="{Binding Name}" Width="2*"/>
                             <DataGridTextColumn Header="Situação atual" Binding="{Binding VerificationState}" Width="170"/>
-                            <DataGridTextColumn Header="Valor lido" Binding="{Binding CurrentValueText}" Width="100"/>
+                            <DataGridTextColumn Header="Valor atual" Binding="{Binding CurrentValueText}" Width="100"/>
                             <DataGridTextColumn Header="Observação" Binding="{Binding DiagnosticDetailText}" Width="2*"/>
                             <DataGridTemplateColumn Header="Ações" Width="195">
                                 <DataGridTemplateColumn.CellTemplate>
