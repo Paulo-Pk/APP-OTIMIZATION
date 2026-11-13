@@ -125,7 +125,17 @@ public class PrivilegedAgentServer : IDisposable
     private async Task HandleRequestWithTimeoutAsync(HttpListenerContext context, CancellationToken serverToken)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(serverToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        // PresentMon captures may run for up to 120 seconds, plus the parser's
+        // 10-second process-exit grace period. Keep ordinary API requests short.
+        TimeSpan requestTimeout = string.Equals(
+            context.Request.Url?.AbsolutePath,
+            "/api/presentmon/capture",
+            StringComparison.OrdinalIgnoreCase)
+            ? TimeSpan.FromSeconds(135)
+            : TimeSpan.FromSeconds(15);
+
+        timeoutCts.CancelAfter(requestTimeout);
         await HandleRequestAsync(context, timeoutCts.Token);
     }
 
