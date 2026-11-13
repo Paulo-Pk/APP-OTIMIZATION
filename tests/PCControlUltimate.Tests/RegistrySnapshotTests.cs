@@ -589,4 +589,54 @@ public class RegistrySnapshotTests
         }
     }
 
+    [Fact]
+    public void RestoreFromBackupWithReport_LegacyCompleteBackupWithoutConfirmation_MustBeBlocked()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 13, 13, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+            const string snapshotId = "snap-legacy-confirmation";
+            const string description = "Legacy backup confirmation test";
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "2.1", snapshotId, createdUtc.ToString("O"), description, entries);
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                FormatVersion = "2.1",
+                SnapshotId = snapshotId,
+                CreatedUtc = createdUtc,
+                Description = description,
+                TotalKeysCaptured = entries.Count,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(
+                tempFile, allowIncompleteBackup: false);
+
+            Assert.False(report.Success);
+            Assert.Equal(0, report.RestoredCount);
+            Assert.Contains("formato legado", report.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
 }
