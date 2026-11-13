@@ -170,14 +170,16 @@ public class PrivilegedAgentServer : IDisposable
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(serverToken);
 
-        // PresentMon captures may run for up to 120 seconds, plus the parser's
-        // 10-second process-exit grace period. Keep ordinary API requests short.
-        TimeSpan requestTimeout = string.Equals(
-            context.Request.Url?.AbsolutePath,
-            "/api/presentmon/capture",
-            StringComparison.OrdinalIgnoreCase)
-            ? TimeSpan.FromSeconds(135)
-            : TimeSpan.FromSeconds(15);
+        // Long-running operations need endpoint-specific limits. PresentMon captures
+        // can run for 120 seconds plus parser cleanup; winget installs can take several
+        // minutes while downloading and configuring packages. Keep ordinary API requests short.
+        string requestPath = context.Request.Url?.AbsolutePath ?? string.Empty;
+        TimeSpan requestTimeout =
+            string.Equals(requestPath, "/api/presentmon/capture", StringComparison.OrdinalIgnoreCase)
+                ? TimeSpan.FromSeconds(135)
+                : string.Equals(requestPath, "/api/software/install", StringComparison.OrdinalIgnoreCase)
+                    ? TimeSpan.FromMinutes(5)
+                    : TimeSpan.FromSeconds(15);
 
         timeoutCts.CancelAfter(requestTimeout);
         await HandleRequestAsync(context, timeoutCts.Token);
