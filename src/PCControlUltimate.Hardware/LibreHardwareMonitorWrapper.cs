@@ -408,6 +408,13 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         if (ramUsed.HasValue && ramAvailable.HasValue)
             ramTotal = ramUsed.Value + ramAvailable.Value;
 
+        // Keep the legacy top-level GPU VRAM fields consistent with the selected
+        // primary adapter, including when only the D3D dedicated-memory fallback exists.
+        var primaryGpuTelemetry = gpuAdapters.FirstOrDefault(adapter =>
+            string.Equals(adapter.Model, gpuModel, StringComparison.OrdinalIgnoreCase));
+        gpuVramUsed ??= primaryGpuTelemetry?.VramUsedMb;
+        gpuVramTotal ??= primaryGpuTelemetry?.VramTotalMb;
+
         cpuClock ??= cpuClockFallback;
 
         var snapshot = new HardwareSnapshot(
