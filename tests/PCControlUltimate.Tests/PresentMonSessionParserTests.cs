@@ -54,4 +54,26 @@ public sealed class PresentMonSessionParserTests
             try { File.Delete(path); } catch { }
         }
     }
+
+    [Theory]
+    [InlineData("msCPUBusy")]
+    [InlineData("msGPUBusy")]
+    public void ParseCsvFile_DoesNotTreatCpuOrGpuBusyAsFrametime(string columnName)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"pccontrol-presentmon-{Guid.NewGuid():N}.csv");
+        try
+        {
+            File.WriteAllLines(path, new[] { columnName, "5", "10", "15" });
+
+            PresentMonSummary summary = PresentMonSessionParser.ParseCsvFile(path);
+
+            Assert.Equal(0, summary.TotalFramesCount);
+            Assert.Empty(summary.RecentFrameTimesMs);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
+    }
+
 }
