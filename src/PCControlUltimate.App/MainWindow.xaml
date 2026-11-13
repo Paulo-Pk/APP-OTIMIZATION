@@ -1324,11 +1324,11 @@
                             <DataGrid ItemsSource="{Binding NetworkEndpoints}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="280">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Alvo" Binding="{Binding TargetName}" Width="150"/>
-                                    <DataGridTextColumn Header="IP" Binding="{Binding HostOrIp}" Width="115"/>
-                                    <DataGridTextColumn Header="Tempo médio (ms)" Binding="{Binding AverageRttMs}" Width="110"/>
-                                    <DataGridTextColumn Header="Variação (ms)" Binding="{Binding JitterMs}" Width="95"/>
-                                    <DataGridTextColumn Header="Falhas (%)" Binding="{Binding PacketLossPercent}" Width="90"/>
-                                    <DataGridTextColumn Header="Tempo para conectar (ms)" Binding="{Binding TcpHandshakeMs}" Width="*"/>
+                                    <DataGridTextColumn Header="Endereço" Binding="{Binding HostOrIp}" Width="115"/>
+                                    <DataGridTextColumn Header="Resposta média (ms)" Binding="{Binding AverageRttMs}" Width="110"/>
+                                    <DataGridTextColumn Header="Estabilidade (ms)" Binding="{Binding JitterMs}" Width="95"/>
+                                    <DataGridTextColumn Header="Tentativas sem resposta (%)" Binding="{Binding PacketLossPercent}" Width="90"/>
+                                    <DataGridTextColumn Header="Tempo de conexão (ms)" Binding="{Binding TcpHandshakeMs}" Width="*"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </StackPanel>
@@ -1364,10 +1364,10 @@
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding RunTracerouteCommand}" Margin="0,0,8,0">
-                                <TextBlock Text="Executar Traceroute"/>
+                                <TextBlock Text="Ver caminho da conexão"/>
                             </Button>
                             <Button Style="{StaticResource ActionPrimaryButton}" Command="{Binding EvaluateGameRouteCommand}">
-                                <TextBlock Text="Avaliar Rota Direta vs Relay"/>
+                                <TextBlock Text="Comparar conexão atual e alternativa"/>
                             </Button>
                         </StackPanel>
                     </Grid>
@@ -1390,23 +1390,23 @@
                             </StackPanel>
                             <UniformGrid Columns="2" Margin="0,0,0,12">
                                 <StackPanel Margin="0,0,6,0">
-                                    <TextBlock Text="Host de referência (editável)" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Endereço de teste" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
                                     <TextBox Text="{Binding AcceleratorTargetHost, UpdateSourceTrigger=PropertyChanged}" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#262F45" Padding="8,6"/>
                                 </StackPanel>
                                 <StackPanel Margin="6,0,0,0">
-                                    <TextBlock Text="Porta do teste" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Porta" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
                                     <TextBox Text="{Binding AcceleratorTargetPort, UpdateSourceTrigger=PropertyChanged}" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#262F45" Padding="8,6"/>
                                 </StackPanel>
                             </UniformGrid>
                             <StackPanel Orientation="Horizontal">
                                 <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding RegisterSampleVpsNodeCommand}" Margin="0,0,8,0">
-                                    <TextBlock Text="Ver requisitos de VPS próprio"/>
+                                    <TextBlock Text="Servidor intermediário próprio"/>
                                 </Button>
                                 <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding AuditWireGuardConfigCommand}" Margin="0,0,8,0">
-                                    <TextBlock Text="Ver requisitos do WireGuard"/>
+                                    <TextBlock Text="Configuração avançada de túnel"/>
                                 </Button>
                                 <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding CheckWireGuardTunnelCommand}">
-                                    <TextBlock Text="Status do Túnel"/>
+                                    <TextBlock Text="Status do túnel"/>
                                 </Button>
                             </StackPanel>
                             <TextBlock Text="{Binding WireGuardConfigAuditText}" FontSize="11.5" Foreground="#94A3B8" Margin="0,10,0,0" TextWrapping="Wrap"/>
@@ -1418,9 +1418,9 @@
                             <TextBlock Text="Caminho da conexão (detalhes)" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
                             <DataGrid ItemsSource="{Binding TracerouteHops}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="210">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="TTL" Binding="{Binding HopNumber}" Width="60"/>
-                                    <DataGridTextColumn Header="Endereço IP" Binding="{Binding HopAddress}" Width="170"/>
-                                    <DataGridTextColumn Header="RTT (ms)" Binding="{Binding RttMs}" Width="95"/>
+                                    <DataGridTextColumn Header="Etapa" Binding="{Binding HopNumber}" Width="60"/>
+                                    <DataGridTextColumn Header="Endereço" Binding="{Binding HopAddress}" Width="170"/>
+                                    <DataGridTextColumn Header="Tempo (ms)" Binding="{Binding RttMs}" Width="95"/>
                                     <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="*"/>
                                 </DataGrid.Columns>
                             </DataGrid>
