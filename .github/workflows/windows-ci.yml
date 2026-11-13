@@ -117,7 +117,6 @@ jobs:
           name: PCControlUltimate-win-x64-Release
           path: |
             artifacts/PCControlUltimate-win-x64-Release.zip
-            artifacts/publish/win-x64/
             **/TestResults/*.trx
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
