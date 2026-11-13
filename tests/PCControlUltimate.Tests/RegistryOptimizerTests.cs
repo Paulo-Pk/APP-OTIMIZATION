@@ -1022,7 +1022,7 @@ public class RegistryOptimizerTests : IDisposable
             OperationId = "op-canonical-test",
             TweakId = "perf-game-dvr",
             Hive = "HKCU",
-            SubKeyPath = @"System\\GameConfigStore",
+            SubKeyPath = @"System\GameConfigStore",
             ValueName = "GameDVR_Enabled",
             OriginalValueKind = RegistryValueKind.String.ToString(),
             OriginalRawValue = "before|after",
