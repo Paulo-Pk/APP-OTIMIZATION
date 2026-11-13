@@ -1996,7 +1996,7 @@ public class MainViewModel : INotifyPropertyChanged
             if (parameter is not VerifiedSoftwareItem package) return;
 
             MessageBoxResult confirmation = MessageBox.Show(
-                $"Deseja instalar {package.AppName} agora?\n\\nOrigem: {package.Source}\\nPublicador: {package.Publisher}\\n\\nO instalador oficial será iniciado pelo WinGet.",
+                $"Deseja instalar {package.AppName} agora?\n\nOrigem: {package.Source}\nPublicador: {package.Publisher}\n\nO instalador oficial será iniciado pelo WinGet.",
                 "Confirmar instalação",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
