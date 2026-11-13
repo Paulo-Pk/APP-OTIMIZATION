@@ -65,7 +65,7 @@ class NativeBridgeService {
 
     // Keep the deadline active while the caller consumes the response body,
     // not just until the server sends response headers.
-    return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    return fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(timeoutMs) });
   }
 
   private getAuthHeaders(): Record<string, string> {
