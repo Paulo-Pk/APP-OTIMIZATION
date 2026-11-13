@@ -70,6 +70,12 @@ public class SystemStabilityAuditor
                 DiagnosticSummary: summary
             ));
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cancellation is a caller control signal, not an Event Viewer access failure.
+            // Preserve it so the diagnostic workflow can stop promptly and report cancellation.
+            throw;
+        }
         catch (Exception ex)
         {
             return Task.FromResult(new SystemStabilityAuditReport(
