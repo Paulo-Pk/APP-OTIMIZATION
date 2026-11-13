@@ -11,7 +11,6 @@ import {
   Gauge,
   Flame,
   ShieldCheck,
-  MonitorPlay,
 } from 'lucide-react';
 import { GameProfile } from '../../types';
 import { useI18n } from '../../i18n';
@@ -101,6 +100,13 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
 
       {/* Games Visual Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {filteredGames.length === 0 && (
+          <div className="col-span-full p-8 rounded-xl bg-[#0f121b] border border-slate-800 text-center space-y-2">
+            <Gamepad2 className="w-9 h-9 text-purple-400 mx-auto" />
+            <p className="text-sm font-semibold text-white">Nenhum jogo instalado foi encontrado ainda</p>
+            <p className="text-xs text-slate-400">Conecte o agente Windows. O PC Control consulta as bibliotecas suportadas sem varrer o disco inteiro.</p>
+          </div>
+        )}
         {filteredGames.map((game) => {
           const isRunning = runningGameId === game.id;
 
@@ -115,11 +121,13 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
             >
               {/* Cover Image */}
               <div className="relative h-40 bg-slate-900 overflow-hidden group">
-                <img
-                  src={game.coverImage}
-                  alt={game.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
+                {game.coverImage ? (
+                  <img src={game.coverImage} alt={game.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#21163b] via-[#111827] to-[#0b1020]">
+                    <Gamepad2 className="w-14 h-14 text-purple-300/80" />
+                  </div>
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0f121b] via-transparent to-black/60" />
 
                 <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-bold text-slate-300 border border-slate-700/60 uppercase">
