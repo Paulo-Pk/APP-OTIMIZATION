@@ -72,7 +72,7 @@ export const DriverCenterView: React.FC = () => {
         <div className="divide-y divide-slate-800/80">
           {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum dispositivo ou driver foi retornado pelo Windows nesta consulta. Verifique o serviço WMI e tente novamente.</div> : null}
           {drivers.map((driver, idx) => {
-            const isVerified = driver.status === 'Verificado via WMI';
+            const isVerified = driver.status === 'Inventariado via WMI';
 
             return (
               <div
@@ -89,7 +89,7 @@ export const DriverCenterView: React.FC = () => {
                           : 'bg-slate-500/10 text-slate-300 border border-slate-500/30'
                       }`}
                     >
-                      {isVerified ? 'Verificado pelo Windows' : driver.status}
+                      {isVerified ? 'Inventariado pelo Windows' : driver.status}
                     </span>
                   </div>
                   <div className="text-slate-400 text-[11px]">
