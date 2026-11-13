@@ -315,9 +315,25 @@ public class SystemDoctorService
             );
         }
 
-        string stdOut = await proc.StandardOutput.ReadToEndAsync(cancellationToken);
-        string stdErr = await proc.StandardError.ReadToEndAsync(cancellationToken);
-        await proc.WaitForExitAsync(cancellationToken);
+        // Drain both redirected streams concurrently to prevent a child process from
+        // blocking when either OS pipe buffer fills (DISM/SFC can be very verbose).
+        Task<string> stdOutTask = proc.StandardOutput.ReadToEndAsync(cancellationToken);
+        Task<string> stdErrTask = proc.StandardError.ReadToEndAsync(cancellationToken);
+
+        try
+        {
+            await proc.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+            try { await Task.WhenAll(stdOutTask, stdErrTask).ConfigureAwait(false); } catch { }
+            throw;
+        }
+
+        await Task.WhenAll(stdOutTask, stdErrTask).ConfigureAwait(false);
+        string stdOut = await stdOutTask.ConfigureAwait(false);
+        string stdErr = await stdErrTask.ConfigureAwait(false);
 
         string output = string.IsNullOrWhiteSpace(stdErr) ? stdOut.Trim() : $"{stdOut.Trim()}\n{stdErr.Trim()}";
         return new SystemRepairExecutionResult(
