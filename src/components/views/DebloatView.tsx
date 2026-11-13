@@ -15,7 +15,7 @@ export const DebloatView: React.FC = () => {
   const { t } = useI18n();
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(['cache-dx-shaders', 'temp-user', 'temp-prefetch']));
-  const [scan, setScan] = useState<{ d3dCacheBytes: number; tempWindowsBytes: number; tempUserBytes: number; softwareDistributionBytes: number; prefetchBytes: number } | null>(null);
+  const [scan, setScan] = useState<{ d3dCacheBytes: number; tempWindowsBytes: number; tempUserBytes: number; softwareDistributionBytes: number; prefetchBytes: number; deliveryOptimizationBytes: number } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
 
   const [isCleaning, setIsCleaning] = useState<boolean>(false);
@@ -34,6 +34,7 @@ export const DebloatView: React.FC = () => {
         tempUserBytes: Number(result.tempUserBytes) || 0,
         softwareDistributionBytes: Number(result.softwareDistributionBytes) || 0,
         prefetchBytes: Number(result.prefetchBytes) || 0,
+        deliveryOptimizationBytes: Number(result.deliveryOptimizationBytes) || 0,
       } : null);
       if (!result) setNoticeMessage('Conecte o agente Windows para medir o espaço real que pode ser liberado.');
 
@@ -50,6 +51,7 @@ export const DebloatView: React.FC = () => {
     { id: 'temp-user', name: t.debloat.tempUserTitle, description: 'Arquivos temporários criados por aplicativos na sua conta. Arquivos em uso serão ignorados.', estimatedBytes: scan?.tempUserBytes || 0, isSafe: true },
     { id: 'temp-windows', name: t.debloat.tempWindowsTitle, description: 'Arquivos temporários do Windows. Itens bloqueados pelo sistema serão preservados.', estimatedBytes: scan?.tempWindowsBytes || 0, isSafe: true },
     { id: 'temp-prefetch', name: 'Cache Prefetch do Windows', description: 'Arquivos auxiliares que o Windows recria. A limpeza pode deixar a primeira abertura de programas mais lenta temporariamente.', estimatedBytes: scan?.prefetchBytes || 0, isSafe: true },
+    { id: 'temp-delivery-optimization', name: 'Cache de Entrega do Windows', description: 'Arquivos temporários usados para distribuir atualizações entre dispositivos. O Windows pode baixá-los novamente; itens em uso serão preservados.', estimatedBytes: scan?.deliveryOptimizationBytes || 0, isSafe: true },
     { id: 'update-cache', name: t.debloat.updateCacheTitle, description: t.debloat.updateCacheDesc, estimatedBytes: scan?.softwareDistributionBytes || 0, isSafe: true },
   ];
 
