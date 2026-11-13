@@ -177,10 +177,10 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
-              {hasGpuSensors ? t.gpuHealth.noThrottling : t.common.sensorNotAvailable}
+              {gpu.isThrottling ? 'Limitação detectada pela telemetria' : 'Nenhum alerta de limitação recebido'}
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              {t.gpuHealth.throttlingDesc}
+              {'Este estado só é informado quando o agente recebe um sinal de limitação da placa. A ausência de alerta não substitui um teste de estabilidade.'}
             </p>
           </div>
 
