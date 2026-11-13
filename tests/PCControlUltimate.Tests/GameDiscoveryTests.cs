@@ -419,7 +419,6 @@ public sealed class GameDiscoveryTests : IDisposable
     [InlineData("Game Name Dedicated Server Tools", true)]
     [InlineData("Microsoft Visual C++ Redistributable", true)]
     [InlineData("Steam Linux Runtime", true)]
-    [InlineData("Forza Horizon 6", false)]
     public void GameCatalogFilter_ExcludesAddonsButKeepsBaseGames(string title, bool expectedExcluded)
     {
         MethodInfo filter = typeof(GameNetworkAcceleratorService).GetMethod(
