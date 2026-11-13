@@ -754,9 +754,22 @@ public static class GameNetworkAcceleratorService
             using var netstatProc = Process.Start(psi);
             if (netstatProc != null)
             {
-                string output = netstatProc.StandardOutput.ReadToEnd();
-                netstatProc.WaitForExit(2000);
+                // Drain stdout asynchronously while enforcing a hard process lifetime.
+                // ReadToEnd() before a timeout can otherwise wait forever if netstat stalls.
+                Task<string> outputTask = netstatProc.StandardOutput.ReadToEndAsync();
+                if (!netstatProc.WaitForExit(2000))
+                {
+                    try
+                    {
+                        if (!netstatProc.HasExited)
+                            netstatProc.Kill(entireProcessTree: true);
+                    }
+                    catch { }
 
+                    try { netstatProc.WaitForExit(1000); } catch { }
+                }
+
+                string output = outputTask.GetAwaiter().GetResult();
                 var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (var line in lines)
                 {
