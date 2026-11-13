@@ -93,7 +93,7 @@ export async function runGpuBenchmark(
     throw new Error('O navegador não disponibilizou WebGL. Ative a aceleração de hardware nas configurações do navegador e tente novamente.');
   }
 
-  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info') as (WebGLDebugRendererInfo & { UNMASKED_VENDOR_WEBGL: number; UNMASKED_RENDERER_WEBGL: number }) | null;
+  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info') as { UNMASKED_VENDOR_WEBGL: number; UNMASKED_RENDERER_WEBGL: number } | null;
   const renderer = debugInfo
     ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'GPU não identificada pelo navegador')
     : 'GPU detectada (identificação detalhada indisponível)';
