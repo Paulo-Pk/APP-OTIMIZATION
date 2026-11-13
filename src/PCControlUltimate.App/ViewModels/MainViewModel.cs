@@ -44,7 +44,8 @@ public record VerifiedSoftwareItem(
     string CommandLine,
     string Description,
     string IconUrl = "",
-    string Source = "winget"
+    string Source = "winget",
+    bool RequiresAdminUac = false
 );
 
 public class RelayCommand : ICommand
@@ -494,7 +495,7 @@ public class MainViewModel : INotifyPropertyChanged
     public string BenchmarkCpuTimeText { get => _benchmarkCpuTimeText; set { _benchmarkCpuTimeText = value; OnPropertyChanged(); } }
     public string BenchmarkMemoryBandwidthText { get => _benchmarkMemoryBandwidthText; set { _benchmarkMemoryBandwidthText = value; OnPropertyChanged(); } }
     public string BenchmarkGpuScoreText { get => _benchmarkGpuScoreText; set { _benchmarkGpuScoreText = value; OnPropertyChanged(); } }
-    public string BenchmarkGpuStatusText { get => _benchmarkGpuStatusText; set { _benchmarkGpuStatusText = value; OnPropertyChanged(); } }
+    public string BenchmarkGpuStatusText { get => _benchmarkGpuStatusText; set { _benchmarkGpuStatusText = value; OnPropertyChanged(); } }\n    public string SoftwareInstallStatusText { get => _softwareInstallStatusText; set { _softwareInstallStatusText = value; OnPropertyChanged(); } }
     public string PeripheralCadenceSummary { get => _peripheralCadenceSummary; set { _peripheralCadenceSummary = value; OnPropertyChanged(); } }
     public int PeripheralKeyPressCount { get => _peripheralKeyPressCount; private set { _peripheralKeyPressCount = value; OnPropertyChanged(); } }
     public string PeripheralLastKey { get => _peripheralLastKey; private set { _peripheralLastKey = value; OnPropertyChanged(); } }
@@ -815,7 +816,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RegisterSampleVpsNodeCommand { get; }
     public ICommand ApplySafeBoostProfileCommand { get; }
     public ICommand RunBenchmarkCommand { get; }
-    public ICommand RunGpuBenchmarkCommand { get; }
+    public ICommand RunGpuBenchmarkCommand { get; }\n    public ICommand InstallSoftwareCommand { get; }
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
 
@@ -1988,6 +1989,38 @@ public class MainViewModel : INotifyPropertyChanged
             }
         });
 
+        InstallSoftwareCommand = new RelayCommand(async parameter =>
+        {
+            if (parameter is not VerifiedSoftwareItem package) return;
+
+            MessageBoxResult confirmation = MessageBox.Show(
+                $"Deseja instalar {package.AppName} agora?\\n\\nOrigem: {package.Source}\\nPublicador: {package.Publisher}\\n\\nO instalador oficial será iniciado pelo WinGet.",
+                "Confirmar instalação",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirmation != MessageBoxResult.Yes) return;
+
+            SoftwareInstallStatusText = $"Preparando instalação de {package.AppName}...";
+            try
+            {
+                var progress = new Progress<string>(message => SoftwareInstallStatusText = message);
+                var result = await new WingetSoftwareCenterService().InstallPackageAsync(
+                    package.WingetId,
+                    userConfirmed: true,
+                    source: package.Source,
+                    progress: progress);
+
+                SoftwareInstallStatusText = result.Success
+                    ? $"{package.AppName} foi instalado. Confirme no menu Iniciar."
+                    : $"Não foi possível instalar {package.AppName}: {result.Status}. {result.OutputLog}";
+            }
+            catch (Exception ex)
+            {
+                SoftwareInstallStatusText = $"Falha ao instalar {package.AppName}: {ex.Message}";
+            }
+        });
+
         MeasureInputCadenceCommand = new RelayCommand(_ =>
         {
             PeripheralCadenceSummary = Loc.CurrentCulture == "pt-BR"
@@ -2071,7 +2104,8 @@ public class MainViewModel : INotifyPropertyChanged
                 $"winget install --id \"{pkg.PackageId}\" --exact --source {pkg.OfficialSource} --accept-package-agreements --accept-source-agreements",
                 pkg.Description,
                 ResolveSoftwareIconUrl(pkg.PackageId),
-                pkg.OfficialSource
+                pkg.OfficialSource,
+                pkg.RequiresAdminUac
             ));
         }
     }
