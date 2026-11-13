@@ -623,7 +623,7 @@ export default function App() {
       setNotification({
         type: 'warning',
         title: 'Backup criado, mas incompleto',
-        message: `O arquivo foi gravado e teve sua integridade verificada, mas ${readFailures} item(ns) não puderam ser lidos. Ele foi mantido; a restauração exigirá confirmação explícita de backup incompleto.`,
+        message: `O arquivo foi gravado e teve sua integridade verificada, mas ${readFailures} item(ns) não puderam ser lidos. Ele foi mantido, mas o agente bloqueará a restauração padrão desse backup incompleto por segurança.`,
       });
     } else {
       setNotification({
