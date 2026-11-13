@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   DownloadCloud,
   CheckCircle2,
@@ -11,6 +11,8 @@ import { useI18n } from '../../i18n';
 
 export const SoftwareHubView: React.FC = () => {
   const { t } = useI18n();
+  const [search, setSearch] = useState('');
+  const filteredSoftware = curatedSoftware.filter((app) => (app.name + ' ' + app.category + ' ' + app.description).toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -32,9 +34,15 @@ export const SoftwareHubView: React.FC = () => {
         </div>
       </div>
 
+      <div className="flex items-center gap-3 p-3 rounded-xl bg-[#0f121b] border border-slate-800">
+        <DownloadCloud className="w-4 h-4 text-purple-400" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar aplicativo ou categoria..." className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500" />
+        <span className="text-[11px] text-slate-500 whitespace-nowrap">{filteredSoftware.length} aplicativos</span>
+      </div>
+
       {/* Software Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {curatedSoftware.map((app) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {filteredSoftware.map((app) => (
           <div
             key={app.id}
             className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between space-y-3"
@@ -44,18 +52,10 @@ export const SoftwareHubView: React.FC = () => {
                 <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">
                   {app.category}
                 </span>
-                {app.isInstalled ? (
-                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> {t.softwareHub.installed}
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-                    {t.softwareHub.available}
-                  </span>
-                )}
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">Catálogo oficial</span>
               </div>
 
-              <h3 className="font-bold text-sm text-white">{app.name}</h3>
+              <div className="flex items-center gap-3"><img src={'https://www.google.com/s2/favicons?domain=' + new URL(app.officialSite).hostname + '&sz=64'} alt="" className="w-9 h-9 rounded-lg bg-white p-1 object-contain" loading="lazy" /><h3 className="font-bold text-sm text-white">{app.name}</h3></div>
               <p className="text-xs text-slate-400 leading-relaxed">
                 {app.description}
               </p>
@@ -88,6 +88,7 @@ export const SoftwareHubView: React.FC = () => {
             </div>
           </div>
         ))}
+        {filteredSoftware.length === 0 && <div className="col-span-full py-8 text-center text-xs text-slate-500">Nenhum aplicativo corresponde à busca.</div>}
       </div>
     </div>
   );
