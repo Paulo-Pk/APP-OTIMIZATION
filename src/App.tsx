@@ -603,6 +603,8 @@ export default function App() {
       return;
     }
 
+    const readFailures = res.readFailuresCount ?? 0;
+    const snapshotIsComplete = res.isComplete !== false && readFailures === 0;
     const snapItem: RestoreItem = {
       id: res.snapshotId || `snap-${Date.now()}`,
       snapshotFilePath: res.filePath,
@@ -614,11 +616,10 @@ export default function App() {
         ? `SHA-256: ${res.checksumSha256.substring(0, 16)}...`
         : 'Estado Original Capturado',
       newValue: `${res.capturedKeysCount ?? 0} chaves · ${res.fileSizeBytes ? (res.fileSizeBytes / 1024).toFixed(1) : '0'} KB`,
-      reversible: true,
+      reversible: snapshotIsComplete,
       userInitiated: true,
     };
     setRestoreItems((prev) => [snapItem, ...prev]);
-    const readFailures = res.readFailuresCount ?? 0;
     if (res.isComplete === false || readFailures > 0) {
       setNotification({
         type: 'warning',
