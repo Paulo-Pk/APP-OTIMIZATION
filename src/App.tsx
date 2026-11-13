@@ -191,6 +191,12 @@ export default function App() {
       }
     });
 
+    // Re-check authentication periodically so the UI recovers when the
+    // Windows agent starts, stops, or restarts after the app has opened.
+    const connectionInterval = setInterval(() => {
+      void nativeBridge.checkConnection();
+    }, 5000);
+
     let telemetryRefreshInFlight = false;
     const interval = setInterval(async () => {
       if (!nativeBridge.getStatus().isConnected || telemetryRefreshInFlight) return;
@@ -208,6 +214,7 @@ export default function App() {
 
     return () => {
       unsubscribe();
+      clearInterval(connectionInterval);
       clearInterval(interval);
     };
   }, []);
