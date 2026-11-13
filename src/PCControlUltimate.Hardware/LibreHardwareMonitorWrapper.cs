@@ -88,6 +88,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         int cpuTempPriority = 0;
         float? cpuLoad = null;
         float? cpuClock = null;
+        float? cpuClockFallback = null;
         float? cpuPower = null;
 
         string? gpuModel = null;
@@ -193,7 +194,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         if (sensor.SensorType == SensorType.Temperature)
                         {
                             int candidatePriority = GetCpuTemperatureSensorPriority(sensor.Name);
-                            if (candidatePriority > cpuTempPriority)
+                            if (cpuTemp is null || candidatePriority > cpuTempPriority)
                             {
                                 cpuTemp = sensor.Value;
                                 cpuTempPriority = candidatePriority;
@@ -201,8 +202,12 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.Clock && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                            cpuClock ??= sensor.Value;
+                        if (sensor.SensorType == SensorType.Clock)
+                        {
+                            cpuClockFallback ??= sensor.Value;
+                            if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+                                cpuClock ??= sensor.Value;
+                        }
                         if (sensor.SensorType == SensorType.Power &&
                             (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
                              sensor.Name.Contains("Cores", StringComparison.OrdinalIgnoreCase)))
@@ -338,6 +343,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             }
         }
         catch { }
+
+        cpuClock ??= cpuClockFallback;
 
         var snapshot = new HardwareSnapshot(
             DateTime.UtcNow,
