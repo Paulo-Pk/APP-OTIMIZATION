@@ -17,7 +17,7 @@ interface TargetMeasurement {
   protocol?: string;
   pingMs: number | null;
   jitterMs: number | null;
-  packetLossPercent: number;
+  tcpFailurePercent: number;
   samples: number[];
   isSuccess: boolean;
 }
@@ -341,7 +341,7 @@ export const NetworkLabView: React.FC = () => {
                     </span>
                     <span
                       className={`text-sm font-bold ${
-                        target.packetLossPercent === 0
+                        target.tcpFailurePercent === 0
                           ? 'text-emerald-400'
                           : target.packetLossPercent < 30
                           ? 'text-amber-400'

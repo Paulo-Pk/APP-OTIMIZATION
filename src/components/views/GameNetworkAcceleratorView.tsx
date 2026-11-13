@@ -18,7 +18,7 @@ interface TargetMeasurement {
   protocol?: string;
   pingMs: number | null;
   jitterMs: number | null;
-  packetLossPercent: number;
+  tcpFailurePercent: number;
   tcpHandshakeState?: string;
   samples: number[];
   isSuccess: boolean;
@@ -103,9 +103,9 @@ export const GameNetworkAcceleratorView: React.FC = () => {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-xl bg-gradient-to-r from-[#121522] via-[#161a29] to-[#0f111a] border border-purple-900/30">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
-            <Globe className="w-4 h-4" /> Game Network Diagnostics
+            <Globe className="w-4 h-4" /> Diagnóstico de rede para jogos
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">GAME NETWORK ACCELERATOR</h1>
+          <h1 className="text-xl font-black text-white mt-0.5">REDE PARA JOGOS</h1>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
             Executa medições TCP reais em endpoints de referência. Não altera rotas, não instala túneis e não promete redução de ping.
           </p>
@@ -117,7 +117,7 @@ export const GameNetworkAcceleratorView: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40 disabled:opacity-50"
         >
           <Play className="w-4 h-4 fill-current" />
-          <span>{isProbing ? 'Medindo endpoints...' : 'Executar diagnóstico TCP'}</span>
+          <span>{isProbing ? 'Medindo endpoints...' : 'Testar conexão dos jogos selecionados'}</span>
         </button>
       </div>
 
@@ -206,7 +206,7 @@ export const GameNetworkAcceleratorView: React.FC = () => {
                     <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] font-mono">
                       <span className="text-cyan-300">Handshake: {item.pingMs === null ? 'N/M' : `${item.pingMs} ms`}</span>
                       <span className="text-purple-300">Jitter TCP: {item.jitterMs === null ? 'N/M' : `${item.jitterMs} ms`}</span>
-                      <span className="text-slate-400">Falhas de conexão: {item.packetLossPercent}%</span>
+                      <span className="text-slate-400">Falhas de handshake TCP: {item.tcpFailurePercent}%</span>
                     </div>
                     <div className="text-[10px] text-slate-500">Amostras TCP: {item.samples.length ? item.samples.join(' · ') + ' ms' : 'Nenhum handshake concluído'}</div>
                   </div>
