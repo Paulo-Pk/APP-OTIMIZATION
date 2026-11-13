@@ -491,4 +491,32 @@ public class RegistrySnapshotTests
             if (File.Exists(tempFile)) File.Delete(tempFile);
         }
     }
+    [Theory]
+    [InlineData("9.9", "CatalogRegistrySnapshot")]
+    [InlineData("2.1", "UnknownSnapshotType")]
+    public void VerifyBackupIntegrity_UnsupportedSchema_IsRejected(string formatVersion, string snapshotType)
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-unsupported-schema",
+                FormatVersion = formatVersion,
+                SnapshotType = snapshotType,
+                Entries = new List<RegistryValueEntry>()
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var (isValid, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+
+            Assert.False(isValid);
+            Assert.Contains("não suportad", error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
 }
