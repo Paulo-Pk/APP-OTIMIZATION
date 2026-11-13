@@ -634,7 +634,10 @@ public static class RegistrySnapshotEngine
                 }
             }
 
-            var appliedBeforeFailure = new List<(RegistryValueEntry PreviousState, RegistryValueEntry AppliedSnapshotState)>();
+            // Track every authorized restore attempt, not only successful read-backs.
+            // A Registry write can take effect even when its subsequent verification fails;
+            // that item must still be considered by the rollback pass.
+            var attemptedBeforeFailure = new List<(RegistryValueEntry PreviousState, RegistryValueEntry AppliedSnapshotState)>();
             var itemReports = new List<SnapshotItemRestoreReport>();
 
             int restored = 0;
@@ -663,15 +666,16 @@ public static class RegistrySnapshotEngine
                 }
 
                 var def = defByPath;
+                if (preRestoreState.TryGetValue(def.TweakId, out var prevEntry))
+                {
+                    attemptedBeforeFailure.Add((prevEntry, entry));
+                }
+
                 var res = RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(def, entry);
 
                 if (res.Success)
                 {
                     restored++;
-                    if (preRestoreState.TryGetValue(def.TweakId, out var prevEntry))
-                    {
-                        appliedBeforeFailure.Add((prevEntry, entry));
-                    }
                     itemReports.Add(new SnapshotItemRestoreReport(
                         def.TweakId,
                         entry.KeyPath,
@@ -698,10 +702,10 @@ public static class RegistrySnapshotEngine
             // Execute and verify every rollback operation. Never report rollback success merely
             // because rollback was attempted.
             bool rolledBack = false;
-            if (failed > 0 && restored > 0 && rollbackOnPartialFailure)
+            if (failed > 0 && attemptedBeforeFailure.Count > 0 && rollbackOnPartialFailure)
             {
                 var rollbackFailures = new List<SnapshotItemRestoreReport>();
-                foreach (var rollbackPair in appliedBeforeFailure)
+                foreach (var rollbackPair in attemptedBeforeFailure)
                 {
                     var rollbackEntry = rollbackPair.PreviousState;
                     var appliedSnapshotEntry = rollbackPair.AppliedSnapshotState;
@@ -742,7 +746,7 @@ public static class RegistrySnapshotEngine
                     RestoredCount: rollbackFailures.Count,
                     FailedCount: failed + rollbackFailures.Count,
                     ErrorMessage: rolledBack
-                        ? $"Restauração abortada após {failed} falha(s). Todos os {appliedBeforeFailure.Count} item(ns) alterados foram revertidos e verificados."
+                        ? $"Restauração abortada após {failed} falha(s). Todos os {attemptedBeforeFailure.Count} item(ns) tentados foram verificados e retornaram ao estado anterior quando necessário."
                         : $"Restauração abortada após {failed} falha(s). O rollback também falhou em {rollbackFailures.Count} item(ns); verifique os itens e erros individualmente.",
                     ItemReports: rollbackReports
                 );
