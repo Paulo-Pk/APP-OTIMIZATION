@@ -13,6 +13,8 @@ const officialBrandIcons: Record<string, string> = {
   'sw-steam': 'https://cdn.simpleicons.org/steam/FFFFFF',
   'sw-epic': 'https://cdn.simpleicons.org/epicgames/FFFFFF',
   'sw-gog': 'https://cdn.simpleicons.org/gogdotcom/FFFFFF',
+  'sw-ea': 'https://cdn.simpleicons.org/ea/FFFFFF',
+  'sw-ubisoft': 'https://cdn.simpleicons.org/ubisoft/FFFFFF',
   'sw-xbox': 'https://cdn.simpleicons.org/xbox/107C10',
   'sw-opera-gx': 'https://cdn.simpleicons.org/operagx/FA1E4E',
 };
