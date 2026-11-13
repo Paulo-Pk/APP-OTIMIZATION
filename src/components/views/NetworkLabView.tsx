@@ -167,7 +167,7 @@ export const NetworkLabView: React.FC = () => {
       <div className="p-3.5 rounded-xl bg-[#0e121e] border border-purple-500/20 text-xs flex items-center gap-2.5 text-purple-300">
         <ShieldCheck className="w-4 h-4 text-purple-400 shrink-0" />
         <span>
-          Distinção Técnica: Os tempos para servidores externos referem-se ao tempo de conexão TCP (SYN/SYN-ACK Handshake), distinto de ICMP Echo. O teste de velocidade realiza download externo real (speed.cloudflare.com), nunca contra localhost.
+          Em termos simples: medimos quanto tempo alguns serviços levam para aceitar uma conexão, testamos a velocidade de download e comparamos a resposta dos servidores DNS. O tempo de conexão TCP não é o mesmo que o ping dentro de uma partida.
         </span>
       </div>
 
@@ -182,7 +182,7 @@ export const NetworkLabView: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono tabular-nums">
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
           <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
-            {t.networkLab.localServerLatencyTitle} (IPC Local)
+            Resposta do próprio aplicativo
           </span>
           <div className="text-2xl font-black text-cyan-400">
             {localPingMs !== null
@@ -191,12 +191,12 @@ export const NetworkLabView: React.FC = () => {
               ? t.networkLab.measurementUnavailable
               : '—'}
           </div>
-          <span className="text-[10px] text-slate-400 block font-sans">Loopback HTTP Local (Não é internet)</span>
+          <span className="text-[10px] text-slate-400 block font-sans">Mede apenas a comunicação local, não a internet</span>
         </div>
 
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
           <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
-            Tempo de Conexão TCP (Externo)
+            Resposta de serviços externos
           </span>
           <div className="text-2xl font-black text-emerald-400">
             {avgExternalPing !== null
@@ -205,12 +205,12 @@ export const NetworkLabView: React.FC = () => {
               ? t.networkLab.measurementUnavailable
               : '—'}
           </div>
-          <span className="text-[10px] text-slate-400 block font-sans">TCP Handshake RTT Médio</span>
+          <span className="text-[10px] text-slate-400 block font-sans">Média de conexão (não é ping da partida)</span>
         </div>
 
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
           <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
-            {t.networkLab.jitterTitle} (TCP)
+            Variação entre as respostas
           </span>
           <div className="text-2xl font-black text-purple-300">
             {avgExternalJitter !== null
@@ -224,7 +224,7 @@ export const NetworkLabView: React.FC = () => {
 
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
           <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
-            Download Externo (Cloudflare CDN)
+            Velocidade de download
           </span>
           <div className="text-2xl font-black text-amber-300">
             {downloadMbps !== null
@@ -233,10 +233,23 @@ export const NetworkLabView: React.FC = () => {
               ? t.networkLab.measurementUnavailable
               : '—'}
           </div>
-          <span className="text-[10px] text-slate-400 block font-sans">Origem Externa Confiável (HTTPS)</span>
+          <span className="text-[10px] text-slate-400 block font-sans">Teste de download pela internet</span>
         </div>
       </div>
 
+      <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-bold text-white">Prévia da latência dos serviços</h2><p className="text-[11px] text-slate-400">Comparação visual das conexões medidas nesta verificação</p></div><Activity className="w-5 h-5 text-purple-400" /></div>
+        {targetResults.length === 0 ? <div className="h-20 flex items-center justify-center rounded-lg bg-[#0a0c13] border border-slate-800 text-xs text-slate-500">Execute o teste para preencher este gráfico com medições reais</div> : (
+          <div className="space-y-3">
+            {targetResults.map((target) => {
+              const valid = target.pingMs !== null && target.isSuccess;
+              const max = Math.max(1, ...targetResults.map((item) => item.pingMs || 0));
+              const width = valid ? Math.max(2, (target.pingMs! / max) * 100) : 0;
+              return <div key={target.id} className="grid grid-cols-[minmax(110px,1fr)_3fr_auto] items-center gap-3 text-xs"><span className="truncate text-slate-300">{target.server}</span><div className="h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full rounded-full bg-purple-500" style={{ width: width + '%' }} /></div><span className="font-mono text-slate-200">{valid ? target.pingMs + ' ms' : 'Sem resposta'}</span></div>;
+            })}
+          </div>
+        )}
+      </div>
       {/* Real DNS Resolution Benchmark Section */}
       <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
