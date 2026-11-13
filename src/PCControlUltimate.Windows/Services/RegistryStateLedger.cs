@@ -448,6 +448,20 @@ public static class RegistryStateLedger
         }
     }
 
+    /// <summary>
+    /// Test-only fixture helper for validating malformed Ledger identity records.
+    /// </summary>
+    public static void SaveRawEntriesForTesting(IEnumerable<RegistryLedgerEntry> entries)
+    {
+        lock (_syncRoot)
+        {
+            var ledger = new RegistryLedgerFile { Entries = entries.ToList() };
+            foreach (var entry in ledger.Entries)
+                entry.EntryHmacSha256 = ComputeEntryHmac(entry);
+            SaveLedgerInternal(ledger);
+        }
+    }
+
     private static RegistryLedgerFile? LoadVerifiedLedgerInternal() => LoadVerifiedLedgerInternal(out _);
 
     private static RegistryLedgerFile? LoadVerifiedLedgerInternal(out string? errorMessage)
@@ -478,6 +492,19 @@ public static class RegistryStateLedger
             {
                 errorMessage = "Formato do Ledger de estado do Registro inválido.";
                 return null;
+            }
+
+            // OperationId is the recovery identity used by restore and completion APIs.
+            // Reject ambiguous identities before any FirstOrDefault lookup can select one.
+            var operationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in ledger.Entries)
+            {
+                if (entry == null || string.IsNullOrWhiteSpace(entry.OperationId) ||
+                    !operationIds.Add(entry.OperationId.Trim()))
+                {
+                    errorMessage = "O Ledger contém OperationId vazio ou duplicado; recuperação bloqueada por ambiguidade.";
+                    return null;
+                }
             }
 
             bool currentLedgerHmacValid = IntegrityVerifier.VerifyHmacSha256(
