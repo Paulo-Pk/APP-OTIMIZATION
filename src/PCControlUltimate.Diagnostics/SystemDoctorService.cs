@@ -319,8 +319,11 @@ public class SystemDoctorService
 
         // Drain both redirected streams concurrently to prevent a child process from
         // blocking when either OS pipe buffer fills (DISM/SFC can be very verbose).
-        Task<string> stdOutTask = proc.StandardOutput.ReadToEndAsync(cancellationToken);
-        Task<string> stdErrTask = proc.StandardError.ReadToEndAsync(cancellationToken);
+        // Keep draining both pipes independently of the caller token. If the caller
+        // cancels, the process is terminated first and the readers are observed with
+        // bounded waits so a broken child pipe cannot hang shutdown indefinitely.
+        Task<string> stdOutTask = proc.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        Task<string> stdErrTask = proc.StandardError.ReadToEndAsync(CancellationToken.None);
 
         try
         {
@@ -329,7 +332,13 @@ public class SystemDoctorService
         catch (OperationCanceledException)
         {
             try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
-            try { await Task.WhenAll(stdOutTask, stdErrTask).ConfigureAwait(false); } catch { }
+            try
+            {
+                await proc.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            }
+            catch { }
+            try { await stdOutTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); } catch { }
+            try { await stdErrTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); } catch { }
             throw;
         }
 
