@@ -148,15 +148,25 @@ class NativeBridgeService {
         const numeric = (value: any, fallback = 0) => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : fallback;
         const gpuAdaptersRaw = read(data, 'gpuAdapters');
         const gpuAdapter = Array.isArray(gpuAdaptersRaw) ? gpuAdaptersRaw[0] : null;
+        // Sensor snapshots contain readings for every installed GPU. When the primary
+        // adapter exposes its hardware identifier, scope fallback readings to that
+        // adapter so a secondary GPU cannot silently supply its temperature/fan data.
+        const primaryGpuIdentifier = String(read(gpuAdapter, 'pnpDeviceId') || '').replace(/\\\\/g, '/').replace(/\\/$/, '').toLowerCase();
+        const primaryGpuSensors = primaryGpuIdentifier
+          ? gpuSensors.filter((sensor: any) => {
+              const sensorIdentifier = String(sensor.identifier || '').replace(/\\\\/g, '/').toLowerCase();
+              return sensorIdentifier === primaryGpuIdentifier || sensorIdentifier.startsWith(primaryGpuIdentifier + '/');
+            })
+          : gpuSensors;
         const cpuClockCandidates = cpuSensors.filter((sensor: any) => sensor.sensorType.toLowerCase() === 'clock').map((sensor: any) => Number(sensor.value)).filter((value: number) => Number.isFinite(value));
         const cpuClockFallback = cpuClockCandidates.length ? Math.max(...cpuClockCandidates) : 0;
         const cpuClockMhz = numeric(read(data, 'cpuClockMhz'), cpuClockFallback);
         const cpuTemp = numeric(read(data, 'cpuPackageTemp'), numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
-        const gpuCoreTemp = numeric(read(data, 'gpuCoreTemp'), numeric(read(gpuAdapter, 'coreTempC'), numeric(findSensor(gpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
-        const gpuHotspot = numeric(read(data, 'gpuHotspotTemp'), numeric(read(gpuAdapter, 'hotspotTempC'), numeric(findSensor(gpuSensors, 'Temperature', /hot.?spot|junction/i))));
-        const gpuMemoryTemp = numeric(findSensor(gpuSensors, 'Temperature', /memory|vram/i));
-        const gpuMemoryClock = numeric(findSensor(gpuSensors, 'Clock', /memory/i));
-        const gpuFanRpm = numeric(read(data, 'gpuFanRpm'), numeric(read(gpuAdapter, 'fanRpm'), numeric(findSensor(gpuSensors, 'Fan', /fan/i))));
+        const gpuCoreTemp = numeric(read(data, 'gpuCoreTemp'), numeric(read(gpuAdapter, 'coreTempC'), numeric(findSensor(primaryGpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
+        const gpuHotspot = numeric(read(data, 'gpuHotspotTemp'), numeric(read(gpuAdapter, 'hotspotTempC'), numeric(findSensor(primaryGpuSensors, 'Temperature', /hot.?spot|junction/i))));
+        const gpuMemoryTemp = numeric(findSensor(primaryGpuSensors, 'Temperature', /memory|vram/i));
+        const gpuMemoryClock = numeric(findSensor(primaryGpuSensors, 'Clock', /memory/i));
+        const gpuFanRpm = numeric(read(data, 'gpuFanRpm'), numeric(read(gpuAdapter, 'fanRpm'), numeric(findSensor(primaryGpuSensors, 'Fan', /fan/i))));
         const ramTotal = numeric(read(data, 'ramTotalGb'));
         const ramUsed = numeric(read(data, 'ramUsedGb'));
         const rawStorage = read(data, 'storageDrives');
@@ -181,7 +191,7 @@ class NativeBridgeService {
             vramUsedMB: numeric(read(data, 'gpuVramUsedMb'), numeric(read(gpuAdapter, 'vramUsedMb'))),
             vramTotalMB: numeric(read(data, 'gpuVramTotalMb'), numeric(read(gpuAdapter, 'vramTotalMb'))),
             powerWatts: numeric(read(data, 'gpuPowerWatts'), numeric(read(gpuAdapter, 'powerWatts'))),
-            fansRPM: gpuFanRpm, fanSpeedPercent: numeric(findSensor(gpuSensors, 'Load', /fan/i)),
+            fansRPM: gpuFanRpm, fanSpeedPercent: numeric(findSensor(primaryGpuSensors, 'Load', /fan/i)),
             thermalLimitReported: 0, isThrottling: false, pcieLane: 'Não informado',
           },
           ram: {
