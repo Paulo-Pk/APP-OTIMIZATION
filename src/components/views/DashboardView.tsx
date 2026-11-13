@@ -71,10 +71,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         // false 0% load or 0°C line in the historical chart.
         cpuLoad: hasCpuLoad ? Math.min(100, Math.max(0, telemetry.cpu.load)) : null,
         gpuLoad: hasGpuLoad ? Math.min(100, Math.max(0, telemetry.gpu.utilization)) : null,
-        cpuTemp: (telemetry.cpu.temperatureAvailable ?? telemetry.cpu.temperature > 0)
+        cpuTemp: (telemetry.cpu.temperatureAvailable ?? (telemetry.cpu.temperature > 0))
           ? Math.min(110, Math.max(0, telemetry.cpu.temperature))
           : null,
-        gpuTemp: (telemetry.gpu.temperatureAvailable ?? telemetry.gpu.temperature > 0)
+        gpuTemp: (telemetry.gpu.temperatureAvailable ?? (telemetry.gpu.temperature > 0))
           ? Math.min(110, Math.max(0, telemetry.gpu.temperature))
           : null,
       };
@@ -91,7 +91,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   ]);
 
   const hasGpuCoreTemperature = telemetry.gpu.temperatureAvailable ?? telemetry.gpu.temperature > 0;
-  const hasGpuHotspotTemperature = telemetry.gpu.hotspotAvailable ?? telemetry.gpu.hotspot > 0;
+  const hasGpuHotspotTemperature = telemetry.gpu.hotspotAvailable ?? (telemetry.gpu.hotspot > 0);
   const hasGpuTemps = hasGpuCoreTemperature && hasGpuHotspotTemperature;
   const hotspotDelta = hasGpuTemps
     ? (telemetry.gpu.hotspot - telemetry.gpu.temperature).toFixed(1)
@@ -201,7 +201,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.cpu.temperature > 0
+                {(telemetry.cpu.temperatureAvailable ?? (telemetry.cpu.temperature > 0))
                   ? `${telemetry.cpu.temperature.toFixed(1)}°C`
                   : t.common.sensorNotAvailable}
               </span>
