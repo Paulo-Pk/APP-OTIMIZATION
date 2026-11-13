@@ -70,15 +70,14 @@ class NativeBridgeService {
   }
 
   public async checkConnection(): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1200);
 
+    try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/status`, {
         headers: this.getAuthHeaders(),
         signal: controller.signal,
       });
-      clearTimeout(timeoutId);
 
       if (res.ok) {
         const data = await res.json();
@@ -98,6 +97,8 @@ class NativeBridgeService {
       }
     } catch {
       // Agent not reachable in browser sandbox
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     this.agentStatus = {
