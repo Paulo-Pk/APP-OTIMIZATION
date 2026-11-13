@@ -47,14 +47,14 @@ export async function runCpuBenchmark(
   }
 
   // Step 2: Floating point trigonometric math
-  onProgress({ status: 'running', progress: 65, currentTest: 'Cálculo de Matrizes e Ponto Flutuante AVX...' });
+  onProgress({ status: 'running', progress: 65, currentTest: 'Executando cálculos matemáticos em ponto flutuante...' });
   let floatAccumulator = 0;
   const mathIterations = 800000;
   for (let i = 0; i < mathIterations; i++) {
     floatAccumulator += Math.sin(i) * Math.cos(i) + Math.sqrt(i + 1);
   }
 
-  onProgress({ status: 'running', progress: 90, currentTest: 'Consolidando métricas de IPC e latência de instrução...' });
+  onProgress({ status: 'running', progress: 90, currentTest: 'Calculando o resultado do teste sintético...' });
   await new Promise((r) => setTimeout(r, 120));
 
   const totalDuration = performance.now() - startTime;
