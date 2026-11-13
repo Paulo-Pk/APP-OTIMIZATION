@@ -35,6 +35,17 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         };
     }
 
+    internal static bool IsSystemDrive(string? driveName, string? systemDrive)
+    {
+        if (string.IsNullOrWhiteSpace(driveName) || string.IsNullOrWhiteSpace(systemDrive))
+            return false;
+
+        return string.Equals(
+            driveName.Trim().TrimEnd('\\'),
+            systemDrive.Trim().TrimEnd('\\'),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -399,7 +410,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         Model: $"Volume {drive.Name.TrimEnd('\\')} — {label}",
                         CapacityGb: totalGb,
                         FreeSpaceGb: freeGb,
-                        TemperatureC: null
+                        TemperatureC: null,
+                        IsSystemDisk: IsSystemDrive(drive.Name, Environment.GetEnvironmentVariable("SystemDrive"))
                     ));
                 }
             }
