@@ -671,7 +671,22 @@ public static class RegistrySnapshotEngine
                     attemptedBeforeFailure.Add((prevEntry, entry));
                 }
 
-                var res = RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(def, entry);
+                RegistryOperationResult res;
+                try
+                {
+                    res = RegistryOptimizer.RestoreFromVerifiedSnapshotEntry(def, entry);
+                }
+                catch (Exception ex)
+                {
+                    // Keep the transaction alive so previously or partially changed values
+                    // still reach the rollback pass instead of escaping to the outer catch.
+                    res = new RegistryOperationResult(
+                        false, null, null, entry.ValueKind,
+                        entry.WasInitiallyAbsent, entry.KeyCreatedByApp,
+                        $"Falha inesperada durante a restauração: {ex.Message}",
+                        def.TweakId,
+                        ErrorCode: "SNAPSHOT_RESTORE_EXCEPTION");
+                }
 
                 if (res.Success)
                 {
@@ -719,10 +734,24 @@ public static class RegistrySnapshotEngine
 
                     // Do not overwrite a Registry value changed by another process after the
                     // snapshot restore; only roll back if the snapshot value is still present.
-                    var rollbackResult = RegistryOptimizer.RestoreFromCapturedRollbackState(
-                        rDef,
-                        rollbackEntry,
-                        appliedSnapshotEntry);
+                    RegistryOperationResult rollbackResult;
+                    try
+                    {
+                        rollbackResult = RegistryOptimizer.RestoreFromCapturedRollbackState(
+                            rDef,
+                            rollbackEntry,
+                            appliedSnapshotEntry);
+                    }
+                    catch (Exception ex)
+                    {
+                        rollbackResult = new RegistryOperationResult(
+                            false, null, null, rollbackEntry.ValueKind,
+                            rollbackEntry.WasInitiallyAbsent, rollbackEntry.KeyCreatedByApp,
+                            $"Exceção inesperada durante o rollback: {ex.Message}",
+                            rollbackEntry.TweakId,
+                            ErrorCode: "SNAPSHOT_ROLLBACK_EXCEPTION");
+                    }
+
                     if (!rollbackResult.Success)
                     {
                         rollbackFailures.Add(new SnapshotItemRestoreReport(
