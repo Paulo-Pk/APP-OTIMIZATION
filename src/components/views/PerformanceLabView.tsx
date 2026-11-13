@@ -22,7 +22,7 @@ export const PerformanceLabView: React.FC = () => {
     setIsLoadingProcesses(true);
     try {
       const processes = await nativeBridge.listRunningProcesses();
-      const visibleProcesses = (processes || []).filter((p) => p.processName && p.processId > 4 && p.mainWindowTitle.trim().length > 0);
+      const visibleProcesses = (processes || []).filter((p) => p.processName && p.processId > 4 && (p.mainWindowTitle || '').trim().length > 0);
       setRunningProcesses(visibleProcesses);
       setSelectedProcess((current) => visibleProcesses.some((p) => p.processName === current) ? current : (visibleProcesses[0]?.processName || ''));
     } finally {
