@@ -1035,6 +1035,13 @@ public class PrivilegedAgentServer : IDisposable
         {
             await SendJsonAsync(res, new { error = "MALFORMED_JSON_PAYLOAD" }, 400);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Request timeout or server shutdown is an expected cancellation path.
+            // Do not misreport it as an internal server error or attempt to write
+            // a response after the listener/request has already been aborted.
+            try { res.Abort(); } catch { }
+        }
         catch (Exception ex)
         {
             WriteAuditLog("SERVER_ERROR", ex.Message);
