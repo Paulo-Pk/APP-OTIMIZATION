@@ -171,8 +171,13 @@ class NativeBridgeService {
           isAvailable: Boolean(read(sensor, 'isAvailable')),
           status: String(read(sensor, 'status') || ''),
         }));
-        const cpuSensors = sensors.filter((sensor: any) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.isAvailable && Number.isFinite(Number(sensor.value)));
-        const gpuSensors = sensors.filter((sensor: any) => /^gpu/i.test(sensor.hardwareType) && sensor.isAvailable && Number.isFinite(Number(sensor.value)));
+        // System.Text.Json emits numeric sensor values as JSON numbers. Reject null,
+        // strings and non-finite values instead of coercing them (Number(null) is 0),
+        // so an unavailable sensor can never become a fabricated zero reading.
+        const hasNumericReading = (sensor: any) =>
+          sensor.isAvailable && typeof sensor.value === 'number' && Number.isFinite(sensor.value);
+        const cpuSensors = sensors.filter((sensor: any) => sensor.hardwareType.toLowerCase() === 'cpu' && hasNumericReading(sensor));
+        const gpuSensors = sensors.filter((sensor: any) => /^gpu/i.test(sensor.hardwareType) && hasNumericReading(sensor));
         const findSensor = (items: any[], type: string, pattern: RegExp) => items.find((sensor) => sensor.sensorType.toLowerCase() === type.toLowerCase() && pattern.test(sensor.name))?.value;
         const numeric = (value: any, fallback = 0) => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : fallback;
         const gpuAdaptersRaw = read(data, 'gpuAdapters');
