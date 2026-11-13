@@ -22,7 +22,8 @@ public record InstalledGameEntry(
     string InstallLocation,
     string AppId,
     string? ExecutablePath,
-    bool IsInstalled
+    bool IsInstalled,
+    string? CoverImageUrl = null
 );
 
 public record DetectedGameConnection(
@@ -244,6 +245,17 @@ public static class GameNetworkAcceleratorService
             // focused on standalone playable titles.
             if (IsDlcOrNonGameCatalogEntry(game.Title))
                 return;
+
+            // Steam exposes official library artwork by AppID. Other launchers do not
+            // provide a common public artwork URL in their local install catalogs.
+            if (string.Equals(game.Launcher, "Steam", StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(game.AppId, @"^\d+$"))
+            {
+                game = game with
+                {
+                    CoverImageUrl = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.AppId}/library_600x900.jpg"
+                };
+            }
 
             games[game.Launcher + ":" + game.AppId] = game;
         }
