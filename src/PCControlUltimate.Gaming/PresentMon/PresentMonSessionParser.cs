@@ -256,6 +256,12 @@ public static class PresentMonSessionParser
             catch (OperationCanceledException)
             {
                 try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+
+                // Both redirected streams use the same cancellation token. Observe
+                // their completion after terminating PresentMon so canceled/faulted
+                // read tasks are not left unobserved during shutdown.
+                try { await Task.WhenAll(stdOutTask, stdErrTask).ConfigureAwait(false); } catch { }
+
                 string cancelReason = cancellationToken.IsCancellationRequested
                     ? "Captura cancelada pelo usuário."
                     : "Tempo limite excedido aguardando encerramento do PresentMon.";
