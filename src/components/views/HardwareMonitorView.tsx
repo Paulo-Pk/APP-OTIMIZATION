@@ -21,7 +21,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
   const sensorTypeLabels: Record<string, string> = { Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' };
   const hardwareTypeLabels: Record<string, string> = { Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' };
   const sensorTypeLabel = (type: string) => sensorTypeLabels[type] || type;
-  const hardwareTypeLabel = (type: string) => hardwareTypeLabels[type] || type;
+  const hardwareTypeLabel = (type: string) => type.toLowerCase().startsWith('gpu') ? 'Placa de vídeo' : type.toLowerCase().startsWith('cpu') ? 'Processador' : hardwareTypeLabels[type] || type;
 
   return (
     <div className="space-y-5 animate-fade-in">

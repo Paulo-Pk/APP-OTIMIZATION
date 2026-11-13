@@ -144,7 +144,9 @@ class NativeBridgeService {
         const numeric = (value: any, fallback = 0) => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : fallback;
         const gpuAdaptersRaw = read(data, 'gpuAdapters');
         const gpuAdapter = Array.isArray(gpuAdaptersRaw) ? gpuAdaptersRaw[0] : null;
-        const cpuClockMhz = numeric(read(data, 'cpuClockMhz'), numeric(findSensor(cpuSensors, 'Clock', /core|cpu|clock/i)));
+        const cpuClockCandidates = cpuSensors.filter((sensor: any) => sensor.sensorType.toLowerCase() === 'clock').map((sensor: any) => Number(sensor.value)).filter((value: number) => Number.isFinite(value));
+        const cpuClockFallback = cpuClockCandidates.length ? Math.max(...cpuClockCandidates) : 0;
+        const cpuClockMhz = numeric(read(data, 'cpuClockMhz'), cpuClockFallback);
         const cpuTemp = numeric(read(data, 'cpuPackageTemp'), numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
         const gpuCoreTemp = numeric(read(data, 'gpuCoreTemp'), numeric(read(gpuAdapter, 'coreTempC'), numeric(findSensor(gpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
         const gpuHotspot = numeric(read(data, 'gpuHotspotTemp'), numeric(read(gpuAdapter, 'hotspotTempC'), numeric(findSensor(gpuSensors, 'Temperature', /hot.?spot|junction/i))));
