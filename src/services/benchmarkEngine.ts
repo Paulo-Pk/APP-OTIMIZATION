@@ -10,7 +10,7 @@ export async function runCpuBenchmark(
   onProgress: (p: BenchmarkProgress) => void
 ): Promise<{ score: number; durationMs: number; details: string }> {
   const startTime = performance.now();
-  onProgress({ status: 'running', progress: 5, currentTest: 'Inicializando carga computacional x86...' });
+  onProgress({ status: 'running', progress: 5, currentTest: 'Preparando teste de cálculo do processador...' });
 
   await new Promise((r) => setTimeout(r, 80));
 
