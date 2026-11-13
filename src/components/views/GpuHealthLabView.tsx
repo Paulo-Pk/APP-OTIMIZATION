@@ -25,9 +25,9 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
   );
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
 
-  const hasGpuCoreTemperature = gpu.temperatureAvailable ?? gpu.temperature > 0;
-  const hasGpuHotspotTemperature = gpu.hotspotAvailable ?? gpu.hotspot > 0;
-  const hasGpuMemoryTemperature = gpu.memoryTempAvailable ?? gpu.memoryTemp > 0;
+  const hasGpuCoreTemperature = gpu.temperatureAvailable ?? (gpu.temperature > 0);
+  const hasGpuHotspotTemperature = gpu.hotspotAvailable ?? (gpu.hotspot > 0);
+  const hasGpuMemoryTemperature = gpu.memoryTempAvailable ?? (gpu.memoryTemp > 0);
   const hasGpuSensors = hasGpuCoreTemperature && hasGpuHotspotTemperature;
   const deltaT = hasGpuSensors ? gpu.hotspot - gpu.temperature : 0;
   const isDeltaElevated = hasGpuSensors && deltaT > 22;
