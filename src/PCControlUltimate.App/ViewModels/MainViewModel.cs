@@ -812,6 +812,37 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
 
+    private static string? GetFriendlyTweakName(string tweakId)
+    {
+        return tweakId switch
+        {
+            "perf-mmcss" => "Ajustar prioridade de tarefas de áudio e vídeo",
+            "perf-game-dvr" => "Desligar gravação automática de jogos",
+            "perf-hpet" => "Ajustar resposta do processador",
+            "perf-tcp-nagle" => "Ajustar envio de pequenos dados pela rede",
+            "start-fast-boot" => "Desligar inicialização rápida do Windows",
+            "start-edge-preload" => "Evitar que o Edge carregue antes de abrir",
+            "bg-telemetry" => "Reduzir dados de diagnóstico enviados",
+            "bg-cortana-news" => "Ocultar notícias da barra de tarefas",
+            "power-ultimate-plan" => "Usar plano de energia de alto desempenho",
+            "power-pcie-link" => "Ajustar economia de energia da placa PCIe",
+            "serv-sysmain" => "Mudar o serviço de pré-carregamento para manual",
+            "serv-spooler" => "Mudar o serviço de impressão para manual",
+            "mem-standby-clean" => "Ajustar o uso da memória em espera",
+            "mem-lock-executive" => "Manter partes do Windows na memória",
+            "game-hags" => "Agendamento de tarefas da placa de vídeo",
+            "game-fso-override" => "Ajustar compatibilidade de tela cheia",
+            "sys-delivery-p2p" => "Impedir compartilhamento de atualizações",
+            "sys-transparency" => "Desligar efeitos de transparência",
+            "perf-fso-flags" => "Ajustar compatibilidade de tela cheia",
+            "storage-ntfs-lastaccess" => "Reduzir registros de último acesso a arquivos",
+            "net-tcp-autotuning" => "Ajustar controle automático da conexão",
+            "priv-advertising-id" => "Desativar identificador de anúncios",
+            "maint-startup-delay" => "Reduzir atraso ao abrir programas",
+            _ => null
+        };
+    }
+
     private async Task RefreshAllTweakStatesAsync()
     {
         if (_isRefreshingTweakStates)
@@ -976,9 +1007,9 @@ public class MainViewModel : INotifyPropertyChanged
             CatalogTweaks.Add(new TweakItemViewModel
             {
                 TweakId = def.TweakId,
-                NamePt = def.Description,
+                NamePt = GetFriendlyTweakName(def.TweakId) ?? def.Description,
                 NameEn = def.DescriptionEn,
-                Name = Loc.CurrentCulture == "pt-BR" ? def.Description : def.DescriptionEn,
+                Name = Loc.CurrentCulture == "pt-BR" ? (GetFriendlyTweakName(def.TweakId) ?? def.Description) : def.DescriptionEn,
                 Category = def.Category,
                 RegistryPath = $"{def.Hive}\\{def.SubKeyPath}",
                 ValueName = def.ValueName,
