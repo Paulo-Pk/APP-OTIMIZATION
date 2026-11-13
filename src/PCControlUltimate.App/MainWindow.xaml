@@ -583,17 +583,17 @@
                         <StackPanel Grid.Column="0">
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                 <Border Background="#2D1B4E" BorderBrush="#6B3FA0" BorderThickness="1" CornerRadius="6" Padding="8,3" Margin="0,0,8,0">
-                                    <TextBlock Text="TRANSAÇÃO SEGURA SHA-256 + LEDGER DPAPI" FontSize="10" FontWeight="Bold" Foreground="#D8B4FE"/>
+                                    <TextBlock Text="ALTERAÇÕES COM CÓPIA DE SEGURANÇA" FontSize="10" FontWeight="Bold" Foreground="#D8B4FE"/>
                                 </Border>
                                 <Border Background="#141824" BorderBrush="#1E2436" BorderThickness="1" CornerRadius="6" Padding="8,3">
                                     <TextBlock Text="{Binding AppliedTweaksBadgeText}" FontSize="10" FontWeight="Bold" Foreground="#34D399" FontFamily="Consolas"/>
                                 </Border>
                             </StackPanel>
-                            <TextBlock Text="Boost Center — Perfis de Otimização Reversíveis" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="Cada perfil cria automaticamente um snapshot SHA-256 prévio e registra cada chave alterada no Ledger criptografado DPAPI." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                            <TextBlock Text="Otimizar PC — Ajustes simples e reversíveis" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Escolha um perfil para ajustar o Windows. Antes de aplicar, o aplicativo guarda as configurações anteriores para permitir a restauração quando suportada." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                         <Button Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ActionPrimaryButton}" Command="{Binding ApplySafeBoostProfileCommand}">
-                            <TextBlock Text="Executar Safe Boost Transacional"/>
+                            <TextBlock Text="Aplicar ajustes recomendados"/>
                         </Button>
                     </Grid>
                 </Border>
@@ -602,20 +602,20 @@
                 <UniformGrid Columns="4" Margin="0,0,0,20">
                     <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,8,0">
                         <StackPanel>
-                            <TextBlock Text="MODO RECOMENDADO" FontSize="10" FontWeight="Bold" Foreground="#10B981"/>
-                            <TextBlock Text="Safe Boost" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,6"/>
-                            <TextBlock Text="Aplica apenas otimizações classificadas como Seguras com zero impacto em estabilidade do Windows." FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <TextBlock Text="RECOMENDADO" FontSize="10" FontWeight="Bold" Foreground="#10B981"/>
+                            <TextBlock Text="Modo equilibrado" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,6"/>
+                            <TextBlock Text="Aplica apenas mudanças de baixo risco. O resultado depende do computador e não garante aumento de FPS." FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,14"/>
                             <Button Style="{StaticResource ActionPrimaryButton}" Command="{Binding ApplySafeBoostProfileCommand}" HorizontalAlignment="Stretch">
-                                <TextBlock Text="Ativar Safe Boost"/>
+                                <TextBlock Text="Aplicar modo recomendado"/>
                             </Button>
                         </StackPanel>
                     </Border>
 
                     <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="BAIXA LATÊNCIA" FontSize="10" FontWeight="Bold" Foreground="#C084FC"/>
-                            <TextBlock Text="Competitive Gaming" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,6"/>
-                            <TextBlock Text="Prioriza responsividade de DWM, GameDVR e agendamento multimídia para menor frametime." FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <TextBlock Text="JOGOS" FontSize="10" FontWeight="Bold" Foreground="#C084FC"/>
+                            <TextBlock Text="Modo Jogos" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,6"/>
+                            <TextBlock Text="Ajusta algumas opções do Windows usadas durante os jogos. O ganho varia conforme o jogo e o computador." FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,14"/>
                             <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding SelectTabCommand}" CommandParameter="tweaks" HorizontalAlignment="Stretch">
                                 <TextBlock Text="Configurar Ajustes"/>
                             </Button>
@@ -624,9 +624,9 @@
 
                     <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="MULTITAREFA &amp; CRIAÇÃO" FontSize="10" FontWeight="Bold" Foreground="#06B6D4"/>
-                            <TextBlock Text="Workstation Pro" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,6"/>
-                            <TextBlock Text="Equilibra throughput de I/O, gerenciamento de memória e estabilidade contínua sob carga." FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <TextBlock Text="TRABALHO E MULTITAREFA" FontSize="10" FontWeight="Bold" Foreground="#06B6D4"/>
+                            <TextBlock Text="Modo Multitarefa" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,6"/>
+                            <TextBlock Text="Ajusta o Windows para quem usa vários programas ao mesmo tempo." FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,14"/>
                             <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding SelectTabCommand}" CommandParameter="tweaks" HorizontalAlignment="Stretch">
                                 <TextBlock Text="Ver Catálogo"/>
                             </Button>
@@ -635,9 +635,9 @@
 
                     <Border Style="{StaticResource CardBorderStyle}" Margin="8,0,0,0">
                         <StackPanel>
-                            <TextBlock Text="REVERSÃO INTEGRAL" FontSize="10" FontWeight="Bold" Foreground="#F59E0B"/>
-                            <TextBlock Text="Restore &amp; Rollback" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,6"/>
-                            <TextBlock Text="Restaure qualquer ajuste individualmente ou reverta um snapshot SHA-256 completo." FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <TextBlock Text="RESTAURAR" FontSize="10" FontWeight="Bold" Foreground="#F59E0B"/>
+                            <TextBlock Text="Voltar às configurações anteriores" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,6"/>
+                            <TextBlock Text="Volte atrás nas mudanças que tenham um histórico de restauração válido." FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,14"/>
                             <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding SelectTabCommand}" CommandParameter="restore" HorizontalAlignment="Stretch">
                                 <TextBlock Text="Abrir Restore Center"/>
                             </Button>
@@ -648,15 +648,15 @@
                 <!-- Catalog Quick Execution Table -->
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Ajustes do Catálogo Fechado com Verificação Pós-Escrita" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,4"/>
-                        <TextBlock Text="Cada aplicação grava o valor original real no Ledger DPAPI antes de modificar a chave e confirma o valor por releitura." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,14"/>
+                        <TextBlock Text="Ajustes disponíveis no Windows" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,4"/>
+                        <TextBlock Text="Veja o que cada opção faz, confira o risco e aplique somente o que fizer sentido para seu computador." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,14"/>
                         <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" MaxHeight="420">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="ID interno" Binding="{Binding TweakId}" Width="160"/>
+                                
                                 <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="120"/>
-                                <DataGridTextColumn Header="Descrição" Binding="{Binding Name}" Width="*"/>
+                                <DataGridTextColumn Header="O que será ajustado" Binding="{Binding Name}" Width="*"/>
                                 <DataGridTextColumn Header="Risco" Binding="{Binding RiskLevel}" Width="95"/>
-                                <DataGridTextColumn Header="Verificação" Binding="{Binding VerificationState}" Width="165"/>
+                                
                                 <DataGridTemplateColumn Header="Ações" Width="210">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
