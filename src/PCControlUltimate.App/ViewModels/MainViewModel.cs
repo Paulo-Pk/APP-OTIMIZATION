@@ -1925,8 +1925,8 @@ public class MainViewModel : INotifyPropertyChanged
             });
 
             BenchmarkResultSummary = Loc.CurrentCulture == "pt-BR"
-                ? $"CPU: {result.iterationsPerSecond:N0} iterações/s ({result.cpuMs} ms) · Escrita sequencial em RAM: {result.memBandwidthGbS:F2} GB/s · Teste concluído."
-                : $"CPU: {result.iterationsPerSecond:N0} iterations/s ({result.cpuMs} ms) · Sequential RAM write: {result.memBandwidthGbS:F2} GB/s · Test completed.";
+                ? $"CPU: {result.iterationsPerSecond:N0} iterações/s ({result.cpuMs} ms) · Taxa de escrita do buffer de 32 MiB: {result.memBandwidthGbS:F2} GB/s · Não representa a largura de banda física da RAM."
+                : $"CPU: {result.iterationsPerSecond:N0} iterations/s ({result.cpuMs} ms) · 32 MiB buffer write rate: {result.memBandwidthGbS:F2} GB/s · Not a measurement of physical RAM bandwidth.";
             BenchmarkCpuScoreText = result.iterationsPerSecond.ToString("N0") + " it/s";
             BenchmarkCpuTimeText = result.cpuMs.ToString("N0") + " ms";
             BenchmarkMemoryBandwidthText = result.memBandwidthGbS.ToString("F2") + " GB/s";
@@ -2186,7 +2186,7 @@ public class MainViewModel : INotifyPropertyChanged
             new ModuleCapabilityMatrixItem(4, "Boost Center", "Funcional (Perfis)", "RegistryOptimizer + CompatibilityEngine", "SQLite + Ledger DPAPI", "Aplica perfis reversíveis com verificação de compatibilidade e backup SHA-256."),
             new ModuleCapabilityMatrixItem(5, "Game Center", "Funcional (biblioteca + processos)", "GameNetworkAcceleratorService", "Sessão", "Descobre jogos por catálogos Steam, Epic, GOG, Ubisoft, EA e Xbox/Microsoft Store; identifica processos e conexões TCP/UDP em execução."),
             new ModuleCapabilityMatrixItem(6, "Performance Lab", "Funcional", "PresentMonSessionParser", "Arquivos CSV", "Captura frametimes reais (Média, 1% Low, 0.1% Low) via Intel PresentMon CLI."),
-            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Parcial (CPU e memória)", "Benchmark local da MainViewModel", "Sessão", "Mede operações de CPU e largura de banda de memória; ainda não executa benchmarks reais de GPU nem de armazenamento."),
+            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Parcial (CPU e buffer de memória)", "Benchmark local da MainViewModel", "Sessão", "Mede operações aritméticas de CPU e taxa de escrita de um buffer de 32 MiB; não mede a largura de banda física da RAM e ainda não executa benchmarks dedicados de GPU nem de armazenamento."),
             new ModuleCapabilityMatrixItem(8, "Diagnostics / System Doctor", "Funcional (auditoria em leitura)", "SystemDoctorService + IntegrityVerifier", "Registro + EventLog + sessão", "Executa auditoria abrangente sob demanda, apresenta evidências e ações recomendadas; a verificação não altera configurações do Windows."),
             new ModuleCapabilityMatrixItem(9, "Windows Tweaks", "Funcional (leitura, aplicação e reversão)", "RegistryOptimizer + Agente Privilegiado", "Ledger DPAPI+HMAC + SQLite", "Consulta estados reais dos 23 ajustes, permite atualizar a leitura sem gravar no Registro e exibe explicações curtas em português, com aplicação e reversão verificadas pelo agente."),
             new ModuleCapabilityMatrixItem(10, "Debloat & Cleaner", "Funcional (4 categorias)", "DiskCleanerEngine", "Relatório de Sessão", "Faz varredura e exclusão real em quatro áreas autorizadas; não é uma limpeza geral do disco e alguns arquivos podem estar bloqueados por uso/permissão."),
