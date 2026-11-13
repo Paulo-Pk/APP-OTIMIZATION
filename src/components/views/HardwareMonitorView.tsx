@@ -17,9 +17,9 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
 }) => {
   const { t } = useI18n();
 
-  const hasCpuTemperature = telemetry.cpu.temperatureAvailable ?? telemetry.cpu.temperature > 0;
-  const hasGpuCoreTemperature = telemetry.gpu.temperatureAvailable ?? telemetry.gpu.temperature > 0;
-  const hasGpuHotspotTemperature = telemetry.gpu.hotspotAvailable ?? telemetry.gpu.hotspot > 0;
+  const hasCpuTemperature = telemetry.cpu.temperatureAvailable ?? (telemetry.cpu.temperature > 0);
+  const hasGpuCoreTemperature = telemetry.gpu.temperatureAvailable ?? (telemetry.gpu.temperature > 0);
+  const hasGpuHotspotTemperature = telemetry.gpu.hotspotAvailable ?? (telemetry.gpu.hotspot > 0);
   const hasGpuTemps = hasGpuCoreTemperature && hasGpuHotspotTemperature;
   const hasCpuLoadReading = (telemetry.sensors || []).some((sensor) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.sensorType === 'Load' && /total/i.test(sensor.name) && sensor.isAvailable && sensor.value !== null && Number.isFinite(sensor.value));
   // The native bridge already scopes VRAM readings to the primary GPU adapter.
@@ -214,7 +214,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               {t.hardwareMonitor.gpuVramTemp}
             </span>
             <span className="text-base font-mono font-bold text-slate-200">
-              {telemetry.gpu.memoryTemp > 0
+              {(telemetry.gpu.memoryTempAvailable ?? (telemetry.gpu.memoryTemp > 0))
                 ? `${telemetry.gpu.memoryTemp.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
