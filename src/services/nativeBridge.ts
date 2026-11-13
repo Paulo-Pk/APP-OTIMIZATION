@@ -471,7 +471,7 @@ class NativeBridgeService {
     return null;
   }
 
-  public async queryInstalledDrivers(): Promise<DriverInfo[] | null> {
+  public async queryInstalledDrivers(): Promise<{ drivers: DriverInfo[]; scanError?: string } | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/drivers`, {
@@ -479,7 +479,19 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        return data.drivers as DriverInfo[];
+        const rawDrivers = Array.isArray(data.drivers) ? data.drivers : [];
+        const drivers: DriverInfo[] = rawDrivers.map((driver: any) => ({
+          device: String(driver.device ?? driver.Device ?? 'Dispositivo sem nome'),
+          category: String(driver.category ?? driver.Category ?? 'Outros') as DriverInfo['category'],
+          installedVersion: String(driver.installedVersion ?? driver.InstalledVersion ?? 'N/D'),
+          releaseDate: String(driver.releaseDate ?? driver.ReleaseDate ?? 'N/D'),
+          vendor: String(driver.vendor ?? driver.Vendor ?? 'Fabricante não informado'),
+          // WMI inventory verifies that Windows reports the driver; it does not compare the latest release.
+          status: 'Verificado via WMI',
+          signatureStatus: String(driver.status ?? driver.Status ?? 'Assinatura não informada'),
+          officialUrl: String(driver.officialUrl ?? driver.OfficialUrl ?? 'https://support.microsoft.com/windows'),
+        }));
+        return { drivers, scanError: data.scanError ?? data.ScanError ?? undefined };
       }
     } catch {
       // unavailable
