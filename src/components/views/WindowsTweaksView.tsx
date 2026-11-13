@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
 import {
   Sliders,
-  ShieldCheck,
   RotateCcw,
   Check,
-  Zap,
-  Info,
 } from 'lucide-react';
 import { SystemTweak } from '../../types';
 import { useI18n } from '../../i18n';
