@@ -837,14 +837,14 @@
                 <UniformGrid Columns="4" Margin="0,0,0,18">
                     <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,8,0">
                         <StackPanel>
-                            <TextBlock Text="TEMPERATURA PRINCIPAL DA GPU" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="TEMPERATURA DA GPU" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding GpuTemp}" FontSize="24" FontWeight="Bold" Foreground="#10B981" FontFamily="Consolas" Margin="0,6,0,2"/>
                             <TextBlock Text="Temperatura geral informada pela placa de vídeo" FontSize="11" Foreground="#64748B"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="PONTO MAIS QUENTE DA GPU" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="HOTSPOT" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding GpuHotspot}" FontSize="24" FontWeight="Bold" Foreground="#F59E0B" FontFamily="Consolas" Margin="0,6,0,2"/>
                             <TextBlock Text="Maior temperatura registrada dentro do chip" FontSize="11" Foreground="#64748B"/>
                         </StackPanel>
@@ -864,6 +864,21 @@
                         </StackPanel>
                     </Border>
                 </UniformGrid>
+
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Sensores e componentes da placa de vídeo" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <TextBlock Text="Lista todas as leituras individuais que o driver e a placa disponibilizam, como memória, ventoinhas, frequência, tensão e temperatura." FontSize="11" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <DataGrid ItemsSource="{Binding GpuHardwareSensors}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="300">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Componente / sensor" Binding="{Binding Name}" Width="2*"/>
+                                <DataGridTextColumn Header="Tipo" Binding="{Binding SensorType}" Width="120"/>
+                                <DataGridTextColumn Header="Leitura" Binding="{Binding FormattedValue}" Width="150"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="150"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
