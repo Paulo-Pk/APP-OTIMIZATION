@@ -519,4 +519,74 @@ public class RegistrySnapshotTests
         }
     }
 
+    [Fact]
+    public void VerifyBackupIntegrity_Version22_BindsCompletenessMetadataToChecksum()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 13, 12, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+            var failures = new List<RegistryReadFailure>
+            {
+                new RegistryReadFailure("perf-win32-priority",
+                    @"HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl",
+                    "Win32PrioritySeparation", "Access denied")
+            };
+            const string snapshotId = "snap-v22-completeness";
+            const string description = "Version 2.2 completeness test";
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "2.2",
+                snapshotId,
+                createdUtc.ToString("O"),
+                description,
+                entries,
+                readFailuresCount: 1,
+                totalKeysCaptured: entries.Count,
+                unreadableItems: failures,
+                snapshotType: "CatalogRegistrySnapshot");
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                FormatVersion = "2.2",
+                SnapshotId = snapshotId,
+                CreatedUtc = createdUtc,
+                Description = description,
+                TotalKeysCaptured = entries.Count,
+                ReadFailuresCount = 1,
+                UnreadableItems = failures,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+            var (validBeforeTampering, _, _) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+            Assert.True(validBeforeTampering);
+
+            // Simulate editing the JSON to hide a failed read while retaining the old checksum.
+            snapshot.ReadFailuresCount = 0;
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var (validAfterTampering, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+            Assert.False(validAfterTampering);
+            Assert.Contains("Checksum mismatch", error ?? string.Empty);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
 }
