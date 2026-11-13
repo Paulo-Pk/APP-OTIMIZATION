@@ -35,7 +35,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
 
       // Match running processes against detected game installation paths. This lets
       // the user choose a game by its display title instead of knowing its .exe name.
-      const gameEntries = (installedGames || []).filter((game) => game.isInstalled && game.executablePath);
+      const gameEntries = (installedGames || []).filter((game) => game.isInstalled);
       const titleByProcess: Record<string, string> = {};
       const normalizeGameLabel = (value: string) => value.toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]/g, '');
       for (const game of gameEntries) {
