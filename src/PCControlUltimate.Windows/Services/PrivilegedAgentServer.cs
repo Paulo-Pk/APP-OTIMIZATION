@@ -19,6 +19,11 @@ namespace PCControlUltimate.Windows.Services;
 
 public class PrivilegedAgentServer : IDisposable
 {
+    private sealed class RequestBodyTooLargeException : Exception
+    {
+        public RequestBodyTooLargeException() : base("Request body exceeds maximum allowed size of 64 KB.") { }
+    }
+
     private readonly HttpListener _listener;
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
@@ -900,6 +905,14 @@ public class PrivilegedAgentServer : IDisposable
 
             await SendJsonAsync(res, new { error = "ROUTE_NOT_FOUND" }, 404);
         }
+        catch (RequestBodyTooLargeException)
+        {
+            await SendJsonAsync(res, new
+            {
+                error = "PAYLOAD_TOO_LARGE",
+                message = "Payload exceeds 64 KB limit."
+            }, 413);
+        }
         catch (JsonException)
         {
             await SendJsonAsync(res, new { error = "MALFORMED_JSON_PAYLOAD" }, 400);
@@ -939,7 +952,7 @@ public class PrivilegedAgentServer : IDisposable
 
             totalRead += read;
             if (totalRead > MaxRequestBodyBytes)
-                throw new InvalidOperationException("Request body exceeds maximum allowed size of 64 KB.");
+                throw new RequestBodyTooLargeException();
 
             ms.Write(buffer, 0, read);
         }
