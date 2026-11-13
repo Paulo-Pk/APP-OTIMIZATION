@@ -381,14 +381,27 @@ class NativeBridgeService {
         headers: this.getAuthHeaders(),
         body: JSON.stringify({ processName, durationSeconds }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) return data;
-      }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) return data;
+      return {
+        avgFps: 0,
+        onePercentLow: 0,
+        frametimeAvgMs: 0,
+        frametimeStDevMs: 0,
+        capturedFrames: 0,
+        error: typeof data?.error === 'string' ? data.error : `Agente respondeu HTTP ${res.status} durante a captura PresentMon.`,
+      };
     } catch (err) {
       console.warn('PresentMon capture native error:', err);
+      return {
+        avgFps: 0,
+        onePercentLow: 0,
+        frametimeAvgMs: 0,
+        frametimeStDevMs: 0,
+        capturedFrames: 0,
+        error: err instanceof Error ? err.message : 'Falha de comunicação com o agente durante a captura PresentMon.',
+      };
     }
-    return null;
   }
 
   public async scanRealDebloatDirectories(): Promise<{
