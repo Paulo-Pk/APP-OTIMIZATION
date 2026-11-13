@@ -191,7 +191,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                     if (hardware.HardwareType == HardwareType.Cpu)
                     {
-                        if (sensor.SensorType == SensorType.Temperature)
+                        if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                         {
                             int candidatePriority = GetCpuTemperatureSensorPriority(sensor.Name);
                             if (cpuTemp is null || candidatePriority > cpuTempPriority)
@@ -202,11 +202,13 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.Clock && sensor.Value is not null)
+                        if (sensor.SensorType == SensorType.Clock && sensor.Value is > 0)
                         {
+                            // Ignore zero-MHz readings from sleeping cores and report the fastest
+                            // currently active core instead of freezing on the first core sensor.
                             cpuClockFallback = Math.Max(cpuClockFallback ?? 0, sensor.Value.Value);
                             if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                                cpuClock ??= sensor.Value;
+                                cpuClock = Math.Max(cpuClock ?? 0, sensor.Value.Value);
                         }
                         if (sensor.SensorType == SensorType.Power &&
                             (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
