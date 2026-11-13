@@ -132,7 +132,8 @@ export const DebloatView: React.FC = () => {
       hasPartialResult
         ? `Limpeza parcial: ${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s); ${skippedSymlinks} link(s) simbólico(s) preservado(s).`
         : null
-    );    if (failures.length > 0) {
+    );
+    if (failures.length > 0) {
       setErrorMessage(failures.slice(0, 5).join(' | '));
     }
 
