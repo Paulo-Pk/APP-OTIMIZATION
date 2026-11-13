@@ -691,7 +691,18 @@
                         </Grid>
                         <DataGrid ItemsSource="{Binding InstalledGames}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="220">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Jogo" Binding="{Binding Title}" Width="2*"/>
+                                <DataGridTemplateColumn Header="Jogo" Width="2*">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Border Width="28" Height="28" CornerRadius="6" Background="#24163F" BorderBrush="#7C3AED" BorderThickness="1" Margin="0,0,8,0">
+                                                    <TextBlock Text="🎮" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center" Foreground="#F8FAFC" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Launcher" Binding="{Binding Launcher}" Width="120"/>
                                 <DataGridTextColumn Header="ID" Binding="{Binding AppId}" Width="150"/>
                                 <DataGridTextColumn Header="Pasta de instalação" Binding="{Binding InstallLocation}" Width="3*"/>
