@@ -405,7 +405,8 @@ public class UniversalHardwareEngine
                     VramUsedMb: existing.VramUsedMb ?? wmi.VramUsedMb,
                     VramTotalMb: mergedVramTotal,
                     DriverVersion: !string.IsNullOrWhiteSpace(existing.DriverVersion) ? existing.DriverVersion : wmi.DriverVersion,
-                    PnpDeviceId: PreferPnpDeviceId(existing.PnpDeviceId, wmi.PnpDeviceId)
+                    PnpDeviceId: PreferPnpDeviceId(existing.PnpDeviceId, wmi.PnpDeviceId),
+                    SensorIdentifier: existing.SensorIdentifier ?? wmi.SensorIdentifier
                 );
             }
             else
