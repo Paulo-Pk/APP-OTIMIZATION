@@ -406,6 +406,22 @@ public sealed class GameDiscoveryTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("Forza Horizon 6", false)]
+    [InlineData("Game Name - Expansion Pack", true)]
+    [InlineData("Game Name Season Pass", true)]
+    [InlineData("Game Name Original Soundtrack", true)]
+    [InlineData("Game Name Dedicated Server", true)]
+    [InlineData("Game Name DLC", true)]
+    public void GameCatalogFilter_ExcludesAddonsButKeepsBaseGames(string title, bool expectedExcluded)
+    {
+        MethodInfo filter = typeof(GameNetworkAcceleratorService).GetMethod(
+            "IsDlcOrNonGameCatalogEntry", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        bool excluded = (bool)filter.Invoke(null, new object[] { title })!;
+        Assert.Equal(expectedExcluded, excluded);
+    }
+
     public void Dispose()
     {
         try
