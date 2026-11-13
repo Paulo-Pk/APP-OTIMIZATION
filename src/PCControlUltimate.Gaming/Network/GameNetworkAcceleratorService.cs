@@ -742,9 +742,14 @@ public static class GameNetworkAcceleratorService
             }
 
             // Parse active OS socket table via netstat -ano without touching the game process
+            if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(Environment.SystemDirectory))
+                return results;
+
             var psi = new ProcessStartInfo
             {
-                FileName = "netstat",
+                // Use the Windows system binary explicitly; never resolve netstat through
+                // the current directory or a potentially modified PATH.
+                FileName = Path.Combine(Environment.SystemDirectory, "netstat.exe"),
                 Arguments = "-ano",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
