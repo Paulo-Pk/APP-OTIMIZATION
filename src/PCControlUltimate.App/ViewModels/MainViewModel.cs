@@ -228,6 +228,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly DatabaseService _databaseService;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
+    private readonly WingetSoftwareCenterService _softwareCenter = new();
     private readonly SystemDoctorService _systemDoctor = new();
     private CancellationTokenSource? _presentMonCts;
     private readonly SemaphoreSlim _telemetryRefreshGate = new(1, 1);
@@ -353,6 +354,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _gpuHotspotDeltaText = "N/D";
     private string _overallHealthScore = "N/D";
     private string _benchmarkResultSummary = "Execute o teste para medir CPU e memória. GPU e armazenamento ainda não são medidos por este módulo.";
+    private string _softwareInstallStatusText = "Escolha um aplicativo do catálogo para instalar.";
     private string _benchmarkCpuScoreText = "—";
     private string _benchmarkCpuTimeText = "—";
     private string _benchmarkMemoryBandwidthText = "—";
@@ -487,6 +489,7 @@ public class MainViewModel : INotifyPropertyChanged
     public string GpuHotspotDeltaText { get => _gpuHotspotDeltaText; set { _gpuHotspotDeltaText = value; OnPropertyChanged(); } }
     public string OverallHealthScore { get => _overallHealthScore; set { _overallHealthScore = value; OnPropertyChanged(); } }
     public string BenchmarkResultSummary { get => _benchmarkResultSummary; set { _benchmarkResultSummary = value; OnPropertyChanged(); } }
+    public string SoftwareInstallStatusText { get => _softwareInstallStatusText; set { _softwareInstallStatusText = value; OnPropertyChanged(); } }
     public string BenchmarkCpuScoreText { get => _benchmarkCpuScoreText; set { _benchmarkCpuScoreText = value; OnPropertyChanged(); } }
     public string BenchmarkCpuTimeText { get => _benchmarkCpuTimeText; set { _benchmarkCpuTimeText = value; OnPropertyChanged(); } }
     public string BenchmarkMemoryBandwidthText { get => _benchmarkMemoryBandwidthText; set { _benchmarkMemoryBandwidthText = value; OnPropertyChanged(); } }
@@ -810,6 +813,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RegisterSampleVpsNodeCommand { get; }
     public ICommand ApplySafeBoostProfileCommand { get; }
     public ICommand RunBenchmarkCommand { get; }
+    public ICommand InstallSoftwareCommand { get; }
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
 
@@ -1821,6 +1825,45 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 _isApplyingSafeBoostProfile = false;
                 CommandManager.InvalidateRequerySuggested();
+            }
+        });
+
+        InstallSoftwareCommand = new RelayCommand(async parameter =>
+        {
+            string packageId = parameter as string ?? string.Empty;
+            var package = WingetSoftwareCenterService.OfficialCatalog.FirstOrDefault(
+                item => string.Equals(item.PackageId, packageId, StringComparison.OrdinalIgnoreCase));
+            if (package == null)
+            {
+                SoftwareInstallStatusText = "Este aplicativo não pertence ao catálogo oficial autorizado.";
+                return;
+            }
+
+            var confirmation = MessageBox.Show(
+                $"Deseja instalar {package.Name} pelo catálogo oficial do Windows?\n\nFornecedor: {package.Publisher}\nPacote: {package.PackageId}",
+                "Confirmar instalação",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirmation != MessageBoxResult.Yes) return;
+
+            SoftwareInstallStatusText = $"Preparando a instalação de {package.Name}...";
+            try
+            {
+                var progress = new Progress<string>(message => SoftwareInstallStatusText = message);
+                var result = await _softwareCenter.InstallPackageAsync(
+                    package.PackageId,
+                    userConfirmed: true,
+                    source: "winget",
+                    progress: progress);
+
+                SoftwareInstallStatusText = result.Success
+                    ? $"{package.Name} foi instalado com sucesso."
+                    : $"Não foi possível instalar {package.Name}: {result.OutputLog}";
+            }
+            catch (Exception ex)
+            {
+                SoftwareInstallStatusText = $"Falha ao instalar {package.Name}: {ex.Message}";
             }
         });
 
