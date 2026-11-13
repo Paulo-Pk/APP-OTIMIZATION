@@ -18,6 +18,14 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
   const { t } = useI18n();
 
   const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
+  const hasVramUsedReading = telemetry.gpu.vramUsedMB > 0 || (telemetry.sensors || []).some((sensor) =>
+    /^gpu/i.test(sensor.hardwareType) &&
+    sensor.sensorType === 'SmallData' &&
+    /^(GPU Memory Used|D3D Dedicated Memory Used)$/i.test(sensor.name) &&
+    sensor.isAvailable &&
+    sensor.value !== null &&
+    Number.isFinite(sensor.value)
+  );
   const sensorTypeLabels: Record<string, string> = { Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' };
   const hardwareTypeLabels: Record<string, string> = { Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' };
   const sensorTypeLabel = (type: string) => sensorTypeLabels[type] || type;
@@ -245,7 +253,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               {t.hardwareMonitor.vramAllocation}
             </span>
             <span className="text-base font-mono font-bold text-cyan-300">
-              {telemetry.gpu.vramTotalMB > 0
+              {telemetry.gpu.vramTotalMB > 0 && hasVramUsedReading
                 ? `${(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} GB`
                 : t.common.sensorNotAvailable}
             </span>
