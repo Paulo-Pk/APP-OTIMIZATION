@@ -15,7 +15,7 @@ export const DebloatView: React.FC = () => {
   const { t } = useI18n();
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(['cache-dx-shaders', 'temp-user', 'temp-prefetch']));
-  const [scan, setScan] = useState<{ d3dCacheBytes: number; tempWindowsBytes: number; tempUserBytes: number; softwareDistributionBytes: number; prefetchBytes: number } | null>(null);
+  const [scan, setScan] = useState<{ d3dCacheBytes: number; tempWindowsBytes: number; tempUserBytes: number; softwareDistributionBytes: number; prefetchBytes: number; deliveryOptimizationBytes: number; werQueueBytes: number; werArchiveBytes: number } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
 
   const [isCleaning, setIsCleaning] = useState<boolean>(false);
@@ -34,6 +34,9 @@ export const DebloatView: React.FC = () => {
         tempUserBytes: Number(result.tempUserBytes) || 0,
         softwareDistributionBytes: Number(result.softwareDistributionBytes) || 0,
         prefetchBytes: Number(result.prefetchBytes) || 0,
+        deliveryOptimizationBytes: Number(result.deliveryOptimizationBytes) || 0,
+        werQueueBytes: Number(result.werQueueBytes) || 0,
+        werArchiveBytes: Number(result.werArchiveBytes) || 0,
       } : null);
       if (!result) setNoticeMessage('Conecte o agente Windows para medir o espaço real que pode ser liberado.');
 
@@ -51,6 +54,9 @@ export const DebloatView: React.FC = () => {
     { id: 'temp-windows', name: t.debloat.tempWindowsTitle, description: 'Arquivos temporários do Windows. Itens bloqueados pelo sistema serão preservados.', estimatedBytes: scan?.tempWindowsBytes || 0, isSafe: true },
     { id: 'temp-prefetch', name: 'Cache Prefetch do Windows', description: 'Arquivos auxiliares que o Windows recria. A limpeza pode deixar a primeira abertura de programas mais lenta temporariamente.', estimatedBytes: scan?.prefetchBytes || 0, isSafe: true },
     { id: 'update-cache', name: t.debloat.updateCacheTitle, description: t.debloat.updateCacheDesc, estimatedBytes: scan?.softwareDistributionBytes || 0, isSafe: true },
+    { id: 'cache-delivery-optimization', name: 'Cache de otimização de entrega', description: 'Arquivos temporários usados pelo Windows para distribuir atualizações. O que estiver em uso será preservado.', estimatedBytes: scan?.deliveryOptimizationBytes || 0, isSafe: true },
+    { id: 'wer-report-queue', name: 'Relatórios de erro pendentes', description: 'Relatórios de falhas do Windows ainda não enviados. Apagar remove apenas os relatórios locais, não corrige a causa da falha.', estimatedBytes: scan?.werQueueBytes || 0, isSafe: true },
+    { id: 'wer-report-archive', name: 'Relatórios antigos de erro', description: 'Relatórios antigos já arquivados pelo Windows. Podem ser apagados para liberar espaço, mas deixam de estar disponíveis para diagnóstico.', estimatedBytes: scan?.werArchiveBytes || 0, isSafe: true },
   ];
 
   const toggleSelect = (id: string) => {
