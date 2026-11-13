@@ -82,9 +82,9 @@ public static class DiskCleanerEngine
         return categoryKey.ToLowerInvariant() switch
         {
             "cache-dx-shaders" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "D3DSCache"),
-            "temp-windows" => @"C:\Windows\Temp",
+            "temp-windows" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp"),
             "temp-user" => Path.GetTempPath(),
-            "update-cache" => @"C:\Windows\SoftwareDistribution\Download",
+            "update-cache" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SoftwareDistribution", "Download"),
             "temp-prefetch" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch"),
             _ => null
         };
