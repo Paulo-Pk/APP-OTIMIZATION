@@ -4,7 +4,6 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
-using PCControlUltimate.App.ViewModels;
 
 namespace PCControlUltimate.App;
 
@@ -13,10 +12,9 @@ public partial class MainWindow : Window
     private const string AppHost = "app.pccontrol.local";
     private readonly string _agentSessionToken;
 
-    public MainWindow(MainViewModel viewModel, string agentSessionToken)
+    public MainWindow(string agentSessionToken)
     {
         InitializeComponent();
-        DataContext = viewModel;
         _agentSessionToken = agentSessionToken ?? string.Empty;
         Loaded += async (_, _) => await InitializeWebViewAsync();
     }
@@ -69,8 +67,19 @@ public partial class MainWindow : Window
             AppWebView.CoreWebView2.ProcessFailed += (_, _) =>
                 Dispatcher.Invoke(() => ShowStartupError("A interface foi interrompida pelo WebView2. Feche e abra o PC Control Ultimate novamente."));
 
+            AppWebView.NavigationCompleted += (_, args) =>
+            {
+                if (args.IsSuccess)
+                {
+                    StartupOverlay.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    ShowStartupError($"Falha ao carregar a interface React (WebErrorStatus: {args.WebErrorStatus}).");
+                }
+            };
+
             AppWebView.Source = new Uri($"https://{AppHost}/index.html");
-            StartupOverlay.Visibility = Visibility.Collapsed;
         }
         catch (Exception ex)
         {
