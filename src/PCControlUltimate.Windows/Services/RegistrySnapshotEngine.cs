@@ -164,7 +164,7 @@ public record SnapshotRestoreResult(
 [SupportedOSPlatform("windows")]
 public static class RegistrySnapshotEngine
 {
-    public const string CurrentFormatVersion = "2.1";
+    public const string CurrentFormatVersion = "2.2";
 
     public static string BackupDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -181,14 +181,22 @@ public static class RegistrySnapshotEngine
         string formatVersion,
         DateTime createdUtc,
         string description,
-        IEnumerable<RegistryValueEntry> entries)
+        IEnumerable<RegistryValueEntry> entries,
+        int readFailuresCount = 0,
+        int totalKeysCaptured = 0,
+        IEnumerable<RegistryReadFailure>? unreadableItems = null,
+        string snapshotType = "CatalogRegistrySnapshot")
     {
         return BuildCanonicalPayload(
             formatVersion,
             snapshotId,
             createdUtc.ToUniversalTime().ToString("O"),
             description,
-            entries
+            entries,
+            readFailuresCount,
+            totalKeysCaptured,
+            unreadableItems,
+            snapshotType
         );
     }
 
@@ -197,7 +205,11 @@ public static class RegistrySnapshotEngine
         string snapshotId,
         string createdUtcIso,
         string description,
-        IEnumerable<RegistryValueEntry> entries)
+        IEnumerable<RegistryValueEntry> entries,
+        int readFailuresCount = 0,
+        int totalKeysCaptured = 0,
+        IEnumerable<RegistryReadFailure>? unreadableItems = null,
+        string snapshotType = "CatalogRegistrySnapshot")
     {
         var sb = new StringBuilder();
         sb.Append("v=").Append(formatVersion).Append('|');
@@ -218,6 +230,35 @@ public static class RegistrySnapshotEngine
               .Append(entry.KeyCreatedByApp ? "1" : "0").Append('|')
               .Append(entry.RawValue ?? "<NULL>")
               .Append('\n');
+        }
+
+        // Version 2.2 binds completeness metadata to the checksum. Keep the legacy
+        // canonical payload unchanged for 2.0/2.1 so existing backups remain verifiable.
+        if (string.Equals(formatVersion, "2.2", StringComparison.Ordinal))
+        {
+            static string Encode(string? value) =>
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(value ?? string.Empty));
+
+            sb.Append("snapshotType=").Append(Encode(snapshotType)).Append('\n');
+            sb.Append("totalKeysCaptured=").Append(totalKeysCaptured).Append('\n');
+            sb.Append("readFailuresCount=").Append(readFailuresCount).Append('\n');
+
+            var failures = (unreadableItems ?? Array.Empty<RegistryReadFailure>())
+                .OrderBy(item => item.TweakId, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.TweakId, StringComparer.Ordinal)
+                .ThenBy(item => item.KeyPath, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.KeyPath, StringComparer.Ordinal)
+                .ThenBy(item => item.ValueName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.ValueName, StringComparer.Ordinal)
+                .ThenBy(item => item.Reason, StringComparer.Ordinal);
+            foreach (var failure in failures)
+            {
+                sb.Append("unreadable=")
+                  .Append(Encode(failure.TweakId)).Append('|')
+                  .Append(Encode(failure.KeyPath)).Append('|')
+                  .Append(Encode(failure.ValueName)).Append('|')
+                  .Append(Encode(failure.Reason)).Append('\n');
+            }
         }
 
         return sb.ToString();
@@ -274,7 +315,11 @@ public static class RegistrySnapshotEngine
                 snapshotId,
                 createdIso,
                 description,
-                sortedEntries
+                sortedEntries,
+                readFailures.Count,
+                sortedEntries.Count,
+                readFailures,
+                "CatalogRegistrySnapshot"
             );
 
             string checksum = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload);
@@ -536,7 +581,7 @@ public static class RegistrySnapshotEngine
             // Only accept snapshot schemas whose semantics are understood by this
             // restore engine. Missing fields retain their model defaults for legacy files;
             // explicitly unknown or null values fail closed.
-            if (manifest.FormatVersion is not ("2.0" or CurrentFormatVersion))
+            if (manifest.FormatVersion is not ("2.0" or "2.1" or CurrentFormatVersion))
                 return (false, manifest.ChecksumSha256,
                     $"Versão de backup não suportada: {manifest.FormatVersion ?? "(nula)"}.");
             if (!string.Equals(manifest.SnapshotType, "CatalogRegistrySnapshot", StringComparison.Ordinal))
@@ -567,7 +612,11 @@ public static class RegistrySnapshotEngine
                 manifest.SnapshotId,
                 manifest.CreatedUtcIso,
                 manifest.Description ?? string.Empty,
-                manifest.Entries
+                manifest.Entries,
+                manifest.ReadFailuresCount,
+                manifest.TotalKeysCaptured,
+                manifest.UnreadableItems,
+                manifest.SnapshotType
             );
 
             string calculated = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload);
