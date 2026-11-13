@@ -69,7 +69,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
       if (nativeResult && nativeResult.capturedFrames > 0) {
         const samples = telemetrySamples.current;
         const average = (key: 'cpuLoad' | 'gpuLoad' | 'cpuTemp' | 'gpuTemp') => {
-          const values = samples.map((sample) => sample[key]).filter((value) => Number.isFinite(value) && value > 0);
+          const values = samples.map((sample) => sample[key]).filter((value) => Number.isFinite(value) && (key === 'cpuLoad' || key === 'gpuLoad' ? value >= 0 : value > 0));
           return values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : 0;
         };
 
@@ -81,7 +81,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
           avgFps: nativeResult.avgFps,
           minFps: nativeResult.minFps ?? 0,
           onePercentLow: nativeResult.onePercentLow,
-          pointOnePercentLow: 0,
+          pointOnePercentLow: null,
           frametimeAvgMs: nativeResult.frametimeAvgMs,
           frametimeStDevMs: nativeResult.frametimeStDevMs,
           cpuLoadAvg: average('cpuLoad'),
