@@ -136,6 +136,7 @@ public class WingetSoftwareCenterService
         new("Mozilla.Firefox", "Mozilla Firefox", "Mozilla", SoftwarePackageCategory.Navegadores, "Navegadores", "Navegador web rápido e focado em privacidade.", "winget", false),
         new("Brave.Brave", "Brave Browser", "Brave Software", SoftwarePackageCategory.Navegadores, "Navegadores", "Navegador Chromium com bloqueio nativo de rastreadores.", "winget", false),
         new("Google.Chrome", "Google Chrome", "Google LLC", SoftwarePackageCategory.Navegadores, "Navegadores", "Navegador web oficial Google Chrome.", "winget", true),
+        new("Opera.OperaGX", "Opera GX", "Opera", SoftwarePackageCategory.Navegadores, "Navegadores", "Navegador com recursos voltados a jogos e controles de consumo de recursos.", "winget", true),
 
         // 2. Comunicação
         new("Discord.Discord", "Discord", "Discord Inc.", SoftwarePackageCategory.Comunicacao, "Comunicação", "Comunicação por voz, vídeo e texto para comunidades e jogos.", "winget", false),
@@ -168,6 +169,7 @@ public class WingetSoftwareCenterService
         // 9. Gaming
         new("Valve.Steam", "Steam", "Valve Corporation", SoftwarePackageCategory.Gaming, "Gaming", "Plataforma oficial de distribuição e comunidade de jogos PC.", "winget", true),
         new("EpicGames.EpicGamesLauncher", "Epic Games Launcher", "Epic Games", SoftwarePackageCategory.Gaming, "Gaming", "Inicializador oficial de jogos Epic Games e Unreal Engine.", "winget", true),
+        new("Microsoft.GamingApp", "Xbox para PC", "Microsoft", SoftwarePackageCategory.Gaming, "Gaming", "Aplicativo oficial Xbox para PC Game Pass e biblioteca de jogos compatíveis.", "winget", true),
         new("Playnite.Playnite", "Playnite", "Josef Nemec", SoftwarePackageCategory.Gaming, "Gaming", "Gerenciador unificado de bibliotecas de jogos de código aberto.", "winget", false),
 
         // 10. Benchmark
