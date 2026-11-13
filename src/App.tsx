@@ -212,7 +212,7 @@ export default function App() {
     nativeBridge.discoverInstalledGames().then((found) => {
       if (cancelled || !found) return;
       const mapped: GameProfile[] = found
-        .filter((game) => game.isInstalled && game.title && !/\b(dlcs?|expansions?(?:\s+pack)?|season\s+pass|add[- ]?ons?|soundtracks?|original\s+soundtrack|dedicated\s+server|server\s+tools|workshop\s+tools|test\s+server|public\s+test|test\s+application|sdk|editor|mod\s+tools|redistributables?|runtimes?)\b/i.test(game.title))
+        .filter((game) => game.isInstalled && game.title && !/\b(dlcs?|expansions?(?:\s+pack)?|season\s+pass|add[- ]?ons?|content\s+pack|soundtracks?|original\s+soundtrack|ost|supporter\s+pack|upgrade\s+pack|cosmetic\s+pack|bonus\s+content|artbook|demo|playtest|dedicated\s+server|server\s+tools|workshop\s+tools|test\s+server|public\s+test|test\s+application|sdk|editor|mod\s+tools|redistributables?|runtimes?)\b/i.test(game.title))
         .map((game, index) => ({
           id: `installed-${game.launcher.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${game.appId || index}`,
           title: game.title,
