@@ -14,25 +14,25 @@ public record InstalledDriverEntry(
     string Vendor,
     string Status,
     string OfficialUrl,
-    string VerificationScopeNotice = "Inventário somente-leitura via WMI (Win32_PnPSignedDriver). A assinatura é verificada; atualização automática não é presumida."
+    string VerificationScopeNotice = "Inventário somente-leitura via WMI. A presença do dispositivo não significa que o driver seja o mais recente."
 );
 
 public static class DriverScannerService
 {
     public const string ModulePolicyNotice =
-        "Inventário somente-leitura de drivers reportados pelo Windows. O aplicativo não presume que um driver está atualizado apenas por estar assinado e não instala drivers automaticamente.";
+        "Inventário somente-leitura dos dispositivos Plug and Play e dos drivers reportados pelo Windows. " +
+        "Não baixa nem instala drivers automaticamente e não declara que uma versão é a mais recente.";
 
-    public static string? LastScanError { get; private set; }
+    public static string? LastError { get; private set; }
 
     public static IReadOnlyList<InstalledDriverEntry> QuerySignedDrivers()
     {
         LastError = null;
         var results = new List<InstalledDriverEntry>();
-        LastScanError = null;
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            LastScanError = "A consulta de drivers requer Windows.";
+            LastError = "A consulta de dispositivos e drivers requer Windows.";
             return results;
         }
 
@@ -43,93 +43,108 @@ public static class DriverScannerService
         // is used as a safe read-only fallback instead of displaying an empty table.
         try
         {
-            using var searcher = new ManagementObjectSearcher(
-                "SELECT DeviceName, DriverVersion, DriverDate, Manufacturer, DeviceClass, IsSigned FROM Win32_PnPSignedDriver WHERE DeviceName IS NOT NULL"
+            using var signedSearcher = new ManagementObjectSearcher(
+                "SELECT DeviceName, DriverVersion, DriverDate, Manufacturer, DeviceClass, IsSigned, DeviceID FROM Win32_PnPSignedDriver WHERE DeviceName IS NOT NULL"
             );
 
             foreach (ManagementObject obj in signedSearcher.Get())
             {
-                string deviceName = obj["DeviceName"]?.ToString() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(deviceName)) continue;
-
-                string deviceClass = obj["DeviceClass"]?.ToString() ?? string.Empty;
-                string category = MapCategory(deviceClass);
-                string version = obj["DriverVersion"]?.ToString() ?? "Versão não informada";
-                string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante não informado";
-                string rawDate = obj["DriverDate"]?.ToString() ?? string.Empty;
-                bool isSigned = obj["IsSigned"] is bool signed && signed;
-
-                string formattedDate = "Data não informada";
-                if (rawDate.Length >= 8 &&
-                    int.TryParse(rawDate.Substring(0, 4), out int year) &&
-                    int.TryParse(rawDate.Substring(4, 2), out int month) &&
-                    int.TryParse(rawDate.Substring(6, 2), out int day) &&
-                    month is >= 1 and <= 12 && day is >= 1 and <= 31)
-                {
-                    formattedDate = $"{day:00}/{month:00}/{year:0000}";
-                }
-
-                results.Add(new InstalledDriverEntry(
-                    Device: deviceName,
-                    Category: category,
-                    InstalledVersion: version,
-                    ReleaseDate: formattedDate,
-                    Vendor: manufacturer,
-                    Status: isSigned ? "Assinado digitalmente — versão instalada" : "Assinatura não confirmada pelo Windows",
-                    OfficialUrl: ResolveVendorSupportUrl(deviceName, manufacturer)
+                results.Add(CreateEntry(
+                    obj["DeviceName"]?.ToString() ?? "Dispositivo sem nome",
+                    obj["DeviceClass"]?.ToString() ?? string.Empty,
+                    obj["DriverVersion"]?.ToString(),
+                    obj["DriverDate"]?.ToString(),
+                    obj["Manufacturer"]?.ToString(),
+                    obj["IsSigned"] is bool signed ? signed : null,
+                    null
                 ));
             }
-
-            // If Windows exposes no signed-driver package rows, fall back to the
-            // Plug and Play device inventory. This is device discovery only: it must
-            // never imply that a driver version or digital signature was verified.
-            if (results.Count == 0)
-            {
-                try
-                {
-                    using var deviceSearcher = new ManagementObjectSearcher(
-                        "SELECT Name, Manufacturer, PNPClass FROM Win32_PnPEntity WHERE Name IS NOT NULL"
-                    );
-
-                    foreach (ManagementObject device in deviceSearcher.Get())
-                    {
-                        string name = device["Name"]?.ToString() ?? string.Empty;
-                        if (string.IsNullOrWhiteSpace(name)) continue;
-
-                        string manufacturer = device["Manufacturer"]?.ToString() ?? "Fabricante não informado";
-                        string deviceClass = device["PNPClass"]?.ToString() ?? string.Empty;
-                        results.Add(new InstalledDriverEntry(
-                            Device: name,
-                            Category: MapCategory(deviceClass),
-                            InstalledVersion: "Versão não informada pelo Windows",
-                            ReleaseDate: "Data não informada",
-                            Vendor: manufacturer,
-                            Status: "Dispositivo encontrado — pacote/assinatura não verificados",
-                            OfficialUrl: ResolveVendorSupportUrl(name, manufacturer)
-                        ));
-                    }
-                }
-                catch (Exception fallbackException)
-                {
-                    LastScanError = $"A consulta de pacotes de driver e o inventário Plug and Play falharam: {fallbackException.Message}";
-                }
-            }
-
-            return results
-                .GroupBy(d => $"{d.Device}|{d.InstalledVersion}", StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                .OrderBy(d => d.Category, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(d => d.Device, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
         }
         catch (Exception ex)
         {
-            LastScanError = $"O Windows não conseguiu concluir a consulta WMI: {ex.Message}";
+            signedQueryError = $"Consulta de pacotes assinados indisponível ({ex.GetType().Name}: {ex.Message}).";
+        }
+
+        if (results.Count > 0)
+        {
+            return results
+                .GroupBy(d => d.Device, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .OrderBy(d => d.Category, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(d => d.Device, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+        }
+
+        // Fallback: list actual Plug and Play devices. Driver version/date/signature remain
+        // explicitly N/D when Windows does not expose those fields through this class.
+        try
+        {
+            using var pnpSearcher = new ManagementObjectSearcher(
+                "SELECT Name, Manufacturer, PNPClass, PNPDeviceID, Status, ConfigManagerErrorCode FROM Win32_PnPEntity WHERE PNPDeviceID IS NOT NULL"
+            );
+
+            foreach (ManagementObject obj in pnpSearcher.Get())
+            {
+                string name = obj["Name"]?.ToString() ?? "Dispositivo sem nome";
+                string deviceClass = obj["PNPClass"]?.ToString() ?? string.Empty;
+                string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante não informado";
+
+                bool? isSigned = null;
+                int? problemCode = obj["ConfigManagerErrorCode"] == null
+                    ? null
+                    : Convert.ToInt32(obj["ConfigManagerErrorCode"]);
+
+                string deviceStatus = problemCode switch
+                {
+                    0 => "Dispositivo funcionando (Windows)",
+                    null => obj["Status"]?.ToString() ?? "Estado não informado",
+                    _ => $"Código de problema do Windows: {problemCode.Value}"
+                };
+
+                results.Add(CreateEntry(
+                    name,
+                    deviceClass,
+                    null,
+                    null,
+                    manufacturer,
+                    isSigned,
+                    deviceStatus
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            LastError = $"Não foi possível consultar os dispositivos Plug and Play via WMI ({ex.GetType().Name}: {ex.Message})." +
+                        (signedQueryError == null ? string.Empty : $" {signedQueryError}");
             return results;
         }
+
+        if (results.Count == 0)
+        {
+            LastError = "O Windows não retornou dispositivos Plug and Play nesta consulta." +
+                        (signedQueryError == null ? string.Empty : $" {signedQueryError}");
+            return results;
+        }
+
+        LastError = "O Windows não forneceu metadados completos dos pacotes de driver; a lista abaixo é o inventário Plug and Play. Versão, data e assinatura aparecem como N/D quando não foram informadas." +
+                    (signedQueryError == null ? string.Empty : $" {signedQueryError}");
+
+        return results
+            .GroupBy(d => d.Device, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .OrderBy(d => d.Category, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(d => d.Device, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
     }
 
-    private static string MapCategory(string deviceClass)
+    private static InstalledDriverEntry CreateEntry(
+        string deviceName,
+        string deviceClass,
+        string? version,
+        string? rawDate,
+        string? manufacturer,
+        bool? isSigned,
+        string? deviceStatus)
     {
         string formattedDate = "N/D";
         if (!string.IsNullOrWhiteSpace(rawDate) && rawDate.Length >= 8 &&
@@ -137,21 +152,18 @@ public static class DriverScannerService
                 System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.None, out var date))
         {
-            "DISPLAY" => "Vídeo",
-            "NET" => "Rede",
-            "MEDIA" or "AUDIOENDPOINT" => "Áudio",
-            "SCSIADAPTER" or "HDC" or "DISKDRIVE" => "Armazenamento",
-            "SYSTEM" => "Sistema / Chipset",
-            "USB" => "USB",
-            "BLUETOOTH" => "Bluetooth",
-            "HIDCLASS" => "Teclado / Mouse",
-            "IMAGE" or "CAMERA" => "Câmera",
-            "MONITOR" => "Monitor",
-            "PRINTER" => "Impressora",
-            "KEYBOARD" => "Teclado",
-            "MOUSE" => "Mouse",
-            "" => "Outros dispositivos",
-            _ => $"Outros ({deviceClass})"
+            formattedDate = date.ToString("yyyy-MM-dd");
+        }
+
+        string vendor = string.IsNullOrWhiteSpace(manufacturer)
+            ? "Fabricante não informado"
+            : manufacturer.Trim();
+
+        string signature = isSigned switch
+        {
+            true => "Assinado digitalmente (Windows)",
+            false => "Windows informa que não possui assinatura digital",
+            _ => "Assinatura não informada"
         };
 
         string status = string.IsNullOrWhiteSpace(deviceStatus)
@@ -196,7 +208,6 @@ public static class DriverScannerService
         if (combined.Contains("AMD") || combined.Contains("RADEON")) return "https://www.amd.com/en/support";
         if (combined.Contains("INTEL")) return "https://www.intel.com/content/www/us/en/download-center/home.html";
         if (combined.Contains("REALTEK")) return "https://www.realtek.com/Download/Index?cate_id=194";
-        if (combined.Contains("MICROSOFT")) return "https://www.catalog.update.microsoft.com/";
         return "https://support.microsoft.com/windows";
     }
 }
