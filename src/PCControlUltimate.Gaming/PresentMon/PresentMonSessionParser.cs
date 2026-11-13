@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -327,6 +328,44 @@ public static class PresentMonSessionParser
         }
     }
 
+
+    private static string[] ParseCsvFields(string line)
+    {
+        var fields = new List<string>();
+        var field = new StringBuilder();
+        bool insideQuotes = false;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char current = line[i];
+
+            if (current == '"')
+            {
+                if (insideQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    field.Append('"');
+                    i++;
+                }
+                else
+                {
+                    insideQuotes = !insideQuotes;
+                }
+            }
+            else if (current == ',' && !insideQuotes)
+            {
+                fields.Add(field.ToString().Trim());
+                field.Clear();
+            }
+            else
+            {
+                field.Append(current);
+            }
+        }
+
+        fields.Add(field.ToString().Trim());
+        return fields.ToArray();
+    }
+
     public static PresentMonSummary ParseCsvFile(string csvFilePath)
     {
         if (string.IsNullOrWhiteSpace(csvFilePath) || !File.Exists(csvFilePath))
@@ -337,7 +376,7 @@ public static class PresentMonSessionParser
         if (string.IsNullOrWhiteSpace(headerLine))
             return new PresentMonSummary(0, 0, 0, 0, 0, 0, Array.Empty<double>());
 
-        var headers = headerLine.Split(',').Select(h => h.Trim().Trim('"')).ToArray();
+        var headers = ParseCsvFields(headerLine);
         int frametimeColIdx = -1;
 
         foreach (var candidate in TargetColumnNames)
@@ -362,7 +401,7 @@ public static class PresentMonSessionParser
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
 
-            var parts = line.Split(',');
+            var parts = ParseCsvFields(line);
             if (parts.Length > frametimeColIdx)
             {
                 string rawVal = parts[frametimeColIdx].Trim().Trim('"');
