@@ -236,8 +236,16 @@ public static class GameNetworkAcceleratorService
         var games = new Dictionary<string, InstalledGameEntry>(StringComparer.OrdinalIgnoreCase);
         void Add(InstalledGameEntry game)
         {
-            if (!string.IsNullOrWhiteSpace(game.Title) && !string.IsNullOrWhiteSpace(game.InstallLocation))
-                games[game.Launcher + ":" + game.AppId] = game;
+            if (string.IsNullOrWhiteSpace(game.Title) || string.IsNullOrWhiteSpace(game.InstallLocation))
+                return;
+
+            // Launcher catalogs may include DLC apps, expansion packs, soundtracks,
+            // dedicated servers and tools alongside the base games. Keep the library
+            // focused on standalone playable titles.
+            if (IsDlcOrNonGameCatalogEntry(game.Title))
+                return;
+
+            games[game.Launcher + ":" + game.AppId] = game;
         }
 
         try
@@ -374,6 +382,15 @@ public static class GameNetworkAcceleratorService
         AddXboxGamesFolderGames(games);
 
         return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private static bool IsDlcOrNonGameCatalogEntry(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return true;
+        return Regex.IsMatch(
+            title,
+            @"\b(DLC|Expansion(?:\s+Pack)?|Season\s+Pass|Soundtrack|Original\s+Soundtrack|Dedicated\s+Server|Test\s+Server|Public\s+Test|SDK|Editor|Mod\s+Tools)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static void AddXboxGamesFolderGames(Dictionary<string, InstalledGameEntry> games)
