@@ -264,6 +264,7 @@ export interface DriverInfo {
   releaseDate: string;
   vendor: string;
   status: 'Atualizado' | 'Atualização Recomendada' | 'Desatualizado' | 'Verificado via WMI';
+  signatureStatus?: string;
   officialUrl: string;
 }
 
