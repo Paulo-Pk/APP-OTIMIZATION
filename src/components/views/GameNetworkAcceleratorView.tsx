@@ -42,13 +42,13 @@ export const GameNetworkAcceleratorView: React.FC = () => {
   const [isProbing, setIsProbing] = useState(false);
   const [selectedGames, setSelectedGames] = useState<string[]>(['cs2', 'valorant']);
   const gameOptions = [
-    { id: 'cs2', label: 'Counter-Strike 2', publisher: 'Steam' },
-    { id: 'valorant', label: 'VALORANT', publisher: 'Riot Games' },
-    { id: 'fortnite', label: 'Fortnite', publisher: 'Epic Games' },
-    { id: 'apex', label: 'Apex Legends', publisher: 'EA' },
-    { id: 'lol', label: 'League of Legends', publisher: 'Riot Games' },
-    { id: 'r6', label: 'Rainbow Six Siege', publisher: 'Ubisoft' },
-    { id: 'rocketleague', label: 'Rocket League', publisher: 'Epic Games' },
+    { id: 'cs2', label: 'Counter-Strike 2', publisher: 'Steam', endpoint: 'steampowered.com:443' },
+    { id: 'valorant', label: 'VALORANT', publisher: 'Riot Games', endpoint: 'riotgames.com:443' },
+    { id: 'fortnite', label: 'Fortnite', publisher: 'Epic Games', endpoint: 'epicgames.com:443' },
+    { id: 'apex', label: 'Apex Legends', publisher: 'EA', endpoint: 'ea.com:443' },
+    { id: 'lol', label: 'League of Legends', publisher: 'Riot Games', endpoint: 'leagueoflegends.com:443' },
+    { id: 'r6', label: 'Rainbow Six Siege', publisher: 'Ubisoft', endpoint: 'ubisoft.com:443' },
+    { id: 'rocketleague', label: 'Rocket League', publisher: 'Epic Games', endpoint: 'rocketleague.com:443' },
   ];
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [results, setResults] = useState<TargetMeasurement[]>([]);
@@ -130,12 +130,12 @@ export const GameNetworkAcceleratorView: React.FC = () => {
           {gameOptions.map((game) => (
             <label key={game.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer ${selectedGames.includes(game.id) ? 'border-purple-500/50 bg-purple-500/10 text-white' : 'border-slate-800 bg-[#0a0c13] text-slate-300'}`}>
               <input type="checkbox" checked={selectedGames.includes(game.id)} onChange={(e) => setSelectedGames((previous) => e.target.checked ? [...previous, game.id] : previous.filter((id) => id !== game.id))} />
-              <span className="text-xs font-semibold">{game.label}</span>
-              <span className="ml-auto text-[10px] text-slate-500">{game.publisher}</span>
+              <span className="text-xs font-semibold text-slate-100">{game.label}</span>
+              <span className="ml-auto text-[10px] text-slate-300">{game.publisher}</span>
             </label>
           ))}
         </div>
-        <p className="text-[11px] text-slate-500">Os testes usam endereços públicos de referência dos serviços dos jogos. Não são os servidores da partida e não substituem ping UDP/ICMP do jogo.</p>
+        <div className="rounded-lg border border-slate-800 bg-[#090c14] p-3 space-y-2"><div className="text-[11px] font-bold uppercase tracking-wide text-slate-300">Destinos de referência por jogo</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{gameOptions.filter((game) => selectedGames.includes(game.id)).map((game) => <div key={game.id} className="flex items-center justify-between gap-3 text-[11px]"><span className="text-slate-200">{game.label}</span><span className="font-mono text-cyan-300">{game.endpoint}</span></div>)}</div><p className="text-[10px] text-slate-400">São endereços públicos dos serviços dos publishers, não servidores de partida. O resultado é uma referência de conexão TCP, não ping UDP/ICMP do jogo.</p></div>
       </div>
 
       <div className="p-4 rounded-xl bg-[#0e121e] border border-amber-500/30 text-xs text-amber-200 leading-relaxed flex items-start gap-3">
