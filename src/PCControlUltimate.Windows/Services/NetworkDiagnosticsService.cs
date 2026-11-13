@@ -251,8 +251,7 @@ public class NetworkDiagnosticsService
                         explicitUnreachable++;
                     }
                 }
-                catch (PingException) { }
-                catch (SocketException) { }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
             }
         }
 
