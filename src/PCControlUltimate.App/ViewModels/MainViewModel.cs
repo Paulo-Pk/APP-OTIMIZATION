@@ -2327,7 +2327,7 @@ public class MainViewModel : INotifyPropertyChanged
                             string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
                             string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase) &&
                             sensor.Value.HasValue)
-                        .OrderByDescending(sensor => GetCpuTemperaturePriority(sensor.SensorName))
+                        .OrderByDescending(sensor => GetCpuTemperaturePriority(sensor.Name))
                         .Select(sensor => sensor.Value)
                         .FirstOrDefault();
 
