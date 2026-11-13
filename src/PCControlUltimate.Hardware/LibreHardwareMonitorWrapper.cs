@@ -109,6 +109,11 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             ));
         }
 
+        // Clear transient read errors before each fresh sample so a recovered sensor
+        // does not leave the entire monitor permanently marked as failed.
+        CurrentStatus = SensorReadingStatus.Available;
+        LastCommunicationError = null;
+
         string? cpuModel = null;
         float? cpuTemp = null;
         int cpuTempPriority = 0;
@@ -128,6 +133,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         float? gpuVramTotal = null;
 
         float? ramUsed = null;
+        float? ramAvailable = null;
         float? ramTotal = null;
 
         var sensorList = new List<SensorDataPoint>();
@@ -160,7 +166,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         false,
                         SensorReadingStatus.CommunicationFailure
                     ));
-                    LastCommunicationError = hwEx.Message;
+                    CurrentStatus = SensorReadingStatus.CommunicationFailure;
+                    LastCommunicationError = $"Falha ao atualizar '{hardware.Name}': {hwEx.Message}";
                     continue;
                 }
 
@@ -294,7 +301,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         if (sensor.SensorType == SensorType.Data && sensor.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase))
                             ramUsed ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Data && sensor.Name.Contains("Memory Available", StringComparison.OrdinalIgnoreCase))
-                            ramTotal ??= (ramUsed ?? 0) + (sensor.Value ?? 0);
+                            ramAvailable ??= sensor.Value;
                     }
                     else if (hardware.HardwareType == HardwareType.Storage)
                     {
@@ -373,6 +380,9 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             }
         }
         catch { }
+
+        if (ramUsed.HasValue && ramAvailable.HasValue)
+            ramTotal = ramUsed.Value + ramAvailable.Value;
 
         cpuClock ??= cpuClockFallback;
 
