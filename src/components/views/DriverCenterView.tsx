@@ -17,7 +17,7 @@ export const DriverCenterView: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  const scanDrivers = async () => {
+  const scanDrivers = useCallback(async () => {
     setIsScanning(true);
     setScanError(null);
     try {
@@ -29,9 +29,9 @@ export const DriverCenterView: React.FC = () => {
     } finally {
       setIsScanning(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { void scanDrivers(); }, []);
+  useEffect(() => { void scanDrivers(); }, [scanDrivers]);
 
   return (
     <div className="space-y-5 animate-fade-in">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Trash2,
   CheckCircle2,
@@ -24,7 +24,7 @@ export const DebloatView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
-  const scanNow = async () => {
+  const scanNow = useCallback(async () => {
     setIsScanning(true);
     try {
       const result = await nativeBridge.scanRealDebloatDirectories();
@@ -41,9 +41,9 @@ export const DebloatView: React.FC = () => {
       setScan(null);
       setErrorMessage('Não foi possível verificar as pastas de limpeza.');
     } finally { setIsScanning(false); }
-  };
+  }, []);
 
-  useEffect(() => { void scanNow(); }, []);
+  useEffect(() => { void scanNow(); }, [scanNow]);
 
   const categories = [
     { id: 'cache-dx-shaders', name: t.debloat.dxShaderTitle, description: t.debloat.dxShaderDesc, estimatedBytes: scan?.d3dCacheBytes || 0, isSafe: true },
