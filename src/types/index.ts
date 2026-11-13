@@ -192,7 +192,7 @@ export interface PresentMonSession {
   avgFps: number;
   minFps: number;
   onePercentLow: number;
-  pointOnePercentLow: number;
+  pointOnePercentLow: number | null;
   frametimeAvgMs: number;
   frametimeStDevMs: number;
   cpuLoadAvg: number;
