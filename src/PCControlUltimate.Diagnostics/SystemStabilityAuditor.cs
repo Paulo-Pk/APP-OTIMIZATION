@@ -108,9 +108,11 @@ public class SystemStabilityAuditor
             {
                 entry = sysLog.Entries[i];
             }
-            catch
+            catch (Exception ex)
             {
-                continue;
+                // A skipped unreadable entry could itself be a critical event.
+                // Fail the audit as unavailable instead of claiming the system is stable.
+                throw new InvalidOperationException("Não foi possível ler uma entrada do log System.", ex);
             }
 
             DateTime entryUtc = entry.TimeGenerated.ToUniversalTime();
