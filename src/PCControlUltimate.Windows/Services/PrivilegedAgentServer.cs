@@ -492,6 +492,7 @@ public class PrivilegedAgentServer : IDisposable
                 await SendJsonAsync(res, new
                 {
                     policyNotice = DriverScannerService.ModulePolicyNotice,
+                    scanError = DriverScannerService.LastError,
                     drivers
                 });
                 return;
