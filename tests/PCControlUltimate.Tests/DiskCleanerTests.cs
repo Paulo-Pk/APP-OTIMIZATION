@@ -158,6 +158,39 @@ public class DiskCleanerTests
     }
 
     [Fact]
+    public void PurgeDirectoryForTesting_LockedFileIsPreservedAndReportedAsPartialSuccess()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        string tempDir = Path.Combine(Path.GetTempPath(), $"pccontrol_locked_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string lockedFile = Path.Combine(tempDir, "in-use.tmp");
+        File.WriteAllText(lockedFile, "keep while locked");
+
+        try
+        {
+            using (var fileLock = new FileStream(lockedFile, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                var report = DiskCleanerEngine.PurgeDirectoryForTesting("temp-user", tempDir);
+
+                Assert.True(report.Success);
+                Assert.True(report.PartialSuccess);
+                Assert.Equal("Partial", report.Status);
+                Assert.Equal(0, report.DeletedFilesCount);
+                Assert.Equal(0, report.FreedBytes);
+                Assert.Equal(1, report.SkippedLockedCount);
+                Assert.Empty(report.Errors);
+                Assert.NotEmpty(report.Warnings ?? Array.Empty<string>());
+                Assert.True(File.Exists(lockedFile));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void PurgeDirectoryForTesting_EmptyDirectoryReportsNothingToClean()
     {
         string tempDir = Path.Combine(Path.GetTempPath(), $"pccontrol_empty_{Guid.NewGuid():N}");
