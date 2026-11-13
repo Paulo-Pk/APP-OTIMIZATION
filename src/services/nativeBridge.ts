@@ -151,10 +151,10 @@ class NativeBridgeService {
         // Sensor snapshots contain readings for every installed GPU. When the primary
         // adapter exposes its hardware identifier, scope fallback readings to that
         // adapter so a secondary GPU cannot silently supply its temperature/fan data.
-        const primaryGpuIdentifier = String(read(gpuAdapter, 'pnpDeviceId') || '').replace(/\\\\/g, '/').replace(/\\/$/, '').toLowerCase();
+        const primaryGpuIdentifier = String(read(gpuAdapter, 'pnpDeviceId') || '').replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
         const primaryGpuSensors = primaryGpuIdentifier
           ? gpuSensors.filter((sensor: any) => {
-              const sensorIdentifier = String(sensor.identifier || '').replace(/\\\\/g, '/').toLowerCase();
+              const sensorIdentifier = String(sensor.identifier || '').replace(/\\/g, '/').toLowerCase();
               return sensorIdentifier === primaryGpuIdentifier || sensorIdentifier.startsWith(primaryGpuIdentifier + '/');
             })
           : gpuSensors;
