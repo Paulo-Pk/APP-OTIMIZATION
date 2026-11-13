@@ -209,7 +209,9 @@ export const RestoreCenterView: React.FC<RestoreCenterViewProps> = ({
 
                 <button
                   onClick={() => setConfirmTarget({ mode: 'single', item })}
-                  className="px-3 py-1.5 rounded-lg bg-[#141829] hover:bg-[#1c223a] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 font-sans"
+                  disabled={item.reversible === false}
+                  title={item.reversible === false ? 'Este backup está incompleto e não pode ser restaurado pela interface.' : 'Restaurar item'}
+                  className="px-3 py-1.5 rounded-lg bg-[#141829] hover:bg-[#1c223a] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 font-sans disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[#141829]"
                 >
                   <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
                   <span>{t.restoreCenter.rollbackButton}</span>
