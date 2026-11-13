@@ -55,6 +55,54 @@ public sealed class PresentMonSessionParserTests
         }
     }
 
+
+    [Fact]
+    public void ParseCsvFile_HandlesCommasInsideQuotedApplicationNames()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"pccontrol-presentmon-{Guid.NewGuid():N}.csv");
+        try
+        {
+            File.WriteAllLines(path, new[]
+            {
+                "Application,ProcessID,msBetweenPresents",
+                "\"Game, Inc.\",123,16.0",
+                "\"Another, Studio\",456,20.0"
+            });
+
+            PresentMonSummary summary = PresentMonSessionParser.ParseCsvFile(path);
+
+            Assert.Equal(2, summary.TotalFramesCount);
+            Assert.Equal(55.6, summary.AverageFps, 1);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ParseCsvFile_HandlesEscapedQuotesInsideQuotedFields()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"pccontrol-presentmon-{Guid.NewGuid():N}.csv");
+        try
+        {
+            File.WriteAllLines(path, new[]
+            {
+                "Application,ProcessID,msBetweenPresents",
+                "\"Game \"\"Ultimate\"\", Inc.\",123,10.0"
+            });
+
+            PresentMonSummary summary = PresentMonSessionParser.ParseCsvFile(path);
+
+            Assert.Equal(1, summary.TotalFramesCount);
+            Assert.Equal(100.0, summary.AverageFps, 1);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
+    }
+
     [Theory]
     [InlineData("msCPUBusy")]
     [InlineData("msGPUBusy")]
