@@ -8,6 +8,15 @@ import {
 import { curatedSoftware } from '../../data/softwareHub';
 import { useI18n } from '../../i18n';
 
+const officialBrandIcons: Record<string, string> = {
+  'sw-discord': 'https://cdn.simpleicons.org/discord/5865F2',
+  'sw-steam': 'https://cdn.simpleicons.org/steam/FFFFFF',
+  'sw-epic': 'https://cdn.simpleicons.org/epicgames/FFFFFF',
+  'sw-gog': 'https://cdn.simpleicons.org/gogdotcom/FFFFFF',
+  'sw-xbox': 'https://cdn.simpleicons.org/xbox/107C10',
+  'sw-opera-gx': 'https://cdn.simpleicons.org/operagx/FA1E4E',
+};
+
 export const SoftwareHubView: React.FC = () => {
   const { t } = useI18n();
   const [search, setSearch] = useState('');
@@ -54,7 +63,7 @@ export const SoftwareHubView: React.FC = () => {
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">Catálogo oficial</span>
               </div>
 
-              <div className="flex items-center gap-3"><img src={'https://www.google.com/s2/favicons?domain=' + new URL(app.officialSite).hostname + '&sz=64'} alt="" className="w-9 h-9 rounded-lg bg-white p-1 object-contain" loading="lazy" /><h3 className="font-bold text-sm text-white">{app.name}</h3></div>
+              <div className="flex items-center gap-3"><img src={officialBrandIcons[app.id] || ('https://www.google.com/s2/favicons?domain=' + new URL(app.officialSite).hostname + '&sz=64')} alt={'Ícone do ' + app.name} className="w-9 h-9 rounded-lg bg-[#171C2A] border border-slate-700/70 p-1.5 object-contain" loading="lazy" /><h3 className="font-bold text-sm text-white">{app.name}</h3></div>
               <p className="text-xs text-slate-400 leading-relaxed">
                 {app.description}
               </p>
