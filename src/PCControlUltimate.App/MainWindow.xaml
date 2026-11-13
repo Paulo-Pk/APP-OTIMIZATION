@@ -1523,14 +1523,16 @@
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
-                            <TextBlock Text="INTEGRAÇÃO OFICIAL MICROSOFT WINGET + VALIDAÇÃO WINTRUST" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
-                            <TextBlock Text="Software Hub — Catálogo Verificado de Utilitários" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="Todos os pacotes utilizam exclusivamente o repositório oficial winget com argumentos --exact." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                            <TextBlock Text="APLICATIVOS OFICIAIS PARA SEU COMPUTADOR" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
+                            <TextBlock Text="Instalar programas" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Escolha um aplicativo, confira o publicador e confirme a instalação. Os pacotes vêm das fontes oficiais cadastradas." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel>
+                    <TextBlock Text="{Binding SoftwareInstallStatusText}" FontSize="12" Foreground="#A78BFA" TextWrapping="Wrap" Margin="0,0,0,10"/>
                     <DataGrid ItemsSource="{Binding VerifiedWingetCatalog}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="500">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header="Aplicativo" Width="220">
@@ -1554,6 +1556,7 @@
                             <DataGridTextColumn Header="Comando Auditável" Binding="{Binding CommandLine}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </DataTemplate>
