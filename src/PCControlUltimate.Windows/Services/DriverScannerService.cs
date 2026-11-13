@@ -49,7 +49,7 @@ public static class DriverScannerService
 
             foreach (ManagementObject obj in signedSearcher.Get())
             {
-                                results.Add(CreateEntry(
+                results.Add(CreateEntry(
                     obj["DeviceName"]?.ToString() ?? "Dispositivo sem nome",
                     obj["DeviceClass"]?.ToString() ?? string.Empty,
                     obj["DriverVersion"]?.ToString(),
@@ -86,7 +86,6 @@ public static class DriverScannerService
             foreach (ManagementObject obj in pnpSearcher.Get())
             {
                 string name = obj["Name"]?.ToString() ?? "Dispositivo sem nome";
-                string deviceId = obj["PNPDeviceID"]?.ToString() ?? string.Empty;
                 string deviceClass = obj["PNPClass"]?.ToString() ?? string.Empty;
                 string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante não informado";
 
