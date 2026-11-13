@@ -759,7 +759,7 @@
                     <Grid>
                         <StackPanel>
                             <TextBlock Text="PIPELINE MULTI-FONTE (LIBREHARDWAREMONITOR + WMI + DXGI)" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
-                            <TextBlock Text="Hardware Monitor — Sensores Físicos em Tempo Real" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Monitoramento do PC — Temperaturas e componentes" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="{Binding HardwareSubsystemStatusText}" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                         <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionPrimaryButton}" Command="{Binding RefreshStatusCommand}">
@@ -772,21 +772,21 @@
                 <UniformGrid Columns="4" Margin="0,0,0,18">
                     <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,8,0">
                         <StackPanel>
-                            <TextBlock Text="CPU PACKAGE" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="TEMPERATURA DO PROCESSADOR" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding CpuTemp}" FontSize="20" FontWeight="Bold" Foreground="#FFFFFF" FontFamily="Consolas" Margin="0,4,0,2"/>
-                            <TextBlock Text="{Binding CpuPower, StringFormat=Consumo: {0}}" FontSize="11" Foreground="#64748B" FontFamily="Consolas"/>
+                            <TextBlock Text="{Binding CpuClock, StringFormat=Frequência: {0}}" FontSize="11" Foreground="#64748B" FontFamily="Consolas"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="GPU CORE / HOTSPOT" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="TEMPERATURA DA GPU" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding GpuTemp}" FontSize="20" FontWeight="Bold" Foreground="#06B6D4" FontFamily="Consolas" Margin="0,4,0,2"/>
                             <TextBlock Text="{Binding GpuHotspot, StringFormat=Hotspot: {0}}" FontSize="11" Foreground="#F59E0B" FontFamily="Consolas"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="GPU CLOCK &amp; FAN" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
+                            <TextBlock Text="FREQUÊNCIA E VENTOINHA DA GPU" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"/>
                             <TextBlock Text="{Binding GpuClock}" FontSize="20" FontWeight="Bold" Foreground="#FFFFFF" FontFamily="Consolas" Margin="0,4,0,2"/>
                             <TextBlock Text="{Binding GpuFanRpm, StringFormat=Cooler: {0}}" FontSize="11" Foreground="#64748B" FontFamily="Consolas"/>
                         </StackPanel>
@@ -800,9 +800,23 @@
                     </Border>
                 </UniformGrid>
 
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Unidades e volumes de armazenamento" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                        <DataGrid ItemsSource="{Binding StorageDrives}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="220">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Unidade / modelo" Binding="{Binding Model}" Width="2*"/>
+                                <DataGridTextColumn Header="Capacidade (GB)" Binding="{Binding CapacityGb}" Width="130"/>
+                                <DataGridTextColumn Header="Espaço livre (GB)" Binding="{Binding FreeSpaceGb}" Width="130"/>
+                                <DataGridTextColumn Header="Temperatura" Binding="{Binding TemperatureC, StringFormat={}{0:F1} °C}" Width="120"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Tabela Completa de Sensores Físicos Reportados" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
+                        <TextBlock Text="Leituras dos sensores detectados" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
                         <DataGrid ItemsSource="{Binding AllHardwareSensors}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="440">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Componente" Binding="{Binding HardwareName}" Width="240"/>

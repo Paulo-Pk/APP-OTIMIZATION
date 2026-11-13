@@ -311,6 +311,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<TweakItemViewModel> CatalogTweaks { get; } = new();
     public ObservableCollection<SensorDataPoint> AllHardwareSensors { get; } = new();
     public ObservableCollection<SensorDataPoint> GpuHardwareSensors { get; } = new();
+    public ObservableCollection<StorageTelemetryPoint> StorageDrives { get; } = new();
     public ObservableCollection<SnapshotSummaryItem> ExistingBackups { get; } = new();
     public ObservableCollection<RegistryValueEntry> SelectedBackupEntries { get; } = new();
     public ObservableCollection<RegistryReadFailure> SelectedBackupFailures { get; } = new();
@@ -2125,6 +2126,7 @@ public class MainViewModel : INotifyPropertyChanged
         // Update Hardware Sensors from real LibreHardwareMonitor (Zero Fake Fallbacks)
         AllHardwareSensors.Clear();
         GpuHardwareSensors.Clear();
+        StorageDrives.Clear();
         if (_hardwareMonitor != null)
         {
             var snap = await _hardwareMonitor.CaptureSnapshotAsync();
@@ -2138,6 +2140,9 @@ public class MainViewModel : INotifyPropertyChanged
 
             if (snap.IsHardwareMonitorAvailable)
             {
+                foreach (var drive in snap.StorageDrives ?? Array.Empty<StorageTelemetryPoint>())
+                    StorageDrives.Add(drive);
+
                 foreach (var s in snap.Sensors)
                 {
                     AllHardwareSensors.Add(s);
