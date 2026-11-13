@@ -348,7 +348,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         VramUsedMb: adapterVramUsed,
                         VramTotalMb: adapterVramTotal,
                         DriverVersion: null,
-                        PnpDeviceId: hardware.Identifier.ToString()
+                        PnpDeviceId: hardware.Identifier.ToString(),
+                        SensorIdentifier: hardware.Identifier.ToString()
                     ));
                 }
 
