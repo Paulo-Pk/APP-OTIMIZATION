@@ -751,6 +751,22 @@ public class WingetSoftwareCenterService
             );
         }
 
+        // The source is part of the reviewed package metadata (for example, Xbox uses msstore).
+        source = catalogPkg.OfficialSource;
+        if (!IsTrustedSourceOrigin(source))
+        {
+            return new WingetOperationProgress(
+                catalogPkg.PackageId,
+                "Install",
+                "UntrustedSourceRejected",
+                -1,
+                false,
+                $"Origem '{source}' rejeitada. Apenas repositórios oficiais ('winget', 'msstore') são permitidos.",
+                DateTime.UtcNow,
+                SignatureVerificationState.UnsignedOrInvalid
+            );
+        }
+
         if (catalogPkg.RequiresAdminUac && !CheckIsAdministrator())
         {
             return new WingetOperationProgress(
