@@ -95,6 +95,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     ? (telemetry.gpu.hotspot - telemetry.gpu.temperature).toFixed(1)
     : null;
 
+  // Physical storage sensor entries may not include volume capacity/free space.
+  // Prefer a mounted volume for capacity metrics and keep physical temperature
+  // as a separate fallback when the volume itself has no temperature sensor.
+  const primaryDisk = telemetry.disks.find((disk) => disk.capacityGB > 0) ?? telemetry.disks[0];
+  const diskTemperature = telemetry.disks.find((disk) => disk.temperature > 0)?.temperature
+    ?? (primaryDisk?.temperature || 0);
+  const diskUsagePercent = primaryDisk && primaryDisk.capacityGB > 0
+    ? Math.min(100, Math.max(0, ((primaryDisk.capacityGB - primaryDisk.freeSpaceGB) / primaryDisk.capacityGB) * 100))
+    : 0;
+
   return (
     <div className="space-y-5 animate-fade-in">
       {/* Top Welcome / Overview Bar */}
@@ -355,41 +365,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <span className="text-xs font-mono font-bold text-emerald-300">
-              {telemetry.disks[0]?.smartStatus || t.common.sensorNotAvailable}
+              {primaryDisk?.smartStatus && primaryDisk.smartStatus !== 'N/D' ? primaryDisk.smartStatus : t.common.sensorNotAvailable}
             </span>
           </div>
 
-          <div className="text-sm font-bold text-white truncate" title={telemetry.disks[0]?.model}>
-            {telemetry.disks[0]?.model || t.common.sensorNotAvailable}
+          <div className="text-sm font-bold text-white truncate" title={primaryDisk?.model}>
+            {primaryDisk?.model || t.common.sensorNotAvailable}
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.freeSpace}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.disks[0] ? `${telemetry.disks[0].freeSpaceGB} GB` : t.common.sensorNotAvailable}
+                {primaryDisk && primaryDisk.capacityGB > 0 ? `${primaryDisk.freeSpaceGB.toFixed(1)} GB` : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.disks[0]?.temperature
-                  ? `${telemetry.disks[0].temperature}°C`
-                  : t.common.sensorNotAvailable}
+                {diskTemperature > 0 ? `${diskTemperature}°C` : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.nandHealth}</span>
               <span className="font-mono text-emerald-400">
-                {telemetry.disks[0]
-                  ? `${telemetry.disks[0].healthPercent}%`
+                {primaryDisk && primaryDisk.smartStatus !== 'N/D' && primaryDisk.healthPercent > 0
+                  ? `${primaryDisk.healthPercent}%`
                   : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.interface}</span>
               <span className="font-mono text-slate-200">
-                {telemetry.disks[0]?.interface || t.common.sensorNotAvailable}
+                {primaryDisk?.interface || t.common.sensorNotAvailable}
               </span>
             </div>
           </div>
@@ -397,15 +405,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
             <div
               className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full transition-all duration-500"
-              style={{
-                width: `${
-                  telemetry.disks[0] && telemetry.disks[0].capacityGB > 0
-                    ? ((telemetry.disks[0].capacityGB - telemetry.disks[0].freeSpaceGB) /
-                        telemetry.disks[0].capacityGB) *
-                      100
-                    : 0
-                }%`,
-              }}
+              style={{ width: `${diskUsagePercent}%` }}
             />
           </div>
         </div>
