@@ -1111,10 +1111,10 @@
                                 <Border Background="#0A0C13" BorderBrush="#273047" BorderThickness="1" CornerRadius="6" Padding="10" Margin="6">
                                     <StackPanel>
                                         <TextBlock Text="Detalhes técnicos (somente consulta)" Foreground="#C4B5FD" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
-                                        <TextBlock Text="{Binding RegistryPath, StringFormat=Caminho: {0}}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap"/>
-                                        <TextBlock Text="{Binding ValueName, StringFormat=Nome do valor: {0}}" Foreground="#94A3B8" FontSize="10"/>
-                                        <TextBlock Text="{Binding RecommendedValue, StringFormat=Valor sugerido: {0}}" Foreground="#94A3B8" FontSize="10"/>
-                                        <TextBlock Text="{Binding RegistryTypeText, StringFormat=Tipo do valor: {0}}" Foreground="#94A3B8" FontSize="10"/>
+                                        <TextBlock Text="{Binding RegistryPath}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding ValueName}" Foreground="#94A3B8" FontSize="10"/>
+                                        <TextBlock Text="{Binding RecommendedValue}" Foreground="#94A3B8" FontSize="10"/>
+                                        <TextBlock Text="{Binding RegistryTypeText}" Foreground="#94A3B8" FontSize="10"/>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
