@@ -68,7 +68,7 @@ export const DriverCenterView: React.FC = () => {
         <div className="divide-y divide-slate-800/80">
           {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum driver retornado pelo Windows. Clique em “Escanear drivers instalados” para tentar novamente.</div> : null}
           {drivers.map((driver, idx) => {
-            const hasVerifiedSignature = driver.status.toLowerCase().includes('assinado digitalmente');
+            const hasVerifiedSignature = (driver.status || '').toLowerCase().includes('assinado digitalmente');
 
             return (
               <div
