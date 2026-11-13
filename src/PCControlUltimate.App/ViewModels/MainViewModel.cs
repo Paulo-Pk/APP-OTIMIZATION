@@ -25,6 +25,8 @@ using PCControlUltimate.Windows.Services;
 
 namespace PCControlUltimate.App.ViewModels;
 
+public record GameTargetPreset(string DisplayName, string GameName, string Host, int Port);
+
 public record ModuleCapabilityMatrixItem(
     int Index,
     string ModuleName,
@@ -284,9 +286,10 @@ public class MainViewModel : INotifyPropertyChanged
     private string _externalThroughputText = "Clique para medir throughput real contra Cloudflare CDN.";
 
     // Game Network Accelerator properties
-    private string _acceleratorGameName = "Counter-Strike 2 (Valve)";
-    private string _acceleratorTargetHost = "155.133.248.34";
-    private int _acceleratorTargetPort = 27015;
+    private string _acceleratorGameName = "Counter-Strike 2";
+    private string _acceleratorTargetHost = "steampowered.com";
+    private int _acceleratorTargetPort = 443;
+    private GameTargetPreset? _selectedGameTarget = new("Counter-Strike 2 — Steam", "Counter-Strike 2", "steampowered.com", 443);
     private string _routeVerdictText = "Execute a avaliação multi-amostra para comparar a Rota Direta com nós intermediários.";
     private string _wfpSelectiveRoutingNoticeText = GameNetworkAcceleratorService.GetSelectiveRoutingCapabilityReport().WfpLimitationExplanationPt;
     private string _wireGuardStatusText = "Verifique a instalação do WireGuard for Windows e audite a configuração AllowedIPs.";
@@ -318,6 +321,17 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<string> NetworkHistory { get; } = new();
     public ObservableCollection<DetectedGameConnection> DetectedGameSockets { get; } = new();
     public ObservableCollection<InstalledGameEntry> InstalledGames { get; } = new();
+    public ObservableCollection<GameTargetPreset> GameTargetPresets { get; } = new()
+    {
+        new("Counter-Strike 2 — Steam", "Counter-Strike 2", "steampowered.com", 443),
+        new("VALORANT — Riot Games", "VALORANT", "riotgames.com", 443),
+        new("Fortnite — Epic Games", "Fortnite", "epicgames.com", 443),
+        new("Apex Legends — EA", "Apex Legends", "ea.com", 443),
+        new("League of Legends — Riot Games", "League of Legends", "leagueoflegends.com", 443),
+        new("Rainbow Six Siege — Ubisoft", "Rainbow Six Siege", "ubisoft.com", 443),
+        new("Rocket League — Epic Games", "Rocket League", "rocketleague.com", 443),
+        new("Minecraft — Mojang/Microsoft", "Minecraft", "minecraft.net", 443)
+    };
     public ObservableCollection<TracerouteHopResult> TracerouteHops { get; } = new();
     public ObservableCollection<RelayNodeCandidate> RelayNodes { get; } = new();
     public ObservableCollection<ModuleCapabilityMatrixItem> ModuleCapabilityMatrix { get; } = new();
@@ -658,6 +672,22 @@ public class MainViewModel : INotifyPropertyChanged
     {
         get => _securityPostureText;
         set { _securityPostureText = value; OnPropertyChanged(); }
+    }
+
+    public GameTargetPreset? SelectedGameTarget
+    {
+        get => _selectedGameTarget;
+        set
+        {
+            _selectedGameTarget = value;
+            if (value is not null)
+            {
+                AcceleratorGameName = value.GameName;
+                AcceleratorTargetHost = value.Host;
+                AcceleratorTargetPort = value.Port;
+            }
+            OnPropertyChanged();
+        }
     }
 
     public string AcceleratorGameName

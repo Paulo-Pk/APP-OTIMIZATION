@@ -1260,17 +1260,18 @@
                     <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}">
                         <StackPanel>
                             <TextBlock Text="Configuração do Alvo de Jogo" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
-                            <UniformGrid Columns="3" Margin="0,0,0,12">
+                            <StackPanel Margin="0,0,0,12">
+                                <TextBlock Text="Escolha o jogo" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                                <ComboBox ItemsSource="{Binding GameTargetPresets}" SelectedItem="{Binding SelectedGameTarget, UpdateSourceTrigger=PropertyChanged}" DisplayMemberPath="DisplayName" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#7C3AED" Padding="8,6"/>
+                                <TextBlock Text="Destino público de referência do serviço do jogo — não é necessariamente o servidor da sua partida." FontSize="10.5" Foreground="#A78BFA" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <UniformGrid Columns="2" Margin="0,0,0,12">
                                 <StackPanel Margin="0,0,6,0">
-                                    <TextBlock Text="Processo" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding AcceleratorGameName, UpdateSourceTrigger=PropertyChanged}" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#262F45" Padding="8,6"/>
-                                </StackPanel>
-                                <StackPanel Margin="3,0,3,0">
-                                    <TextBlock Text="Host / IP do Servidor" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Host de referência (editável)" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
                                     <TextBox Text="{Binding AcceleratorTargetHost, UpdateSourceTrigger=PropertyChanged}" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#262F45" Padding="8,6"/>
                                 </StackPanel>
                                 <StackPanel Margin="6,0,0,0">
-                                    <TextBlock Text="Porta TCP/UDP" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Porta do teste" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
                                     <TextBox Text="{Binding AcceleratorTargetPort, UpdateSourceTrigger=PropertyChanged}" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#262F45" Padding="8,6"/>
                                 </StackPanel>
                             </UniformGrid>
