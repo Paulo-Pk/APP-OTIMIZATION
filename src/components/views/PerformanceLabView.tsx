@@ -22,7 +22,7 @@ export const PerformanceLabView: React.FC = () => {
     setIsLoadingProcesses(true);
     try {
       const processes = await nativeBridge.listRunningProcesses();
-      const visibleProcesses = (processes || []).filter((p) => p.processName && p.processId > 4 && p.mainWindowTitle.trim().length > 0);
+      const visibleProcesses = (processes || []).filter((p) => p.processName && p.processId > 4 && (p.mainWindowTitle || '').trim().length > 0).sort((a, b) => a.mainWindowTitle.localeCompare(b.mainWindowTitle, 'pt-BR'));
       setRunningProcesses(visibleProcesses);
       setSelectedProcess((current) => visibleProcesses.some((p) => p.processName === current) ? current : (visibleProcesses[0]?.processName || ''));
     } finally {
@@ -98,9 +98,9 @@ export const PerformanceLabView: React.FC = () => {
             disabled={isLoadingProcesses || runningProcesses.length === 0}
             className="min-w-[250px] px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs text-white disabled:opacity-60"
           >
-            <option value="">{isLoadingProcesses ? 'Procurando jogos em execução...' : 'Selecione um jogo em execução'}</option>
+            <option value="" style={{ backgroundColor: '#0a0c13', color: '#f8fafc' }}>{isLoadingProcesses ? 'Procurando jogos em execução...' : 'Selecione um jogo em execução'}</option>
             {runningProcesses.map((process) => (
-              <option key={process.processId} value={process.processName}>
+              <option key={process.processId} value={process.processName} style={{ backgroundColor: '#0a0c13', color: '#f8fafc' }}>
                 {process.mainWindowTitle ? `${process.mainWindowTitle} — ${process.processName}.exe` : `${process.processName}.exe`}
               </option>
             ))}
@@ -113,9 +113,9 @@ export const PerformanceLabView: React.FC = () => {
             onChange={(e) => setDurationSec(Number(e.target.value))}
             className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white"
           >
-            <option value={10}>10s</option>
-            <option value={30}>30s</option>
-            <option value={60}>60s</option>
+            <option value={10} style={{ backgroundColor: "#0a0c13", color: "#f8fafc" }}>10 segundos</option>
+            <option value={30} style={{ backgroundColor: "#0a0c13", color: "#f8fafc" }}>30 segundos</option>
+            <option value={60} style={{ backgroundColor: "#0a0c13", color: "#f8fafc" }}>60 segundos</option>
           </select>
           <button
             onClick={handleStartCapture}
