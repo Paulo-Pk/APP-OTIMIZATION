@@ -410,7 +410,7 @@ public static class GameNetworkAcceleratorService
         if (string.IsNullOrWhiteSpace(title)) return true;
         return Regex.IsMatch(
             title,
-            @"\b(DLCs?|Expansions?(?:\s+Pack)?|Season\s+Pass|Add[- ]?ons?|Soundtracks?|Original\s+Soundtrack|Dedicated\s+Server|Test\s+Server|Public\s+Test|SDK|Editor|Mod\s+Tools)\b",
+            @"\b(DLCs?|Expansions?(?:\s+Pack)?|Season\s+Pass|Add[- ]?ons?|Soundtracks?|Original\s+Soundtrack|Dedicated\s+Server|Server\s+Tools|Workshop\s+Tools|Test\s+Server|Public\s+Test|Test\s+Application|SDK|Editor|Mod\s+Tools|Redistributables?|Runtimes?)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
