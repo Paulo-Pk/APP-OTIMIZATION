@@ -54,7 +54,10 @@ public static class DiskCleanerEngine
         "temp-windows",
         "temp-user",
         "update-cache",
-        "temp-prefetch"
+        "temp-prefetch",
+        "cache-delivery-optimization",
+        "wer-report-queue",
+        "wer-report-archive"
     };
 
     public static IReadOnlyList<CleanerCategoryMetadata> GetAuthorizedCategories()
@@ -70,7 +73,13 @@ public static class DiskCleanerEngine
             new("update-cache", "Downloads antigos do Windows Update", "Windows Update download cache",
                 GetCategoryPath("update-cache") ?? "", true, true),
             new("temp-prefetch", "Cache de inicialização do Windows (Prefetch)", "Windows Prefetch cache",
-                GetCategoryPath("temp-prefetch") ?? "", true, true)
+                GetCategoryPath("temp-prefetch") ?? "", true, true),
+            new("cache-delivery-optimization", "Cache de otimização de entrega", "Delivery Optimization cache",
+                GetCategoryPath("cache-delivery-optimization") ?? "", true, true),
+            new("wer-report-queue", "Relatórios de erro pendentes do Windows", "Windows Error Reporting queue",
+                GetCategoryPath("wer-report-queue") ?? "", true, true),
+            new("wer-report-archive", "Relatórios antigos de erro do Windows", "Windows Error Reporting archive",
+                GetCategoryPath("wer-report-archive") ?? "", true, true)
         };
     }
 
@@ -86,6 +95,9 @@ public static class DiskCleanerEngine
             "temp-user" => Path.GetTempPath(),
             "update-cache" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SoftwareDistribution", "Download"),
             "temp-prefetch" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch"),
+            "cache-delivery-optimization" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "ServiceProfiles", "NetworkService", "AppData", "Local", "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
+            "wer-report-queue" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "WER", "ReportQueue"),
+            "wer-report-archive" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "WER", "ReportArchive"),
             _ => null
         };
     }
