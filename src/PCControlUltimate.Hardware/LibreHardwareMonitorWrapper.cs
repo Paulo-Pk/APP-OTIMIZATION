@@ -14,7 +14,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     private readonly Computer _computer;
     private Timer? _pollingTimer;
     private readonly SemaphoreSlim _captureLock = new(1, 1);
-    private bool _disposed;
+    private readonly object _pollingLock = new();
+    private volatile bool _disposed;
 
     public bool IsAvailable { get; private set; }
     public SensorReadingStatus CurrentStatus { get; private set; } = SensorReadingStatus.ReadingUnavailable;
@@ -405,35 +406,45 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
     public void StartPolling(TimeSpan interval)
     {
-        if (_disposed) return;
         if (interval <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(interval), "O intervalo de telemetria deve ser maior que zero.");
 
-        _pollingTimer?.Dispose();
-        _pollingTimer = new Timer(async _ =>
+        lock (_pollingLock)
         {
             if (_disposed) return;
-            try
+
+            _pollingTimer?.Dispose();
+            _pollingTimer = new Timer(async _ =>
             {
-                var snap = await CaptureSnapshotAsync().ConfigureAwait(false);
-                if (!_disposed)
-                    TelemetryUpdated?.Invoke(this, snap);
-            }
-            catch (ObjectDisposedException)
-            {
-                // Shutdown may race with a scheduled timer callback.
-            }
-            catch (Exception ex)
-            {
-                LastCommunicationError = $"Falha inesperada no ciclo de telemetria: {ex.Message}";
-                CurrentStatus = SensorReadingStatus.CommunicationFailure;
-            }
-        }, null, TimeSpan.Zero, interval);
+                if (_disposed) return;
+                try
+                {
+                    var snap = await CaptureSnapshotAsync().ConfigureAwait(false);
+                    if (!_disposed)
+                        TelemetryUpdated?.Invoke(this, snap);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Shutdown may race with a scheduled timer callback.
+                }
+                catch (Exception ex)
+                {
+                    if (!_disposed)
+                    {
+                        LastCommunicationError = $"Falha inesperada no ciclo de telemetria: {ex.Message}";
+                        CurrentStatus = SensorReadingStatus.CommunicationFailure;
+                    }
+                }
+            }, null, TimeSpan.Zero, interval);
+        }
     }
 
     public void StopPolling()
     {
-        _pollingTimer?.Change(Timeout.Infinite, 0);
+        lock (_pollingLock)
+        {
+            _pollingTimer?.Change(Timeout.Infinite, 0);
+        }
     }
 
     public static bool IsIntegratedGpuName(string? name)
@@ -531,11 +542,14 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _pollingTimer?.Change(Timeout.Infinite, 0);
-        _pollingTimer?.Dispose();
-        _pollingTimer = null;
+        lock (_pollingLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _pollingTimer?.Change(Timeout.Infinite, 0);
+            _pollingTimer?.Dispose();
+            _pollingTimer = null;
+        }
 
         // Wait for an in-flight hardware read before closing LibreHardwareMonitor.
         _captureLock.Wait();
