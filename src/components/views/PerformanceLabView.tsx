@@ -33,6 +33,13 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
   }, []);
 
   useEffect(() => {
+    // The view may mount after the app has already authenticated the agent.
+    // Load the process list immediately in that case; subscriptions only report
+    // future status changes and would otherwise leave this screen initially empty.
+    if (nativeBridge.getStatus().isConnected) {
+      void refreshRunningProcesses();
+    }
+
     const unsubscribe = nativeBridge.subscribe((status) => {
       if (status.isConnected) void refreshRunningProcesses();
       else { setRunningProcesses([]); setSelectedProcess(''); }
