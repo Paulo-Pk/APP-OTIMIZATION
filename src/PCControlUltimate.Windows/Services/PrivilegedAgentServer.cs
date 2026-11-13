@@ -28,6 +28,9 @@ public class PrivilegedAgentServer : IDisposable
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
+    // Bound concurrent handlers so loopback clients cannot create an unbounded
+    // number of fire-and-forget request tasks.
+    private readonly SemaphoreSlim _requestSlots = new(32, 32);
     private readonly ConcurrentQueue<DateTime> _requestTimestamps = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedNonces = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _recentAuditEvents = new();
@@ -113,7 +116,31 @@ public class PrivilegedAgentServer : IDisposable
             try
             {
                 var context = await _listener.GetContextAsync();
-                _ = Task.Run(() => HandleRequestWithTimeoutAsync(context, token), token);
+
+                try
+                {
+                    // Stop accepting additional requests while all handler slots
+                    // are occupied. This keeps queued work bounded by HttpListener
+                    // instead of allocating an unbounded number of managed tasks.
+                    await _requestSlots.WaitAsync(token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    try { context.Response.Abort(); } catch { }
+                    break;
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await HandleRequestWithTimeoutAsync(context, token).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _requestSlots.Release();
+                    }
+                }, CancellationToken.None);
             }
             catch (Exception)
             {
