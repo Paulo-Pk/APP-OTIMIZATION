@@ -409,6 +409,35 @@ class NativeBridgeService {
     return null;
   }
 
+  public async installVerifiedSoftware(
+    packageId: string,
+    userConfirmed: boolean
+  ): Promise<{ success: boolean; status?: string; message?: string; error?: string; exitCode?: number } | null> {
+    if (!this.agentStatus.isConnected) return null;
+    if (!packageId.trim() || !userConfirmed) {
+      return { success: false, error: 'EXPLICIT_INSTALL_CONFIRMATION_REQUIRED' };
+    }
+
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/software/install`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ packageId: packageId.trim(), userConfirmed: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && !!data.success,
+        status: data.status ?? data.Status,
+        message: data.message ?? data.Message,
+        error: data.error ?? data.Error,
+        exitCode: data.exitCode ?? data.ExitCode,
+      };
+    } catch (err) {
+      console.warn('Verified Winget installation failed:', err);
+      return { success: false, error: 'AGENT_COMMUNICATION_FAILED' };
+    }
+  }
+
   public async scanRealDebloatDirectories(): Promise<{
     d3dCacheBytes: number;
     tempWindowsBytes: number;
