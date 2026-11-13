@@ -30,6 +30,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
   const [records, setRecords] = useState<BenchmarkRecord[]>([]);
 
   const [activeTest, setActiveTest] = useState<string | null>(null);
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
   const [progressState, setProgressState] = useState<BenchmarkProgress>({
     status: 'idle',
     progress: 0,
@@ -60,21 +61,26 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
   const handleRunGpu = async () => {
     setActiveTest('GPU');
+    setBenchmarkError(null);
     try {
       const result = await runGpuBenchmark(setProgressState);
       const newRecord: BenchmarkRecord = {
         id: `bm-${Date.now()}`,
         type: 'GPU',
         score: result.score,
-        metric: 'WebGL2 Shader GFLOPS',
+        metric: 'FPS de renderização',
         date: t.benchmarks.justNow,
         hardware: telemetry.gpu.name || t.common.sensorNotAvailable,
         durationMs: Math.round(result.durationMs),
         cpuTempPeak: telemetry.cpu.temperature > 0 ? Math.round(telemetry.cpu.temperature) : 0,
         gpuTempPeak: telemetry.gpu.temperature > 0 ? Math.round(telemetry.gpu.temperature) : 0,
-        notes: `${result.details} (Teste Sintético WebGL2)`,
+        notes: result.details,
       };
       setRecords((prev) => [newRecord, ...prev]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível executar o teste gráfico.';
+      setBenchmarkError(message);
+      setProgressState({ status: 'idle', progress: 0, currentTest: 'Teste de GPU não concluído' });
     } finally {
       setActiveTest(null);
     }
@@ -138,10 +144,10 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
         <div className="space-y-0.5">
           <div className="font-bold text-cyan-300">
-            Ambiente de Execução: Teste Sintético em Navegador (V8 Engine / WebGL2 Compute)
+            Como os testes funcionam
           </div>
           <p className="text-slate-400 leading-relaxed text-[11px]">
-            Estes testes executam no motor JavaScript (V8) e WebGL2 do navegador web para avaliar capacidade computacional sintética. Eles são estritamente separados de benchmarks nativos de hardware Windows.
+            O teste de GPU renderiza uma cena gráfica usando a aceleração disponível no navegador e mede os quadros por segundo. O resultado é uma comparação sintética, não substitui um benchmark profissional de jogos ou 3D.
           </p>
         </div>
       </div>
@@ -161,6 +167,13 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
               style={{ width: `${progressState.progress}%` }}
             />
           </div>
+        </div>
+      )}
+
+      {benchmarkError && (
+        <div role="alert" className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/40 text-sm text-rose-200">
+          <div className="font-bold mb-1">O teste da GPU não foi concluído</div>
+          <p className="text-xs text-rose-100/90">{benchmarkError}</p>
         </div>
       )}
 
@@ -192,11 +205,11 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Flame className="w-5 h-5 text-rose-400" />
-              <span className="text-[10px] font-mono text-slate-500">WebGL2 Raymarching</span>
+              <span className="text-[10px] font-mono text-slate-400">Teste gráfico acelerado</span>
             </div>
             <h3 className="font-bold text-sm text-white">{t.benchmarks.gpuTestTitle}</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              {t.benchmarks.gpuTestDesc}
+              Executa uma carga gráfica na placa de vídeo e mede quantos quadros ela consegue renderizar por segundo. Requer aceleração de hardware no navegador.
             </p>
           </div>
           <button
