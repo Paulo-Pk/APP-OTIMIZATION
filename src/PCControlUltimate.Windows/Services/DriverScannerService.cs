@@ -74,6 +74,41 @@ public static class DriverScannerService
                 ));
             }
 
+            // If Windows exposes no signed-driver package rows, fall back to the
+            // Plug and Play device inventory. This is device discovery only: it must
+            // never imply that a driver version or digital signature was verified.
+            if (results.Count == 0)
+            {
+                try
+                {
+                    using var deviceSearcher = new ManagementObjectSearcher(
+                        "SELECT Name, Manufacturer, PNPClass FROM Win32_PnPEntity WHERE Name IS NOT NULL"
+                    );
+
+                    foreach (ManagementObject device in deviceSearcher.Get())
+                    {
+                        string name = device["Name"]?.ToString() ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(name)) continue;
+
+                        string manufacturer = device["Manufacturer"]?.ToString() ?? "Fabricante não informado";
+                        string deviceClass = device["PNPClass"]?.ToString() ?? string.Empty;
+                        results.Add(new InstalledDriverEntry(
+                            Device: name,
+                            Category: MapCategory(deviceClass),
+                            InstalledVersion: "Versão não informada pelo Windows",
+                            ReleaseDate: "Data não informada",
+                            Vendor: manufacturer,
+                            Status: "Dispositivo encontrado — pacote/assinatura não verificados",
+                            OfficialUrl: ResolveVendorSupportUrl(name, manufacturer)
+                        ));
+                    }
+                }
+                catch (Exception fallbackException)
+                {
+                    LastScanError = $"A consulta de pacotes de driver e o inventário Plug and Play falharam: {fallbackException.Message}";
+                }
+            }
+
             return results
                 .GroupBy(d => $"{d.Device}|{d.InstalledVersion}", StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
