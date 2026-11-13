@@ -1587,7 +1587,7 @@ public class MainViewModel : INotifyPropertyChanged
                     double? avgCpuLoad = AverageSensorValue(telemetrySamples.Select(sample => sample.CpuTotalLoad));
                     double? avgGpuLoad = AverageSensorValue(telemetrySamples.Select(sample => sample.GpuLoadPercent));
                     double? avgCpuTemp = AverageSensorValue(telemetrySamples.Select(sample => sample.CpuPackageTemp));
-                    double? avgGpuTemp = AverageSensorValue(telemetrySamples.Select(sample => sample.GpuTemp));
+                    double? avgGpuTemp = AverageSensorValue(telemetrySamples.Select(sample => sample.GpuCoreTemp));
 
                     PresentMonStatusText = $"Captura concluída! CSV salvo em: {response.CsvFilePath}";
                     PresentMonMetricsSummary =
