@@ -148,17 +148,26 @@ public class SystemDoctorService
         }
 
         var gpuAudit = _gpuThermalAuditor.EvaluateGpuThermals(snapshot);
-        if (!gpuAudit.IsHealthy)
+        bool gpuDetected = !string.IsNullOrWhiteSpace(snapshot.GpuModelName) ||
+                           (snapshot.GpuAdapters?.Count ?? 0) > 0;
+        if (gpuDetected && (!gpuAudit.IsHealthy || gpuAudit.IsEvaluationLimited))
         {
+            bool sensorUnavailable = gpuAudit.IsHealthy && gpuAudit.IsEvaluationLimited;
             findings.Add(new SystemDoctorFinding(
                 Category: "Temperaturas GPU",
-                Title: "A placa de vídeo está aquecendo mais do que o esperado",
-                Severity: gpuAudit.Severity == "Critical" ? DiagnosticSeverityLevel.Critico : DiagnosticSeverityLevel.Moderado,
-                Evidence: snapshot.GpuCoreTemp.HasValue && snapshot.GpuHotspotTemp.HasValue
-                    ? $"Temperatura da GPU: {snapshot.GpuCoreTemp.Value:F1}°C; Hotspot: {snapshot.GpuHotspotTemp.Value:F1}°C."
-                    : "Não foi possível obter todas as temperaturas da placa de vídeo.",
-                ProbableCause: "A diferença entre as temperaturas da placa ou a ventilação pode estar fora do esperado.",
-                RecommendedAction: "Confira a temperatura, as ventoinhas e a ventilação da placa de vídeo.",
+                Title: sensorUnavailable
+                    ? "Não foi possível concluir a avaliação térmica da placa de vídeo"
+                    : "A placa de vídeo está aquecendo mais do que o esperado",
+                Severity: sensorUnavailable
+                    ? DiagnosticSeverityLevel.Informativo
+                    : gpuAudit.Severity == "Critical" ? DiagnosticSeverityLevel.Critico : DiagnosticSeverityLevel.Moderado,
+                Evidence: gpuAudit.Recommendation,
+                ProbableCause: sensorUnavailable
+                    ? "O hardware ou driver não disponibilizou os sensores necessários para uma avaliação térmica completa."
+                    : "A diferença entre as temperaturas da placa ou a ventilação pode estar fora do esperado.",
+                RecommendedAction: sensorUnavailable
+                    ? "Confira se o driver da placa de vídeo está instalado corretamente. A ausência do sensor não significa, por si só, superaquecimento."
+                    : "Confira a temperatura, as ventoinhas e a ventilação da placa de vídeo.",
                 RequiresAdminForRepair: false
             ));
         }
@@ -357,19 +366,3 @@ public class SystemDoctorService
             DateTime.UtcNow
         );
     }
-
-    private static bool CheckIsAdministrator()
-    {
-        if (!OperatingSystem.IsWindows()) return false;
-        try
-        {
-            using var identity = WindowsIdentity.GetCurrent();
-            var principal = new WindowsPrincipal(identity);
-            return principal.IsInRole(WindowsBuiltInRole.Administrator);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-}
