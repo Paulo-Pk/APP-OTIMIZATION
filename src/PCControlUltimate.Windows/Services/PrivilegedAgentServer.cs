@@ -136,6 +136,13 @@ public class PrivilegedAgentServer : IDisposable
                     {
                         await HandleRequestWithTimeoutAsync(context, token).ConfigureAwait(false);
                     }
+                    catch (Exception ex)
+                    {
+                        // Observe unexpected handler failures and release the
+                        // connection without leaking an unobserved task exception.
+                        WriteAuditLog("REQUEST_HANDLER_FAILURE", ex.GetType().Name);
+                        try { context.Response.Abort(); } catch { }
+                    }
                     finally
                     {
                         _requestSlots.Release();
