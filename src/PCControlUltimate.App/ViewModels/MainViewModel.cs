@@ -2125,6 +2125,8 @@ public class MainViewModel : INotifyPropertyChanged
             "Valve.Steam" => "store.steampowered.com",
             "EpicGames.EpicGamesLauncher" => "epicgames.com",
             "GOG.Galaxy" => "gog.com",
+            "ElectronicArts.EADesktop" => "ea.com",
+            "Ubisoft.Connect" => "ubisoft.com",
             "Opera.OperaGX" => "opera.com",
             "9MV0B5HZVK9Z" => "xbox.com",
             "Mozilla.Firefox" => "mozilla.org",
@@ -2140,9 +2142,9 @@ public class MainViewModel : INotifyPropertyChanged
             "Playnite.Playnite" => "playnite.link",
             "Microsoft.PowerToys" => "learn.microsoft.com",
             "WireGuard.WireGuard" => "wireguard.com",
-            _ => "microsoft.com"
+            _ => string.Empty
         };
-        return $"https://www.google.com/s2/favicons?domain={domain}&sz=64";
+        return string.IsNullOrWhiteSpace(domain) ? string.Empty : $"https://www.google.com/s2/favicons?domain={domain}&sz=64";
     }
 
     private void InitializeVerifiedSoftwareCatalog()
