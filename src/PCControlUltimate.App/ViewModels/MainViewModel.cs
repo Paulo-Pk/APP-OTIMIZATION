@@ -384,7 +384,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _primaryDiskTotalSpaceText = "N/D";
     private double _primaryDiskUsagePercent;
 
-    private readonly List<(double CpuLoad, double GpuLoad, double CpuTemp)> _telemetryHistory = new();
+    private readonly List<(double CpuLoad, double GpuLoad, double? CpuTemp)> _telemetryHistory = new();
     private PointCollection _cpuLoadChartPoints = new();
     private PointCollection _gpuLoadChartPoints = new();
     private PointCollection _cpuTempChartPoints = new();
@@ -2535,7 +2535,7 @@ public class MainViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(RamUsageWithPercent));
 
                 UpdatePrimaryDiskAndProfileTelemetry(snap.GpuModelName, snap.RamTotalGb);
-                AppendTelemetryChartSample(snap.CpuTotalLoad ?? 0, snap.GpuLoadPercent ?? 0, snap.CpuPackageTemp ?? 0);
+                AppendTelemetryChartSample(snap.CpuTotalLoad ?? 0, snap.GpuLoadPercent ?? 0, snap.CpuPackageTemp);
 
                 RefreshAssistantInsights();
                 return;
@@ -2620,9 +2620,12 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void AppendTelemetryChartSample(double cpuLoad, double gpuLoad, double cpuTemp)
+    private void AppendTelemetryChartSample(double cpuLoad, double gpuLoad, double? cpuTemp)
     {
-        _telemetryHistory.Add((Math.Clamp(cpuLoad, 0, 100), Math.Clamp(gpuLoad, 0, 100), Math.Clamp(cpuTemp, 0, 110)));
+        double? validCpuTemp = cpuTemp.HasValue && double.IsFinite(cpuTemp.Value)
+            ? Math.Clamp(cpuTemp.Value, 0, 110)
+            : null;
+        _telemetryHistory.Add((Math.Clamp(cpuLoad, 0, 100), Math.Clamp(gpuLoad, 0, 100), validCpuTemp));
         if (_telemetryHistory.Count > 30)
         {
             _telemetryHistory.RemoveAt(0);
@@ -2640,11 +2643,16 @@ public class MainViewModel : INotifyPropertyChanged
             double x = count == 1 ? chartWidth : (i * (chartWidth / Math.Max(1, count - 1)));
             double cpuY = chartHeight - (_telemetryHistory[i].CpuLoad / 100.0 * (chartHeight - 16.0)) - 8.0;
             double gpuY = chartHeight - (_telemetryHistory[i].GpuLoad / 100.0 * (chartHeight - 16.0)) - 8.0;
-            double tempY = chartHeight - (_telemetryHistory[i].CpuTemp / 110.0 * (chartHeight - 16.0)) - 8.0;
-
             cpuPts.Add(new Point(Math.Round(x, 1), Math.Round(cpuY, 1)));
             gpuPts.Add(new Point(Math.Round(x, 1), Math.Round(gpuY, 1)));
-            tempPts.Add(new Point(Math.Round(x, 1), Math.Round(tempY, 1)));
+
+            // Missing CPU temperature is not a 0 °C reading. Leave a gap in
+            // the temperature series while keeping CPU/GPU load history intact.
+            if (_telemetryHistory[i].CpuTemp is double cpuTempValue)
+            {
+                double tempY = chartHeight - (cpuTempValue / 110.0 * (chartHeight - 16.0)) - 8.0;
+                tempPts.Add(new Point(Math.Round(x, 1), Math.Round(tempY, 1)));
+            }
         }
 
         CpuLoadChartPoints = cpuPts;
