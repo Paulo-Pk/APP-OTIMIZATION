@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Gauge,
   Activity,
@@ -18,20 +18,25 @@ export const PerformanceLabView: React.FC = () => {
   const [runningProcesses, setRunningProcesses] = useState<Array<{ processId: number; processName: string; mainWindowTitle: string }>>([]);
   const [isLoadingProcesses, setIsLoadingProcesses] = useState(false);
 
-  const refreshRunningProcesses = async () => {
+  const refreshRunningProcesses = useCallback(async () => {
     setIsLoadingProcesses(true);
     try {
       const processes = await nativeBridge.listRunningProcesses();
-      setRunningProcesses((processes || []).filter((p) => p.processName && p.processId > 4));
-      if (processes && processes.length > 0) {
-        setSelectedProcess((current) => current || processes[0].processName);
-      }
+      const visibleProcesses = (processes || []).filter((p) => p.processName && p.processId > 4 && p.mainWindowTitle.trim().length > 0);
+      setRunningProcesses(visibleProcesses);
+      setSelectedProcess((current) => visibleProcesses.some((p) => p.processName === current) ? current : (visibleProcesses[0]?.processName || ''));
     } finally {
       setIsLoadingProcesses(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { void refreshRunningProcesses(); }, []);
+  useEffect(() => {
+    const unsubscribe = nativeBridge.subscribe((status) => {
+      if (status.isConnected) void refreshRunningProcesses();
+      else { setRunningProcesses([]); setSelectedProcess(''); }
+    });
+    return unsubscribe;
+  }, [refreshRunningProcesses]);
   const [durationSec, setDurationSec] = useState<number>(10);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
