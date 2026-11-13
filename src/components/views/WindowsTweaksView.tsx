@@ -19,6 +19,32 @@ interface WindowsTweaksViewProps {
   inspectionSummary: string;
 }
 
+const simpleExplanations: Record<string, string> = {
+  'perf-mmcss': 'Ajusta como o Windows divide o tempo do processador entre tarefas multimídia e outros programas. O resultado varia e não garante mais FPS.',
+  'perf-game-dvr': 'Desliga a gravação automática em segundo plano do Xbox. Se você usa clipes automáticos, eles podem parar de funcionar.',
+  'perf-hpet': 'Muda a forma como o Windows agenda tarefas do processador. Pode não trazer diferença perceptível; teste e reverta se notar piora.',
+  'perf-tcp-nagle': 'Altera uma regra de tráfego multimídia do Windows. Não reduz ping por si só.',
+  'start-fast-boot': 'Desliga a inicialização rápida. O computador pode demorar um pouco mais para ligar, mas fará uma inicialização completa.',
+  'start-edge-preload': 'Impede o Edge de ficar pré-carregado quando você não está usando o navegador.',
+  'bg-telemetry': 'Reduz os dados de diagnóstico enviados ao Windows, quando sua edição permite essa configuração.',
+  'bg-cortana-news': 'Oculta o painel de notícias e interesses da barra de tarefas.',
+  'power-ultimate-plan': 'Evita que o Windows reduza o consumo de energia de alguns processos. Pode aumentar consumo e temperatura.',
+  'power-pcie-link': 'Muda a prioridade que o Windows dá a tarefas de jogos. O efeito depende do jogo e do sistema.',
+  'serv-sysmain': 'Muda o SysMain para inicialização manual. Pode alterar o carregamento de programas; não é indicado como ganho universal.',
+  'serv-spooler': 'Muda o serviço de impressão para manual. Se você imprime, o Windows poderá precisar iniciá-lo quando necessário.',
+  'mem-standby-clean': 'Mantém a configuração comum de cache de arquivos do Windows. Não limpa memória RAM nem aumenta FPS por si só.',
+  'mem-lock-executive': 'Mantém partes do núcleo do Windows na memória RAM. Pode consumir mais memória; só aplique se souber que há folga para isso.',
+  'game-hags': 'Ativa o agendamento de GPU por hardware, se suportado. O resultado varia conforme placa de vídeo, driver e jogo.',
+  'game-fso-override': 'Altera o modo de compatibilidade de tela cheia. Se algum jogo apresentar problemas, restaure o padrão.',
+  'sys-delivery-p2p': 'Impede que seu PC compartilhe atualizações com outros computadores pela rede.',
+  'sys-transparency': 'Remove efeitos de transparência do Windows. É principalmente uma mudança visual, sem ganho garantido em PCs modernos.',
+  'perf-fso-flags': 'Muda outra opção de compatibilidade de tela cheia. Pode afetar alguns jogos; não promete mais desempenho.',
+  'storage-ntfs-lastaccess': 'Altera quando o Windows atualiza a data do último acesso de arquivos. O ganho costuma ser pequeno ou inexistente.',
+  'net-tcp-autotuning': 'Mantém um valor de referência das tentativas de retransmissão TCP. Não é uma forma de diminuir o ping.',
+  'priv-advertising-id': 'Desativa o identificador usado para personalizar anúncios no Windows.',
+  'maint-startup-delay': 'Remove um atraso aplicado a alguns programas durante a inicialização. Nem todos os programas respeitam essa opção.',
+};
+
 export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
   tweaks,
   onToggleTweak,
@@ -53,7 +79,8 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
             <Sliders className="w-4 h-4" /> {t.windowsTweaks.subtitle}
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">{t.windowsTweaks.title}</h1>
+          <h1 className="text-xl font-black text-white mt-0.5">Ajustes do Windows</h1>
+          <p className="text-xs text-slate-300 mt-1">Escolha apenas o que você entende. Cada opção explica o que muda, o possível benefício e os riscos antes de aplicar.</p>
           <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
             {t.windowsTweaks.description}
           </p>
@@ -118,22 +145,23 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
                     </span>
                   )}
                 </div>
-                <p className="text-slate-400 leading-relaxed">{item.description}</p>
+                <p className="text-slate-200 leading-relaxed">{simpleExplanations[item.id] || item.description}</p>
                 <p className="text-[11px] text-emerald-300/90 leading-relaxed">
                   Impacto esperado: {item.expectedBenefit}
                 </p>
                 <div className="text-[11px] text-slate-300 pt-1 flex flex-wrap gap-x-3 gap-y-1">
-                  <span>Risco: <strong>{item.risk}</strong></span>
-                  <span>Estado: <strong>{item.registryState || 'Não consultado'}</strong></span>
-                  <span>Valor lido: <strong>{item.currentValue}</strong></span>
-                  <span>Tipo: <strong>{item.actualRegistryKind || 'N/D'}</strong> / esperado: {item.expectedRegistryKind || item.valueKind || 'N/D'}</span>
+                  <span>Possível impacto: <strong>{item.risk === 'Baixo' ? 'baixo' : item.risk === 'Médio' ? 'moderado' : 'alto'}</strong></span>
+                  <span>Estado atual: <strong>{item.registryState || 'Ainda não verificado'}</strong></span>
                 </div>
-                {item.registryDiagnostic && (
-                  <p className="text-[10px] text-amber-300/90 leading-relaxed">{item.registryDiagnostic}</p>
-                )}
-                <div className="text-[11px] font-mono text-slate-500 pt-0.5">
-                  {t.windowsTweaks.keyLabel} {item.registryKey || item.commandScript || t.windowsTweaks.systemRegistryLabel}
-                </div>
+                {item.registryDiagnostic && <p className="text-[11px] text-amber-300/90 leading-relaxed">{item.registryDiagnostic}</p>}
+                <details className="pt-1 text-[10px] text-slate-500">
+                  <summary className="cursor-pointer hover:text-purple-300">Ver detalhes técnicos</summary>
+                  <div className="mt-2 space-y-1 font-mono break-all">
+                    <div>Valor encontrado: {item.currentValue}</div>
+                    <div>Tipo encontrado: {item.actualRegistryKind || 'N/D'} · Tipo esperado: {item.expectedRegistryKind || item.valueKind || 'N/D'}</div>
+                    <div>{t.windowsTweaks.keyLabel} {item.registryKey || item.commandScript || t.windowsTweaks.systemRegistryLabel}</div>
+                  </div>
+                </details>
               </div>
 
               <div className="flex items-center gap-4 shrink-0 font-mono">
