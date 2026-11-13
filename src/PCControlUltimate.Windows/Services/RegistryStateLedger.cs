@@ -300,7 +300,7 @@ public static class RegistryStateLedger
             if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
                 throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Ajuste não pode ser aplicado com segurança.");
 
-using var processLock = AcquireCrossProcessLock();
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal();
             if (ledger == null)
                 throw new InvalidOperationException("O Ledger existente não pôde ser autenticado. Ajuste bloqueado para preservar o histórico.");
@@ -349,7 +349,7 @@ using var processLock = AcquireCrossProcessLock();
 
         lock (_syncRoot)
         {
-using var processLock = AcquireCrossProcessLock();
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal(out string? integrityError);
             if (ledger == null)
             {
@@ -456,7 +456,7 @@ using var processLock = AcquireCrossProcessLock();
 
         lock (_syncRoot)
         {
-using var processLock = AcquireCrossProcessLock();
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal();
             if (ledger == null) return false;
 
@@ -477,7 +477,7 @@ using var processLock = AcquireCrossProcessLock();
     {
         lock (_syncRoot)
         {
-using var processLock = AcquireCrossProcessLock();
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal();
             return ledger?.Entries.ToList() ?? new List<RegistryLedgerEntry>();
         }
@@ -489,7 +489,7 @@ using var processLock = AcquireCrossProcessLock();
     {
         lock (_syncRoot)
         {
-using var processLock = AcquireCrossProcessLock();
+            using var processLock = AcquireCrossProcessLock();
             if (File.Exists(LedgerFilePath))
             {
                 try { File.Delete(LedgerFilePath); } catch { }
@@ -504,7 +504,7 @@ using var processLock = AcquireCrossProcessLock();
     {
         lock (_syncRoot)
         {
-using var processLock = AcquireCrossProcessLock();
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal() ?? new RegistryLedgerFile();
             ledger.Entries.RemoveAll(e => string.Equals(e.OperationId, entry.OperationId, StringComparison.OrdinalIgnoreCase));
             if (recomputeValidHmac)
@@ -523,7 +523,7 @@ using var processLock = AcquireCrossProcessLock();
     {
         lock (_syncRoot)
         {
-using var processLock = AcquireCrossProcessLock();
+            using var processLock = AcquireCrossProcessLock();
             var ledger = new RegistryLedgerFile { Entries = entries.ToList() };
             foreach (var entry in ledger.Entries)
                 entry.EntryHmacSha256 = ComputeEntryHmac(entry);
