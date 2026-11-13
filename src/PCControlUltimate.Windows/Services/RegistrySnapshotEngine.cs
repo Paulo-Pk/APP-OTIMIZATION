@@ -625,7 +625,20 @@ public static class RegistrySnapshotEngine
                 Encoding.UTF8.GetBytes((manifest.ChecksumSha256 ?? string.Empty).ToLowerInvariant())
             );
 
-            return (matches, manifest.ChecksumSha256, matches ? null : "Checksum mismatch: o conteúdo do arquivo foi alterado ou corrompido.");
+            if (!matches)
+                return (false, manifest.ChecksumSha256, "Checksum mismatch: o conteúdo do arquivo foi alterado ou corrompido.");
+
+            if (string.Equals(manifest.FormatVersion, CurrentFormatVersion, StringComparison.Ordinal) &&
+                (manifest.ReadFailuresCount < 0 ||
+                 manifest.TotalKeysCaptured != manifest.Entries.Count ||
+                 manifest.UnreadableItems == null ||
+                 manifest.ReadFailuresCount != manifest.UnreadableItems.Count))
+            {
+                return (false, manifest.ChecksumSha256,
+                    "Metadados de completude inconsistentes: contagens de itens capturados e falhas de leitura não correspondem ao conteúdo do backup.");
+            }
+
+            return (true, manifest.ChecksumSha256, null);
         }
         catch (Exception ex)
         {
