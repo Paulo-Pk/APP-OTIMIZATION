@@ -1311,6 +1311,26 @@
                     </StackPanel>
                 </Border>
 
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="O que o teste vai mostrar" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <UniformGrid Columns="3">
+                            <StackPanel Margin="4">
+                                <TextBlock Text="Resposta" Foreground="#67E8F9" FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Text="Quanto tempo os serviços levam para responder." Foreground="#94A3B8" FontSize="10.5" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Margin="4">
+                                <TextBlock Text="Estabilidade" Foreground="#C4B5FD" FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Text="Se o tempo muda muito entre as tentativas." Foreground="#94A3B8" FontSize="10.5" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Margin="4">
+                                <TextBlock Text="Localização e velocidade" Foreground="#6EE7B7" FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Text="Tempo para encontrar sites e velocidade de download, quando autorizada." Foreground="#94A3B8" FontSize="10.5" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="3*"/>
