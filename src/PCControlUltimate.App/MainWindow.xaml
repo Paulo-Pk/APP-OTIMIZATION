@@ -941,9 +941,20 @@
                     <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}">
                         <StackPanel>
                             <TextBlock Text="Parâmetros da Sessão ETW" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
-                            <TextBlock Text="Executável Alvo (ex: cs2.exe, valorant.exe)" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
-                            <TextBox Text="{Binding ManualProcessName, UpdateSourceTrigger=PropertyChanged}"
-                                     Background="#090C14" Foreground="#FFFFFF" BorderBrush="#262F45" Padding="10,8" Margin="0,0,0,12"/>
+                            <TextBlock Text="Jogo ou aplicativo aberto" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding AvailableProcesses}" SelectedItem="{Binding SelectedProcess, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#7C3AED" Padding="8,7">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding MainWindowTitle}" Foreground="#F8FAFC" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding ProcessName}" Foreground="#94A3B8" FontSize="10"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding RefreshProcessesCommand}" Margin="0,0,0,12">
+                                <TextBlock Text="Atualizar lista de jogos abertos"/>
+                            </Button>
                             <TextBlock Text="Duração da Captura (segundos)" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
                             <TextBox Text="{Binding CaptureDurationSeconds, UpdateSourceTrigger=PropertyChanged}"
                                      Background="#090C14" Foreground="#FFFFFF" BorderBrush="#262F45" Padding="10,8" Margin="0,0,0,16"/>

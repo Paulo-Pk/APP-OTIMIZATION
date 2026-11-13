@@ -298,7 +298,7 @@ public class MainViewModel : INotifyPropertyChanged
     // PresentMon properties
     private string _presentMonStatusText = "Verifique a instalação do PresentMon e selecione um processo.";
     private RunningProcessInfo? _selectedProcess;
-    private string _manualProcessName = "cs2.exe";
+    private string _manualProcessName = string.Empty;
     private int _captureDurationSeconds = 10;
     private bool _isCapturingPresentMon;
     private string _presentMonMetricsSummary = "Nenhuma sessão capturada.";
@@ -1496,10 +1496,16 @@ public class MainViewModel : INotifyPropertyChanged
         });
 
         RefreshProcessesCommand = new RelayCommand(_ => RefreshRunningProcesses());
+        RefreshRunningProcesses();
 
         StartPresentMonCaptureCommand = new RelayCommand(async _ =>
         {
             if (IsCapturingPresentMon) return;
+            if (string.IsNullOrWhiteSpace(ManualProcessName))
+            {
+                PresentMonStatusText = "Selecione um jogo aberto na lista antes de iniciar a captura.";
+                return;
+            }
             IsCapturingPresentMon = true;
             _presentMonCts = new CancellationTokenSource();
 
@@ -2051,10 +2057,16 @@ public class MainViewModel : INotifyPropertyChanged
     private void RefreshRunningProcesses()
     {
         AvailableProcesses.Clear();
-        foreach (var p in PresentMonSessionParser.ListAvailableProcesses())
+        foreach (var process in PresentMonSessionParser.ListAvailableProcesses()
+            .Where(p => !string.IsNullOrWhiteSpace(p.MainWindowTitle)))
         {
-            AvailableProcesses.Add(p);
+            AvailableProcesses.Add(process);
         }
+        if (SelectedProcess is null && AvailableProcesses.Count == 1)
+            SelectedProcess = AvailableProcesses[0];
+        PresentMonStatusText = AvailableProcesses.Count > 0
+            ? $"{AvailableProcesses.Count} aplicativos com janela encontrados. Selecione o jogo aberto para medir FPS e frametime."
+            : "Nenhum jogo ou aplicativo com janela foi encontrado. Abra o jogo e atualize a lista.";
     }
 
     private async Task RefreshDriversListAsync()
