@@ -553,16 +553,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.vrmTemp}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.temperatures.vrm
-                ? `${telemetry.motherboard.temperatures.vrm}°C`
+              {(telemetry.motherboard.temperatures.vrmAvailable ?? (telemetry.motherboard.temperatures.vrm > 0))
+                ? `${telemetry.motherboard.temperatures.vrm.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.chipsetTemp}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.temperatures.chipset
-                ? `${telemetry.motherboard.temperatures.chipset}°C`
+              {(telemetry.motherboard.temperatures.chipsetAvailable ?? (telemetry.motherboard.temperatures.chipset > 0))
+                ? `${telemetry.motherboard.temperatures.chipset.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
           </div>
