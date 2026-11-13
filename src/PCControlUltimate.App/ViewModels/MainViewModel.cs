@@ -498,6 +498,7 @@ public class MainViewModel : INotifyPropertyChanged
     public string BenchmarkGpuScoreText { get => _benchmarkGpuScoreText; set { _benchmarkGpuScoreText = value; OnPropertyChanged(); } }
     public string BenchmarkGpuStatusText { get => _benchmarkGpuStatusText; set { _benchmarkGpuStatusText = value; OnPropertyChanged(); } }
     public string SoftwareInstallStatusText { get => _softwareInstallStatusText; set { _softwareInstallStatusText = value; OnPropertyChanged(); } }
+    public string DriverScanStatusText { get => _driverScanStatusText; set { _driverScanStatusText = value; OnPropertyChanged(); } }
     public string PeripheralCadenceSummary { get => _peripheralCadenceSummary; set { _peripheralCadenceSummary = value; OnPropertyChanged(); } }
     public int PeripheralKeyPressCount { get => _peripheralKeyPressCount; private set { _peripheralKeyPressCount = value; OnPropertyChanged(); } }
     public string PeripheralLastKey { get => _peripheralLastKey; private set { _peripheralLastKey = value; OnPropertyChanged(); } }
@@ -2291,7 +2292,7 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 InstalledDrivers.Clear();
                 foreach (var driver in drivers) InstalledDrivers.Add(driver);
-                StatusMessage = !string.IsNullOrWhiteSpace(DriverScannerService.LastScanError)
+                DriverScanStatusText = !string.IsNullOrWhiteSpace(DriverScannerService.LastScanError)
                     ? $"A leitura de drivers não foi concluída: {DriverScannerService.LastScanError}"
                     : InstalledDrivers.Count > 0
                         ? $"Escaneamento concluído: {InstalledDrivers.Count} driver(s) instalados encontrados no Windows. O status informa assinatura, não atualização."
@@ -2303,7 +2304,7 @@ public class MainViewModel : INotifyPropertyChanged
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 InstalledDrivers.Clear();
-                StatusMessage = $"Não foi possível consultar os drivers instalados: {ex.Message}";
+                DriverScanStatusText = $"Não foi possível consultar os drivers instalados: {ex.Message}";
             });
         }
     }
