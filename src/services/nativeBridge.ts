@@ -180,6 +180,10 @@ class NativeBridgeService {
         const gpuSensors = sensors.filter((sensor: any) => /^gpu/i.test(sensor.hardwareType) && hasNumericReading(sensor));
         const findSensor = (items: any[], type: string, pattern: RegExp) => items.find((sensor) => sensor.sensorType.toLowerCase() === type.toLowerCase() && pattern.test(sensor.name))?.value;
         const numeric = (value: any, fallback = 0) => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : fallback;
+        const firstAvailableReading = (...values: any[]): number | null => {
+          const value = values.find((candidate) => typeof candidate === 'number' && Number.isFinite(candidate));
+          return value === undefined ? null : value;
+        };
         // Preserve a legitimate zero from the first available telemetry source.
         const firstNumeric = (...values: any[]) => {
           const value = values.find((candidate) =>
@@ -225,10 +229,14 @@ class NativeBridgeService {
           .filter((core): core is { coreId: number; load: number; temp: number | null; frequencyGHz: number | null } => core.load !== null)
           .sort((a, b) => a.coreId - b.coreId);
         const cpuClockMhz = numeric(read(data, 'cpuClockMhz'), cpuClockFallback);
-        const cpuTemp = numeric(read(data, 'cpuPackageTemp'), numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
-        const gpuCoreTemp = numeric(read(data, 'gpuCoreTemp'), numeric(read(gpuAdapter, 'coreTempC'), numeric(findSensor(primaryGpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
-        const gpuHotspot = numeric(read(data, 'gpuHotspotTemp'), numeric(read(gpuAdapter, 'hotspotTempC'), numeric(findSensor(primaryGpuSensors, 'Temperature', /hot.?spot|junction/i))));
-        const gpuMemoryTemp = numeric(findSensor(primaryGpuSensors, 'Temperature', /memory|vram/i));
+        const cpuTempReading = firstAvailableReading(read(data, 'cpuPackageTemp'), findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i));
+        const gpuCoreTempReading = firstAvailableReading(read(data, 'gpuCoreTemp'), read(gpuAdapter, 'coreTempC'), findSensor(primaryGpuSensors, 'Temperature', /core|gpu(?!.*memory)/i));
+        const gpuHotspotReading = firstAvailableReading(read(data, 'gpuHotspotTemp'), read(gpuAdapter, 'hotspotTempC'), findSensor(primaryGpuSensors, 'Temperature', /hot.?spot|junction/i));
+        const gpuMemoryTempReading = firstAvailableReading(findSensor(primaryGpuSensors, 'Temperature', /memory|vram/i));
+        const cpuTemp = cpuTempReading ?? 0;
+        const gpuCoreTemp = gpuCoreTempReading ?? 0;
+        const gpuHotspot = gpuHotspotReading ?? 0;
+        const gpuMemoryTemp = gpuMemoryTempReading ?? 0;
         const gpuMemoryClock = numeric(findSensor(primaryGpuSensors, 'Clock', /memory/i));
         // Some adapters expose dedicated VRAM only as SmallData sensors rather
         // than through the aggregate snapshot fields. Resolve those fallbacks
@@ -256,13 +264,13 @@ class NativeBridgeService {
           fpsCaptureActive: false,
           lastUpdated: Date.now(),
           cpu: {
-            name: String(read(data, 'cpuModelName') || ''), socket: 'Não informado', temperature: cpuTemp,
+            name: String(read(data, 'cpuModelName') || ''), socket: 'Não informado', temperature: cpuTemp, temperatureAvailable: cpuTempReading !== null,
             load: numeric(read(data, 'cpuTotalLoad')), frequencyGHz: cpuClockMhz / 1000,
             cores: 0, threads: 0, powerWatts: numeric(read(data, 'cpuPowerWatts')), voltageV: 0, coreList: cpuCoreList,
           },
           gpu: {
             name: String(read(data, 'gpuModelName') || read(gpuAdapter, 'model') || ''), vendor: gpuVendor,
-            temperature: gpuCoreTemp, hotspot: gpuHotspot, memoryTemp: gpuMemoryTemp,
+            temperature: gpuCoreTemp, temperatureAvailable: gpuCoreTempReading !== null, hotspot: gpuHotspot, hotspotAvailable: gpuHotspotReading !== null, memoryTemp: gpuMemoryTemp, memoryTempAvailable: gpuMemoryTempReading !== null,
             clockMHz: numeric(read(data, 'gpuClockMhz'), numeric(read(gpuAdapter, 'coreClockMhz'))),
             memoryClockMHz: gpuMemoryClock, utilization: numeric(read(data, 'gpuLoadPercent'), numeric(read(gpuAdapter, 'loadPercent'))),
             vramUsedMB: gpuVramUsed,
