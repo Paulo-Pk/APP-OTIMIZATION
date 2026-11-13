@@ -20,9 +20,12 @@ export const DriverCenterView: React.FC = () => {
     setIsScanning(true);
     setScanError(null);
     try {
-      const realDrivers = await nativeBridge.queryInstalledDrivers();
-      if (realDrivers) setDrivers(realDrivers);
-      else setScanError('Conecte o agente Windows para consultar os drivers instalados.');
+      const result = await nativeBridge.queryInstalledDrivers();
+      if (result) {
+        setDrivers(result.drivers);
+        if (result.scanError) setScanError(result.scanError);
+        else if (result.drivers.length === 0) setScanError('O Windows não retornou drivers nesta consulta. Verifique se o serviço de Instrumentação de Gerenciamento do Windows está ativo e tente novamente.');
+      } else setScanError('Conecte o agente Windows para consultar os drivers instalados.');
     } catch {
       setScanError('Não foi possível consultar os drivers nesta sessão.');
     } finally {
@@ -44,6 +47,7 @@ export const DriverCenterView: React.FC = () => {
           <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
             {t.driverCenter.description}
           </p>
+          <p className="text-[10px] text-slate-500 mt-1">A verificação confirma o que o Windows informa sobre o driver instalado; não significa que seja a versão mais recente disponível.</p>
         </div>
 
         <button onClick={() => void scanDrivers()} disabled={isScanning} className="flex items-center gap-2 text-xs text-purple-200 bg-[#141829] px-3 py-2 rounded-lg border border-purple-500/40 font-semibold disabled:opacity-50">
@@ -68,7 +72,7 @@ export const DriverCenterView: React.FC = () => {
         <div className="divide-y divide-slate-800/80">
           {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum driver retornado pelo Windows. Clique em “Escanear drivers instalados” para tentar novamente.</div> : null}
           {drivers.map((driver, idx) => {
-            const isUpToDate = driver.status === 'Atualizado';
+            const isVerified = driver.status === 'Verificado via WMI';
 
             return (
               <div
@@ -80,16 +84,16 @@ export const DriverCenterView: React.FC = () => {
                     <span className="font-bold text-white text-sm">{driver.device}</span>
                     <span
                       className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
-                        isUpToDate
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                          : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                        isVerified
+                          ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30'
+                          : 'bg-slate-500/10 text-slate-300 border border-slate-500/30'
                       }`}
                     >
-                      {isUpToDate ? t.driverCenter.statusUpdated : t.driverCenter.statusAvailable}
+                      {isVerified ? 'Verificado pelo Windows' : driver.status}
                     </span>
                   </div>
                   <div className="text-slate-400 text-[11px]">
-                    {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate})
+                    {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate}) · Assinatura: {driver.signatureStatus || 'Não informada'}
                   </div>
                 </div>
 
