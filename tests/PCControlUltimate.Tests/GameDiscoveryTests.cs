@@ -406,6 +406,36 @@ public sealed class GameDiscoveryTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("PC Control Game DLC")]
+    [InlineData("PC Control Game Expansion Pack")]
+    [InlineData("PC Control Game Season Pass")]
+    [InlineData("PC Control Game Soundtrack")]
+    [InlineData("PC Control Game - Character Pack")]
+    public void MainGameCatalogFilter_ExcludesDlcAndStandaloneAddOnEntries(string title)
+    {
+        MethodInfo filter = typeof(GameNetworkAcceleratorService).GetMethod(
+            "IsMainGameTitle", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        bool isMainGame = (bool)filter.Invoke(null, new object?[] { title })!;
+
+        Assert.False(isMainGame);
+    }
+
+    [Theory]
+    [InlineData("Counter-Strike 2")]
+    [InlineData("Forza Horizon 6")]
+    [InlineData("Cyberpunk 2077 Ultimate Edition")]
+    public void MainGameCatalogFilter_KeepsBaseGameAndNormalEditions(string title)
+    {
+        MethodInfo filter = typeof(GameNetworkAcceleratorService).GetMethod(
+            "IsMainGameTitle", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        bool isMainGame = (bool)filter.Invoke(null, new object?[] { title })!;
+
+        Assert.True(isMainGame);
+    }
+
     public void Dispose()
     {
         try
