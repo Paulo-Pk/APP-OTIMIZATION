@@ -1044,7 +1044,11 @@
             <StackPanel DataContext="{Binding Workspace}">
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
-                        <StackPanel>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
                             <TextBlock Text="TESTE DO PROCESSADOR, MEMÓRIA E PLACA DE VÍDEO" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
                             <TextBlock Text="Desempenho do seu computador" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="Executa testes separados para processador, memória e placa de vídeo. O teste gráfico usa o Direct3D do próprio Windows quando disponível." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
