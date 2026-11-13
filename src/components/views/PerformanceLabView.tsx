@@ -49,32 +49,37 @@ export const PerformanceLabView: React.FC = () => {
     setIsRecording(true);
     setStatusMessage(t.performanceLab.initializingHook);
 
-    const nativeResult = await nativeBridge.runPresentMonCapture(selectedProcess, durationSec);
-    if (nativeResult && nativeResult.capturedFrames > 0) {
-      const newSession: PresentMonSession = {
-        id: `session-${Date.now()}`,
-        gameTitle: `${selectedProcess} (PresentMon Real)`,
-        date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        durationSeconds: durationSec,
-        avgFps: nativeResult.avgFps,
-        minFps: nativeResult.minFps ?? 0,
-        onePercentLow: nativeResult.onePercentLow,
-        pointOnePercentLow: 0,
-        frametimeAvgMs: nativeResult.frametimeAvgMs,
-        frametimeStDevMs: nativeResult.frametimeStDevMs,
-        cpuLoadAvg: 0,
-        gpuLoadAvg: 0,
-        cpuTempAvg: 0,
-        gpuTempAvg: 0,
-        isOptimized: true,
-      };
-      setSessions((prev) => [newSession, ...prev]);
-      setStatusMessage(t.performanceLab.captureSuccess);
-    } else {
-      setStatusMessage(t.performanceLab.agentRequiredPresentMon);
+    try {
+      const nativeResult = await nativeBridge.runPresentMonCapture(selectedProcess, durationSec);
+      if (nativeResult && nativeResult.capturedFrames > 0) {
+        const newSession: PresentMonSession = {
+          id: `session-${Date.now()}`,
+          gameTitle: selectedProcess,
+          date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          durationSeconds: durationSec,
+          avgFps: nativeResult.avgFps,
+          minFps: nativeResult.minFps ?? 0,
+          onePercentLow: nativeResult.onePercentLow,
+          pointOnePercentLow: 0,
+          frametimeAvgMs: nativeResult.frametimeAvgMs,
+          frametimeStDevMs: nativeResult.frametimeStDevMs,
+          cpuLoadAvg: 0,
+          gpuLoadAvg: 0,
+          cpuTempAvg: 0,
+          gpuTempAvg: 0,
+          // A successful capture measures frame pacing; it does not mean the game was optimized.
+          isOptimized: false,
+        };
+        setSessions((prev) => [newSession, ...prev]);
+        setStatusMessage(t.performanceLab.captureSuccess);
+      } else {
+        setStatusMessage(nativeResult?.error || t.performanceLab.agentRequiredPresentMon);
+      }
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'A captura falhou. Verifique se o agente Windows está conectado e tente novamente.');
+    } finally {
+      setIsRecording(false);
     }
-
-    setIsRecording(false);
   };
 
   return (
