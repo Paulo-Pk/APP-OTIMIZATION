@@ -28,7 +28,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     telemetry.cpu.cores > 0 ||
     telemetry.cpu.load > 0 ||
     telemetry.gpu.utilization > 0 ||
-    telemetry.ram.totalGB > 0;
+    telemetry.ram.totalGB > 0 ||
+    (telemetry.sensors?.some((sensor) => sensor.isAvailable && sensor.value !== null) ?? false);
 
   // A zero load can be a valid idle reading. Prefer the sensor availability
   // metadata so an unavailable CPU/GPU load is not displayed as a measured 0%.
@@ -54,7 +55,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Live historical telemetry points recorded strictly from real incoming telemetry
   const [history, setHistory] = useState<
-    { time: number; cpuLoad: number; gpuLoad: number; cpuTemp: number; gpuTemp: number }[]
+    { time: number; cpuLoad: number | null; gpuLoad: number | null; cpuTemp: number | null; gpuTemp: number | null }[]
   >([]);
 
   useEffect(() => {
@@ -66,10 +67,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setHistory((prev) => {
       const nextPoint = {
         time: Date.now(),
-        cpuLoad: Math.min(100, Math.max(0, telemetry.cpu.load)),
-        gpuLoad: Math.min(100, Math.max(0, telemetry.gpu.utilization)),
-        cpuTemp: Math.min(110, Math.max(0, telemetry.cpu.temperature)),
-        gpuTemp: Math.min(110, Math.max(0, telemetry.gpu.temperature)),
+        // Missing sensors stay null; an unavailable reading must not become a
+        // false 0% load or 0°C line in the historical chart.
+        cpuLoad: hasCpuLoad ? Math.min(100, Math.max(0, telemetry.cpu.load)) : null,
+        gpuLoad: hasGpuLoad ? Math.min(100, Math.max(0, telemetry.gpu.utilization)) : null,
+        cpuTemp: telemetry.cpu.temperature > 0
+          ? Math.min(110, Math.max(0, telemetry.cpu.temperature))
+          : null,
+        gpuTemp: telemetry.gpu.temperature > 0
+          ? Math.min(110, Math.max(0, telemetry.gpu.temperature))
+          : null,
       };
       return [...prev.slice(-29), nextPoint];
     });
@@ -79,6 +86,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     telemetry.gpu.utilization,
     telemetry.cpu.temperature,
     telemetry.gpu.temperature,
+    hasCpuLoad,
+    hasGpuLoad,
   ]);
 
   const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
@@ -439,7 +448,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   stroke="#a855f7"
                   strokeWidth="2"
                   points={history
-                    .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.cpuLoad / 100) * 140}`)
+                    .map((pt, i) => pt.cpuLoad === null
+                      ? null
+                      : `${(i / (history.length - 1)) * 500},${150 - (pt.cpuLoad / 100) * 140}`)
+                    .filter((point): point is string => point !== null)
                     .join(' ')}
                 />
 
@@ -448,7 +460,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   stroke="#f43f5e"
                   strokeWidth="2"
                   points={history
-                    .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.gpuLoad / 100) * 140}`)
+                    .map((pt, i) => pt.gpuLoad === null
+                      ? null
+                      : `${(i / (history.length - 1)) * 500},${150 - (pt.gpuLoad / 100) * 140}`)
+                    .filter((point): point is string => point !== null)
                     .join(' ')}
                 />
 
@@ -458,7 +473,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   strokeWidth="1.5"
                   strokeDasharray="4 2"
                   points={history
-                    .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.cpuTemp / 100) * 140}`)
+                    .map((pt, i) => pt.cpuTemp === null
+                      ? null
+                      : `${(i / (history.length - 1)) * 500},${150 - (pt.cpuTemp / 100) * 140}`)
+                    .filter((point): point is string => point !== null)
                     .join(' ')}
                 />
               </svg>
