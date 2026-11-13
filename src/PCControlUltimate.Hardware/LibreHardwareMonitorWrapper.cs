@@ -202,7 +202,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.Clock)
+                        if (sensor.SensorType == SensorType.Clock && sensor.Value is not null)
                         {
                             cpuClockFallback = Math.Max(cpuClockFallback ?? 0, sensor.Value.Value);
                             if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
