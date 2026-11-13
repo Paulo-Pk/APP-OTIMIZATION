@@ -20,6 +20,7 @@ export const DebloatView: React.FC = () => {
 
   const [isCleaning, setIsCleaning] = useState<boolean>(false);
   const [cleanedBytes, setCleanedBytes] = useState<number | null>(null);
+  const [cleanWasPartial, setCleanWasPartial] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
@@ -87,28 +88,55 @@ export const DebloatView: React.FC = () => {
     setIsConfirmModalOpen(false);
     setIsCleaning(true);
     setErrorMessage(null);
+    setNoticeMessage(null);
+    setCleanedBytes(null);
+    setCleanWasPartial(false);
 
     let totalFreed = 0;
-    try {
-      const failures: string[] = [];
-      let deletedFiles = 0;
-      let skippedLocked = 0;
-      let skippedSymlinks = 0;
-      for (const id of Array.from(selectedIds)) {
+    let deletedFiles = 0;
+    let skippedLocked = 0;
+    let skippedSymlinks = 0;
+    let hasPartialResult = false;
+    const failures: string[] = [];
+
+    // Process every selected category even if one request fails. The bridge returns
+    // structured failures for HTTP errors, so success must be checked explicitly.
+    for (const id of Array.from(selectedIds)) {
+      const categoryName = categories.find((category) => category.id === id)?.name || id;
+      try {
         const result = await nativeBridge.purgeRealDebloatDirectory(id);
         totalFreed += result.freedBytes;
         deletedFiles += result.deletedFilesCount;
         skippedLocked += result.skippedLockedCount;
         skippedSymlinks += result.skippedSymlinksCount;
-        if (result.errors.length) failures.push(...result.errors);
+
+        if (!result.success || result.partialSuccess || result.errors.length > 0 ||
+            result.skippedLockedCount > 0 || result.skippedSymlinksCount > 0) {
+          hasPartialResult = true;
+        }
+
+        if (result.errors.length > 0) {
+          failures.push(...result.errors.slice(0, 3).map((error) => `${categoryName}: ${error}`));
+        } else if (!result.success) {
+          failures.push(`${categoryName}: operação não concluída (${result.status || 'falha sem detalhes'}).`);
+        }
+      } catch (err) {
+        hasPartialResult = true;
+        failures.push(`${categoryName}: ${err instanceof Error ? err.message : 'falha de comunicação com o agente'}.`);
       }
-      setCleanedBytes(totalFreed);
-      setNoticeMessage(`${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s); ${skippedSymlinks} link(s) simbólico(s) preservado(s).`);
-      if (failures.length) setErrorMessage(`Limpeza parcial: ${failures.slice(0, 3).join(' | ')}`);
+    }
+
+    setCleanedBytes(totalFreed);
+    setCleanWasPartial(hasPartialResult);
+    setNoticeMessage(
+      `${hasPartialResult ? 'Limpeza parcial' : 'Limpeza concluída'}: ${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s); ${skippedSymlinks} link(s) simbólico(s) preservado(s).`
+    );
+    if (failures.length > 0) {
+      setErrorMessage(failures.slice(0, 5).join(' | '));
+    }
+
+    try {
       await scanNow();
-    } catch (err: any) {
-      setErrorMessage(`${t.debloat.cleanError}: ${err.message || 'Falha de I/O no Windows'}`);
-      setCleanedBytes(null);
     } finally {
       setIsCleaning(false);
     }
@@ -187,13 +215,17 @@ export const DebloatView: React.FC = () => {
 
       {/* Verified Clean Result (Only from Real Windows Service) */}
       {cleanedBytes !== null && (
-        <div className="p-4 rounded-xl bg-[#0f1626] border border-emerald-500/50 flex items-center justify-between text-xs animate-scale-in">
+        <div className={`p-4 rounded-xl bg-[#0f1626] border ${cleanWasPartial ? 'border-amber-500/50' : 'border-emerald-500/50'} flex items-center justify-between text-xs animate-scale-in`}>
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div className="text-emerald-200">
+            {cleanWasPartial
+              ? <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+            <div className={cleanWasPartial ? 'text-amber-200' : 'text-emerald-200'}>
               <span className="font-bold">{t.debloat.actualFreedLabel}: </span>
-              <span className="font-mono text-emerald-400 font-bold">{formatBytes(cleanedBytes)}</span>
-              {cleanedBytes === 0 ? (
+              <span className={`font-mono font-bold ${cleanWasPartial ? 'text-amber-300' : 'text-emerald-400'}`}>{formatBytes(cleanedBytes)}</span>
+              {cleanWasPartial ? (
+                <span className="ml-2">— resultado parcial; confira os detalhes acima</span>
+              ) : cleanedBytes === 0 ? (
                 <span className="text-slate-400 ml-2">({t.debloat.zeroBytesCleaned})</span>
               ) : (
                 <span className="ml-2">— {t.debloat.cleanSuccess}</span>
