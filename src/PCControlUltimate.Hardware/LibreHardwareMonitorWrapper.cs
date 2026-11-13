@@ -37,29 +37,38 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_disposed) throw new ObjectDisposedException(nameof(LibreHardwareMonitorWrapper));
-        if (!OperatingSystem.IsWindows())
-        {
-            IsAvailable = false;
-            CurrentStatus = SensorReadingStatus.SensorNotSupported;
-            LastCommunicationError = "Leitura física via LibreHardwareMonitor requer sistema operacional Windows nativo.";
-            return Task.CompletedTask;
-        }
-
+        _captureLock.Wait(cancellationToken);
         try
         {
-            _computer.Open();
-            IsAvailable = true;
-            CurrentStatus = SensorReadingStatus.Available;
-            LastCommunicationError = null;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_disposed) throw new ObjectDisposedException(nameof(LibreHardwareMonitorWrapper));
+            if (!OperatingSystem.IsWindows())
+            {
+                IsAvailable = false;
+                CurrentStatus = SensorReadingStatus.SensorNotSupported;
+                LastCommunicationError = "Leitura física via LibreHardwareMonitor requer sistema operacional Windows nativo.";
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                _computer.Open();
+                IsAvailable = true;
+                CurrentStatus = SensorReadingStatus.Available;
+                LastCommunicationError = null;
+            }
+            catch (Exception ex)
+            {
+                IsAvailable = false;
+                CurrentStatus = SensorReadingStatus.CommunicationFailure;
+                LastCommunicationError = $"Falha ao inicializar sensores de hardware (verifique elevação UAC): {ex.Message}";
+            }
+            return Task.CompletedTask;
         }
-        catch (Exception ex)
+        finally
         {
-            IsAvailable = false;
-            CurrentStatus = SensorReadingStatus.CommunicationFailure;
-            LastCommunicationError = $"Falha ao inicializar sensores de hardware (verifique elevação UAC): {ex.Message}";
+            _captureLock.Release();
         }
-        return Task.CompletedTask;
     }
 
     public async Task<HardwareSnapshot> CaptureSnapshotAsync()
