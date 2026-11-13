@@ -692,7 +692,11 @@ public class WingetSoftwareCenterService
             cancellationToken
         );
 
-        bool installed = exitCode == 0 && output.Contains(packageId.Trim(), StringComparison.OrdinalIgnoreCase);
+        bool installed = exitCode == 0 && ParseWingetTableOutput(output, isInstalledList: true)
+            .Any(package => string.Equals(package.PackageId, packageId.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        // "winget list" confirms presence and package identity only; it does not
+        // cryptographically verify the installed binary or prove its current signature.
         return new WingetOperationProgress(
             packageId.Trim(),
             "Verify",
@@ -701,7 +705,7 @@ public class WingetSoftwareCenterService
             installed,
             output,
             DateTime.UtcNow,
-            installed ? SignatureVerificationState.VerifiedOfficialWingetRepository : SignatureVerificationState.NotVerifiedYet
+            SignatureVerificationState.NotVerifiedYet
         );
     }
 
