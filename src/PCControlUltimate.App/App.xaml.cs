@@ -108,6 +108,7 @@ public partial class App : Application
             _agentClient = new AgentClientService(inMemoryToken);
 
             var services = new ServiceCollection();
+            services.AddSingleton(inMemoryToken ?? string.Empty);
             services.AddSingleton<LocalizationService>();
             services.AddSingleton<DatabaseService>(_databaseService);
             services.AddTransient<AppDbContext>(sp => sp.GetRequiredService<DatabaseService>().CreateDbContext());
