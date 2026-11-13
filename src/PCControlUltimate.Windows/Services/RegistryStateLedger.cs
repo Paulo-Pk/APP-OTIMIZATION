@@ -486,9 +486,9 @@ public static class RegistryStateLedger
         }
     }
 
-    public static void ClearLedgerForTesting() => ClearLedger();
+    internal static void ClearLedgerForTesting() => ClearLedger();
 
-    public static void ClearLedger()
+    internal static void ClearLedger()
     {
         lock (_syncRoot)
         {
@@ -503,7 +503,7 @@ public static class RegistryStateLedger
     /// <summary>
     /// Injects an entry into the ledger (used by unit tests to test tamper detection, incompatible kinds, or valid states).
     /// </summary>
-    public static void SaveRawEntryForTesting(RegistryLedgerEntry entry, bool recomputeValidHmac = true)
+    internal static void SaveRawEntryForTesting(RegistryLedgerEntry entry, bool recomputeValidHmac = true)
     {
         lock (_syncRoot)
         {
@@ -522,7 +522,7 @@ public static class RegistryStateLedger
     /// <summary>
     /// Test-only fixture helper for validating malformed Ledger identity records.
     /// </summary>
-    public static void SaveRawEntriesForTesting(IEnumerable<RegistryLedgerEntry> entries)
+    internal static void SaveRawEntriesForTesting(IEnumerable<RegistryLedgerEntry> entries)
     {
         lock (_syncRoot)
         {
