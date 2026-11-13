@@ -366,6 +366,7 @@ class NativeBridgeService {
     tempWindowsBytes: number;
     tempUserBytes: number;
     softwareDistributionBytes: number;
+    prefetchBytes: number;
   } | null> {
     if (!this.agentStatus.isConnected) return null;
 
@@ -383,22 +384,21 @@ class NativeBridgeService {
   public async purgeRealDebloatDirectory(
     categoryKey: string,
     confirmUpdateCache: boolean = true
-  ): Promise<number> {
-    if (!this.agentStatus.isConnected) return 0;
+  ): Promise<{ success: boolean; partialSuccess: boolean; freedBytes: number; deletedFilesCount: number; skippedLockedCount: number; errors: string[]; status: string }> {
+    if (!this.agentStatus.isConnected) return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: ['Agente Windows desconectado.'], status: 'Unavailable' };
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/debloat/purge`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
+        method: 'POST', headers: this.getAuthHeaders(),
         body: JSON.stringify({ categoryKey, confirmUpdateCache }),
       });
       if (res.ok) {
         const data = await res.json();
-        return data.freedBytes || 0;
+        return { success: !!data.success, partialSuccess: !!data.partialSuccess, freedBytes: Number(data.freedBytes) || 0, deletedFilesCount: Number(data.deletedFilesCount) || 0, skippedLockedCount: Number(data.skippedLockedCount) || 0, errors: Array.isArray(data.errors) ? data.errors : [], status: String(data.status || 'Unknown') };
       }
-    } catch {
-      // unavailable
+      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: [`Agente respondeu HTTP ${res.status}.`], status: 'Failed' };
+    } catch (err: any) {
+      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: [err?.message || 'Falha de comunicação com o agente.'], status: 'Failed' };
     }
-    return 0;
   }
 
   public async runRealNetworkDiagnostics(): Promise<{

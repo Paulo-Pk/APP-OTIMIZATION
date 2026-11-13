@@ -53,7 +53,8 @@ public static class DiskCleanerEngine
         "cache-dx-shaders",
         "temp-windows",
         "temp-user",
-        "update-cache"
+        "update-cache",
+        "temp-prefetch"
     };
 
     public static IReadOnlyList<CleanerCategoryMetadata> GetAuthorizedCategories()
@@ -66,8 +67,10 @@ public static class DiskCleanerEngine
                 GetCategoryPath("temp-user") ?? "", false, true),
             new("temp-windows", "Arquivos Temporários do Sistema (C:\\Windows\\Temp)", "System Temporary Files (C:\\Windows\\Temp)",
                 GetCategoryPath("temp-windows") ?? "", true, true),
-            new("update-cache", "Cache de Downloads do Windows Update (SoftwareDistribution)", "Windows Update Download Cache (SoftwareDistribution)",
-                GetCategoryPath("update-cache") ?? "", true, true)
+            new("update-cache", "Downloads antigos do Windows Update", "Windows Update download cache",
+                GetCategoryPath("update-cache") ?? "", true, true),
+            new("temp-prefetch", "Cache de inicialização do Windows (Prefetch)", "Windows Prefetch cache",
+                GetCategoryPath("temp-prefetch") ?? "", true, true)
         };
     }
 
@@ -82,6 +85,7 @@ public static class DiskCleanerEngine
             "temp-windows" => @"C:\Windows\Temp",
             "temp-user" => Path.GetTempPath(),
             "update-cache" => @"C:\Windows\SoftwareDistribution\Download",
+            "temp-prefetch" => @"C:\Windows\Prefetch",
             _ => null
         };
     }
