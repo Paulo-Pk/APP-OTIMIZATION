@@ -63,9 +63,11 @@ jobs:
         run: dotnet test PCControlUltimate.sln -c Release -p:Platform=x64 --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
 
       - name: 7. Publish Native WPF Application (Windows x64 Self-Contained)
+        if: github.event_name == 'workflow_dispatch'
         run: dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true -o artifacts/publish/win-x64
 
       - name: 8. Verify Published Executable, Native Libraries & SQLite Dependencies
+        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: |
           $publishDir = "artifacts/publish/win-x64"
@@ -96,7 +98,7 @@ jobs:
           Write-Host "Verified all required executables, assemblies, and SQLite dependencies in $publishDir"
 
       - name: 9. Package & Verify Windows x64 Release ZIP Archive
-        if: success()
+        if: success() && github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: |
           Compress-Archive -Path "artifacts/publish/win-x64/*" -DestinationPath "artifacts/PCControlUltimate-win-x64-Release.zip" -Force
