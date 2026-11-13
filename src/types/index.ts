@@ -92,8 +92,8 @@ export interface GpuTelemetry {
 export interface CpuCore {
   coreId: number;
   load: number;
-  temp: number;
-  frequencyGHz: number;
+  temp: number | null;
+  frequencyGHz: number | null;
 }
 
 export interface CpuTelemetry {
