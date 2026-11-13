@@ -18,15 +18,42 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
   const [sessions, setSessions] = useState<PresentMonSession[]>([]);
   const [selectedProcess, setSelectedProcess] = useState<string>('');
   const [runningProcesses, setRunningProcesses] = useState<Array<{ processId: number; processName: string; mainWindowTitle: string }>>([]);
+  const [gameTitlesByProcess, setGameTitlesByProcess] = useState<Record<string, string>>({});
+  const [processDiscoveryNote, setProcessDiscoveryNote] = useState('');
   const [isLoadingProcesses, setIsLoadingProcesses] = useState(false);
 
   const refreshRunningProcesses = useCallback(async () => {
     setIsLoadingProcesses(true);
     try {
-      const processes = await nativeBridge.listRunningProcesses();
-      const visibleProcesses = (processes || []).filter((p) => p.processName && p.processId > 4 && (p.mainWindowTitle || '').trim().length > 0).sort((a, b) => a.mainWindowTitle.localeCompare(b.mainWindowTitle, 'pt-BR'));
-      setRunningProcesses(visibleProcesses);
-      setSelectedProcess((current) => visibleProcesses.some((p) => p.processName === current) ? current : (visibleProcesses[0]?.processName || ''));
+      const [processes, installedGames] = await Promise.all([
+        nativeBridge.listRunningProcesses(),
+        nativeBridge.discoverInstalledGames(),
+      ]);
+      const visibleProcesses = (processes || [])
+        .filter((p) => p.processName && p.processId > 4 && (p.mainWindowTitle || '').trim().length > 0)
+        .sort((a, b) => a.mainWindowTitle.localeCompare(b.mainWindowTitle, 'pt-BR'));
+
+      // Match running processes against detected game installation paths. This lets
+      // the user choose a game by its display title instead of knowing its .exe name.
+      const gameEntries = (installedGames || []).filter((game) => game.isInstalled && game.executablePath);
+      const titleByProcess: Record<string, string> = {};
+      for (const game of gameEntries) {
+        const executableName = game.executablePath!.split(/[\\\\/]/).pop()?.replace(/\\.exe$/i, '').toLowerCase();
+        if (executableName) titleByProcess[executableName] = game.title;
+      }
+      const matchedGames = visibleProcesses.filter((process) => Boolean(titleByProcess[process.processName.toLowerCase()]));
+      const candidates = matchedGames.length > 0 ? matchedGames : visibleProcesses;
+
+      setGameTitlesByProcess(titleByProcess);
+      setRunningProcesses(candidates);
+      setProcessDiscoveryNote(matchedGames.length > 0
+        ? `${matchedGames.length} jogo(s) em execução identificado(s) automaticamente.`
+        : visibleProcesses.length > 0
+          ? 'Nenhum jogo instalado foi associado com segurança. Exibindo aplicativos em execução para seleção manual.'
+          : 'Nenhum jogo com janela ativa foi encontrado. Abra um jogo e atualize a lista.');
+      setSelectedProcess((current) => candidates.some((p) => p.processName === current) ? current : (candidates[0]?.processName || ''));
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? `Falha ao procurar jogos em execução: ${error.message}` : 'Falha ao procurar jogos em execução.');
     } finally {
       setIsLoadingProcesses(false);
     }
@@ -42,7 +69,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
 
     const unsubscribe = nativeBridge.subscribe((status) => {
       if (status.isConnected) void refreshRunningProcesses();
-      else { setRunningProcesses([]); setSelectedProcess(''); }
+      else { setRunningProcesses([]); setSelectedProcess(''); setGameTitlesByProcess({}); setProcessDiscoveryNote('Conecte o Agente Windows para detectar jogos em execução.'); }
     });
     return unsubscribe;
   }, [refreshRunningProcesses]);
@@ -149,7 +176,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
             <option value="" style={{ backgroundColor: '#0a0c13', color: '#f8fafc' }}>{isLoadingProcesses ? 'Procurando jogos em execução...' : 'Selecione um jogo em execução'}</option>
             {runningProcesses.map((process) => (
               <option key={process.processId} value={process.processName} style={{ backgroundColor: '#0a0c13', color: '#f8fafc' }}>
-                {process.mainWindowTitle ? `${process.mainWindowTitle} — ${process.processName}.exe` : `${process.processName}.exe`}
+                {gameTitlesByProcess[process.processName.toLowerCase()] || process.mainWindowTitle || process.processName} — {process.mainWindowTitle || process.processName}.exe
               </option>
             ))}
           </select>
@@ -180,6 +207,10 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
         </div>
       </div>
 
+      {processDiscoveryNote && (
+        <p className="text-[11px] text-slate-400 px-1" role="status">{processDiscoveryNote}</p>
+      )}
+
       {statusMessage && (
         <div className="p-3 bg-[#111626] border border-purple-500/40 rounded-lg text-xs text-purple-300 font-mono flex items-center justify-between">
           <span>{statusMessage}</span>
@@ -199,7 +230,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
             Nenhuma Sessão PresentMon Capturada Nesta Sessão
           </div>
           <p className="text-xs text-slate-400 max-w-lg mx-auto leading-relaxed">
-            O PC Control Ultimate não exibe métricas de FPS ou frametime pré-fabricadas. Conecte o Agente Windows Privilegiado com o Intel PresentMon instalado, informe o executável do jogo em execução e inicie uma captura real para visualizar FPS Médio, 1% Low e desvio padrão de frametime.
+            O PC Control Ultimate procura jogos instalados e processos em execução automaticamente. Selecione o nome do jogo identificado (sem precisar conhecer o arquivo .exe), conecte o Agente Windows Privilegiado com o Intel PresentMon instalado e inicie uma captura real para visualizar FPS Médio, 1% Low e frametime.
           </p>
         </div>
       ) : (
