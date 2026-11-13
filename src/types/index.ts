@@ -195,10 +195,10 @@ export interface PresentMonSession {
   pointOnePercentLow: number | null;
   frametimeAvgMs: number;
   frametimeStDevMs: number;
-  cpuLoadAvg: number;
-  gpuLoadAvg: number;
-  cpuTempAvg: number;
-  gpuTempAvg: number;
+  cpuLoadAvg: number | null;
+  gpuLoadAvg: number | null;
+  cpuTempAvg: number | null;
+  gpuTempAvg: number | null;
   isOptimized: boolean;
 }
 
