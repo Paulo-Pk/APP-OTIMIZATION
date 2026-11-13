@@ -611,6 +611,9 @@ class NativeBridgeService {
     fileSizeBytes?: number;
     checksumSha256?: string;
     capturedKeysCount?: number;
+    isComplete?: boolean;
+    readFailuresCount?: number;
+    unreadableItems?: Array<{ tweakId?: string; keyPath?: string; valueName?: string; reason?: string }>;
     error?: string;
   }> {
     if (!this.agentStatus.isConnected) {
@@ -634,6 +637,11 @@ class NativeBridgeService {
         fileSizeBytes: data.fileSizeBytes,
         checksumSha256: data.checksumSha256,
         capturedKeysCount: data.capturedKeysCount,
+        isComplete: data.isComplete ?? data.IsComplete ?? undefined,
+        readFailuresCount: data.readFailuresCount ?? data.ReadFailuresCount ?? undefined,
+        unreadableItems: Array.isArray(data.unreadableItems ?? data.UnreadableItems)
+          ? (data.unreadableItems ?? data.UnreadableItems)
+          : undefined,
         error: data.error,
       };
     } catch (err: any) {
