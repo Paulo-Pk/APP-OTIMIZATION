@@ -42,7 +42,8 @@ public record VerifiedSoftwareItem(
     string WingetId,
     string Publisher,
     string CommandLine,
-    string Description
+    string Description,
+    string IconUrl = ""
 );
 
 public class RelayCommand : ICommand
