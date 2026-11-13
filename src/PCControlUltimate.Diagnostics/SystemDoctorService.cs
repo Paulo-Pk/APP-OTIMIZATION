@@ -89,10 +89,10 @@ public class SystemDoctorService
                         {
                             findings.Add(new SystemDoctorFinding(
                                 Category: "Armazenamento",
-                                Title: $"Espaço livre crítico em {drive.Model} ({freePct:F1}%)",
+                                Title: $"Pouco espaço livre no disco {drive.Model} ({freePct:F1}%)",
                                 Severity: DiagnosticSeverityLevel.Alto,
                                 Evidence: $"Apenas {drive.FreeSpaceGb.Value:F1} GB livres de {drive.CapacityGb.Value:F1} GB ({freePct:F1}%).",
-                                ProbableCause: "Acúmulo de caches temporários, arquivos de atualização do Windows ou jogos pesados.",
+                                ProbableCause: "O disco está quase cheio. Arquivos temporários, atualizações e jogos podem ocupar boa parte do espaço.",
                                 RecommendedAction: "Execute uma simulação Dry-Run no módulo Debloat & Cleaner para liberar espaço com segurança.",
                                 RequiresAdminForRepair: false
                             ));
@@ -101,10 +101,10 @@ public class SystemDoctorService
                         {
                             findings.Add(new SystemDoctorFinding(
                                 Category: "Armazenamento",
-                                Title: $"Espaço saudável em {drive.Model}",
+                                Title: $"Espaço livre adequado em {drive.Model}",
                                 Severity: DiagnosticSeverityLevel.Informativo,
                                 Evidence: $"{drive.FreeSpaceGb.Value:F1} GB livres de {drive.CapacityGb.Value:F1} GB ({freePct:F1}%).",
-                                ProbableCause: "Volume operando dentro da margem ideal para wear-leveling de SSD.",
+                                ProbableCause: "Há espaço livre suficiente para o Windows e os programas funcionarem com mais tranquilidade.",
                                 RecommendedAction: "Nenhuma ação necessária.",
                                 RequiresAdminForRepair: false
                             ));
@@ -123,10 +123,10 @@ public class SystemDoctorService
             {
                 findings.Add(new SystemDoctorFinding(
                     Category: "Memória RAM",
-                    Title: $"Pressão elevada de memória RAM ({ramPct:F1}%)",
+                    Title: $"Memória RAM quase cheia ({ramPct:F1}%)",
                     Severity: DiagnosticSeverityLevel.Moderado,
                     Evidence: $"{snapshot.RamUsedGb.Value:F1} GB em uso de {snapshot.RamTotalGb.Value:F1} GB totais.",
-                    ProbableCause: "Múltiplos processos em segundo plano ou aplicativos com alto consumo de Working Set.",
+                    ProbableCause: "Muitos programas estão abertos ao mesmo tempo ou algum deles está usando memória demais.",
                     RecommendedAction: "Feche aplicativos ociosos em segundo plano ou revise itens de inicialização.",
                     RequiresAdminForRepair: false
                 ));
@@ -138,10 +138,10 @@ public class SystemDoctorService
         {
             findings.Add(new SystemDoctorFinding(
                 Category: "Temperaturas",
-                Title: $"Temperatura elevada de CPU ({snapshot.CpuPackageTemp.Value:F1}°C)",
+                Title: $"O processador está muito quente ({snapshot.CpuPackageTemp.Value:F1}°C)",
                 Severity: snapshot.CpuPackageTemp.Value >= 95f ? DiagnosticSeverityLevel.Critico : DiagnosticSeverityLevel.Alto,
                 Evidence: $"CPU {snapshot.CpuModelName ?? "Detectada"} operando a {snapshot.CpuPackageTemp.Value:F1}°C.",
-                ProbableCause: "Fluxo de ar restrito, dissipador obstruído por poeira ou perfil energético agressivo.",
+                ProbableCause: "A refrigeração pode estar insuficiente, com poeira, ventoinha lenta ou configuração de energia muito agressiva.",
                 RecommendedAction: "Verifique a rotação do cooler da CPU e o perfil térmico no Hardware Monitor.",
                 RequiresAdminForRepair: false
             ));
@@ -152,10 +152,10 @@ public class SystemDoctorService
         {
             findings.Add(new SystemDoctorFinding(
                 Category: "Temperaturas GPU",
-                Title: $"Alerta Térmico de GPU ({gpuAudit.Severity})",
+                Title: "A placa de vídeo está aquecendo acima do recomendado",
                 Severity: gpuAudit.Severity == "Critical" ? DiagnosticSeverityLevel.Critico : DiagnosticSeverityLevel.Moderado,
                 Evidence: gpuAudit.Recommendation,
-                ProbableCause: "Delta elevado entre Core e Hotspot ou ventilação insuficiente sob carga.",
+                ProbableCause: "A diferença entre a temperatura principal e o ponto mais quente pode estar alta, ou a refrigeração pode não estar dando conta.",
                 RecommendedAction: "Inspecione a curva de ventoinhas no GPU Health Lab.",
                 RequiresAdminForRepair: false
             ));
@@ -173,7 +173,13 @@ public class SystemDoctorService
 
                 findings.Add(new SystemDoctorFinding(
                     Category: "Eventos Críticos do Windows",
-                    Title: $"Evento {ev.Source} (ID {ev.EventId})",
+                    Title: ev.EventId == 4101
+                        ? "O driver de vídeo parou de responder e foi reiniciado"
+                        : ev.EventId == 41
+                            ? "O Windows registrou um desligamento inesperado"
+                            : ev.Source.Contains("WHEA", StringComparison.OrdinalIgnoreCase)
+                                ? "O Windows registrou um possível erro de hardware"
+                                : "O Windows registrou uma falha importante",
                     Severity: sev,
                     Evidence: $"{ev.TimestampUtc:yyyy-MM-dd HH:mm} UTC — {ev.Message}",
                     ProbableCause: ev.EventId == 4101
@@ -189,9 +195,9 @@ public class SystemDoctorService
         {
             findings.Add(new SystemDoctorFinding(
                 Category: "Integridade do Windows",
-                Title: "Nenhum evento crítico WHEA / Kernel-Power 41 nos últimos 7 dias",
+                Title: "Nenhuma falha crítica recente encontrada",
                 Severity: DiagnosticSeverityLevel.Informativo,
-                Evidence: "Logs de Sistema do Event Viewer verificados sem falhas críticas recentes.",
+                Evidence: "O Windows foi consultado e não apresentou registros críticos nos últimos sete dias.",
                 ProbableCause: "Subsistema de kernel e energia operando com estabilidade.",
                 RecommendedAction: "Verificação preventiva DISM CheckHealth disponível a qualquer momento.",
                 RequiresAdminForRepair: true,
@@ -210,8 +216,8 @@ public class SystemDoctorService
 
         int score = Math.Clamp(100 - penalty, 10, 100);
         string summary = isAdmin
-            ? $"Diagnóstico completo executado com privilégio Administrativo. Índice de Saúde: {score}/100 ({findings.Count} verificações)."
-            : $"Diagnóstico imediato executado em modo leitura (Padrão). Índice de Saúde: {score}/100. Para executar reparos SFC/DISM, confirme elevação UAC.";
+            ? $"Diagnóstico concluído. Saúde do PC: {score}/100. Foram analisados {findings.Count} pontos. Nenhuma configuração foi alterada; reparos só serão executados mediante sua confirmação."
+            : $"Diagnóstico concluído em modo de leitura. Saúde do PC: {score}/100. Foram analisados {findings.Count} pontos e nenhuma configuração foi alterada. Para reparos do Windows, será solicitada autorização de administrador.";
 
         return new SystemDoctorReport(
             AuditedAtUtc: DateTime.UtcNow,
