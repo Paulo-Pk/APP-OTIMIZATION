@@ -57,9 +57,10 @@ class NativeBridgeService {
       path === '/api/software/install' ? 5 * 60 * 1000 :
       path === '/api/presentmon/capture' ? 135 * 1000 :
       path === '/api/debloat/purge' ? 120 * 1000 :
-      path === '/api/snapshot/restore' ? 60 * 1000 :
+      path === '/api/debloat/scan' || path === '/api/snapshot/create' || path === '/api/snapshot/restore' ? 60 * 1000 :
+      path === '/api/drivers' || path === '/api/games/discover' ? 45 * 1000 :
       path === '/api/network/throughput' ? 45 * 1000 :
-      path === '/api/network/game-targets' || path === '/api/network/diagnostics' ? 30 * 1000 :
+      path === '/api/network/game-targets' || path === '/api/network/diagnostics' || path === '/api/tweaks/inspect' ? 30 * 1000 :
       15 * 1000;
 
     // Keep the deadline active while the caller consumes the response body,
