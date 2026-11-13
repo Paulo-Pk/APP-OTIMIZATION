@@ -397,6 +397,9 @@ class NativeBridgeService {
     tempUserBytes: number;
     softwareDistributionBytes: number;
     prefetchBytes: number;
+    deliveryOptimizationBytes: number;
+    werQueueBytes: number;
+    werArchiveBytes: number;
   } | null> {
     if (!this.agentStatus.isConnected) return null;
 
