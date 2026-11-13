@@ -31,7 +31,7 @@ public record RegistryLedgerEntry
 
 public class RegistryLedgerFile
 {
-    public string FormatVersion { get; set; } = "2.5";
+    public string FormatVersion { get; set; } = "2.6";
     public string UpdatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
     public List<RegistryLedgerEntry> Entries { get; set; } = new();
     public string LedgerHmacSha256 { get; set; } = string.Empty;
@@ -114,6 +114,29 @@ public static class RegistryStateLedger
 
     public static string BuildEntryCanonicalString(RegistryLedgerEntry entry)
     {
+        // JSON provides unambiguous field boundaries and escaping for arbitrary Registry strings.
+        // Keep property order explicit: this byte sequence is the authenticated v2.6 contract.
+        return JsonSerializer.Serialize(new
+        {
+            OperationId = entry.OperationId ?? string.Empty,
+            TweakId = (entry.TweakId ?? string.Empty).ToLowerInvariant(),
+            Hive = (entry.Hive ?? string.Empty).ToUpperInvariant(),
+            SubKeyPath = RegistryOptimizer.NormalizeSubKeyPath(entry.SubKeyPath ?? string.Empty).ToLowerInvariant(),
+            ValueName = (entry.ValueName ?? string.Empty).ToLowerInvariant(),
+            OriginalValueKind = entry.OriginalValueKind ?? string.Empty,
+            WasInitiallyAbsent = entry.WasInitiallyAbsent,
+            KeyCreatedByApp = entry.KeyCreatedByApp,
+            OriginalRawValue = entry.OriginalRawValue,
+            AppliedValue = entry.AppliedValue ?? string.Empty,
+            CreatedAtUtc = entry.CreatedAtUtc ?? string.Empty,
+            IsRestored = entry.IsRestored,
+            RestoredAtUtc = entry.RestoredAtUtc
+        });
+    }
+
+    // v2.5 canonical entry format retained only for authenticating and migrating existing files.
+    private static string BuildPreviousEntryCanonicalString(RegistryLedgerEntry entry)
+    {
         return string.Join("|",
             entry.OperationId ?? string.Empty,
             (entry.TweakId ?? string.Empty).ToLowerInvariant(),
@@ -129,6 +152,18 @@ public static class RegistryStateLedger
             entry.IsRestored ? "1" : "0",
             entry.RestoredAtUtc ?? string.Empty
         );
+    }
+
+    private static string BuildPreviousLedgerCanonicalString(IEnumerable<RegistryLedgerEntry> entries)
+    {
+        var sb = new StringBuilder();
+        foreach (var entry in entries.OrderBy(x => x.CreatedAtUtc, StringComparer.Ordinal)
+            .ThenBy(x => x.OperationId, StringComparer.Ordinal))
+        {
+            sb.Append(BuildPreviousEntryCanonicalString(entry)).Append('|')
+              .Append(entry.EntryHmacSha256).Append('\\n');
+        }
+        return sb.ToString();
     }
 
     // Legacy v2.5 canonical form. Used only to verify already-authenticated entries before
@@ -511,24 +546,36 @@ public static class RegistryStateLedger
                 _ledgerSecretKey,
                 BuildLedgerCanonicalString(ledger.Entries),
                 ledger.LedgerHmacSha256);
-            bool legacyLedgerHmacValid = !currentLedgerHmacValid && IntegrityVerifier.VerifyHmacSha256(
+            bool previousLedgerHmacValid = !currentLedgerHmacValid && IntegrityVerifier.VerifyHmacSha256(
                 _ledgerSecretKey,
-                BuildLegacyLedgerCanonicalString(ledger.Entries),
+                BuildPreviousLedgerCanonicalString(ledger.Entries),
                 ledger.LedgerHmacSha256);
+            bool legacyLedgerHmacValid = !currentLedgerHmacValid && !previousLedgerHmacValid &&
+                IntegrityVerifier.VerifyHmacSha256(
+                    _ledgerSecretKey,
+                    BuildLegacyLedgerCanonicalString(ledger.Entries),
+                    ledger.LedgerHmacSha256);
 
-            if (!currentLedgerHmacValid && !legacyLedgerHmacValid)
+            if (!currentLedgerHmacValid && !previousLedgerHmacValid && !legacyLedgerHmacValid)
             {
                 errorMessage = "Assinatura HMAC-SHA256 global do Ledger inválida (adulteração detectada).";
                 return null;
             }
 
-            // A valid v2.5 global signature authenticates the old canonical form. Rewrite it
-            // only after every legacy entry has independently passed its own HMAC check.
-            bool migratedLegacyEntries = legacyLedgerHmacValid;
+            bool migratedLegacyEntries = previousLedgerHmacValid || legacyLedgerHmacValid;
             foreach (var entry in ledger.Entries)
             {
                 if (VerifyEntryHmac(entry))
                     continue;
+
+                bool previousEntryValid = IntegrityVerifier.VerifyHmacSha256(
+                    _ledgerSecretKey, BuildPreviousEntryCanonicalString(entry), entry.EntryHmacSha256);
+                if (previousEntryValid)
+                {
+                    entry.EntryHmacSha256 = ComputeEntryHmac(entry);
+                    migratedLegacyEntries = true;
+                    continue;
+                }
 
                 if (!VerifyLegacyEntryHmac(entry))
                 {
@@ -536,7 +583,7 @@ public static class RegistryStateLedger
                     return null;
                 }
 
-                // RestoredAtUtc was not authenticated in v2.5. Do not trust its legacy value.
+                // RestoredAtUtc was not authenticated by the legacy v2.5 form. Do not trust it.
                 entry.RestoredAtUtc = null;
                 entry.EntryHmacSha256 = ComputeEntryHmac(entry);
                 migratedLegacyEntries = true;
