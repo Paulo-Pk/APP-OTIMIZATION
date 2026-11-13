@@ -2,10 +2,6 @@ import React, { useState } from 'react';
 import {
   Zap,
   RotateCcw,
-  Shield,
-  CheckCircle,
-  AlertTriangle,
-  Flame,
   Filter,
   Check,
 } from 'lucide-react';
@@ -13,8 +9,6 @@ import {
   SystemTweak,
   OptimizationLevel,
   TweakCategory,
-  RiskLevel,
-  RestoreItem,
 } from '../../types';
 import { useI18n } from '../../i18n';
 
