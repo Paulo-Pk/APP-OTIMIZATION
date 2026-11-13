@@ -1,72 +1,86 @@
+using System;
+using System.IO;
+using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows;
-using System.Runtime.InteropServices;
-using System.Windows.Interop;
+using Microsoft.Web.WebView2.Core;
 using PCControlUltimate.App.ViewModels;
 
 namespace PCControlUltimate.App;
 
 public partial class MainWindow : Window
 {
-    public MainWindow(MainViewModel viewModel)
+    private const string AppHost = "app.pccontrol.local";
+    private readonly string _agentSessionToken;
+
+    public MainWindow(MainViewModel viewModel, string agentSessionToken)
     {
         InitializeComponent();
         DataContext = viewModel;
-        Loaded += (_, _) => ApplyWindows11PurpleFrame();
+        _agentSessionToken = agentSessionToken ?? string.Empty;
+        Loaded += async (_, _) => await InitializeWebViewAsync();
     }
 
-    private void PeripheralTestArea_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        if (sender is not System.Windows.Controls.Border area || area.DataContext is not MainViewModel viewModel) return;
-        var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
-        viewModel.RecordPeripheralKey(key.ToString());
-        e.Handled = true;
-    }
-
-    private void PeripheralTestArea_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (sender is not System.Windows.Controls.Border area || area.DataContext is not MainViewModel viewModel) return;
-        System.Windows.Input.Keyboard.Focus(area);
-        viewModel.RecordPeripheralMouseButton(e.ChangedButton.ToString());
-    }
-
-    private void PeripheralTestArea_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (sender is System.Windows.Controls.Border area && area.DataContext is MainViewModel viewModel)
-            viewModel.RecordPeripheralMouseMove();
-    }
-
-    private void PeripheralTestArea_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
-    {
-        if (sender is System.Windows.Controls.Border area && area.DataContext is MainViewModel viewModel)
-            viewModel.RecordPeripheralMouseWheel();
-    }
-
-    private void ApplyWindows11PurpleFrame()
+    private async Task InitializeWebViewAsync()
     {
         try
         {
-            IntPtr hwnd = new WindowInteropHelper(this).Handle;
-            if (hwnd == IntPtr.Zero) return;
-            // DWMWA_BORDER_COLOR (34) accepts a COLORREF in 0x00BBGGRR order.
-            uint purpleColorRef = 0x00EA3393;
-            _ = DwmSetWindowAttribute(hwnd, 34, ref purpleColorRef, sizeof(uint));
-            // DWMWA_WINDOW_CORNER_PREFERENCE (33): DWMWCP_ROUND (2).
-            int roundedCorners = 2;
-            _ = DwmSetWindowAttribute(hwnd, 33, ref roundedCorners, sizeof(int));
+            string webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+            string entryPoint = Path.Combine(webRoot, "index.html");
+            if (!File.Exists(entryPoint))
+            {
+                ShowStartupError("A interface React não foi incluída nesta compilação. Execute primeiro o build do frontend (bun run build) e depois compile o aplicativo Windows.");
+                return;
+            }
+
+            string userData = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PCControlUltimate", "WebView2");
+            Directory.CreateDirectory(userData);
+
+            var environment = await CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null,
+                userDataFolder: userData);
+            await AppWebView.EnsureCoreWebView2Async(environment);
+
+            AppWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            AppWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            AppWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            AppWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            AppWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                AppHost, webRoot, CoreWebView2HostResourceAccessKind.DenyCors);
+
+            // Only the bundled first-party app is allowed to navigate inside the WebView.
+            AppWebView.CoreWebView2.NavigationStarting += (_, args) =>
+            {
+                if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var target) ||
+                    !string.Equals(target.Host, AppHost, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(target.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                {
+                    args.Cancel = true;
+                }
+            };
+
+            // Inject the short-lived DPAPI-backed agent session token before React modules execute.
+            string tokenLiteral = JsonSerializer.Serialize(_agentSessionToken);
+            await AppWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                $"window.__PCCONTROL_AGENT_TOKEN__ = {tokenLiteral};");
+
+            AppWebView.CoreWebView2.ProcessFailed += (_, _) =>
+                Dispatcher.Invoke(() => ShowStartupError("A interface foi interrompida pelo WebView2. Feche e abra o PC Control Ultimate novamente."));
+
+            AppWebView.Source = new Uri($"https://{AppHost}/index.html");
+            StartupOverlay.Visibility = Visibility.Collapsed;
         }
-        catch
+        catch (Exception ex)
         {
-            // Older Windows versions may not support DWM accent attributes; keep native frame.
+            ShowStartupError($"Não foi possível iniciar a interface integrada: {ex.Message}");
         }
     }
 
-    [DllImport("dwmapi.dll", PreserveSig = true)]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref uint value, int valueSize);
-
-    [DllImport("dwmapi.dll", EntryPoint = "DwmSetWindowAttribute", PreserveSig = true)]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
-
-    public MainWindow() : this(new MainViewModel())
+    private void ShowStartupError(string message)
     {
+        StartupOverlay.Visibility = Visibility.Visible;
+        StartupStatus.Text = message;
     }
 }
