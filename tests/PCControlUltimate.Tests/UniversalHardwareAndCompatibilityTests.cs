@@ -16,6 +16,21 @@ namespace PCControlUltimate.Tests;
 public class UniversalHardwareAndCompatibilityTests
 {
     [Theory]
+    [InlineData("C:\\", "C:", true)]
+    [InlineData("c:\\", "C:", true)]
+    [InlineData("D:\\", "C:", false)]
+    [InlineData("C:\\", "D:", false)]
+    [InlineData("C:\\", null, false)]
+    [InlineData(null, "C:", false)]
+    public void IsSystemDrive_IdentifiesOnlyTheConfiguredWindowsSystemVolume(
+        string? driveName,
+        string? systemDrive,
+        bool expected)
+    {
+        Assert.Equal(expected, LibreHardwareMonitorWrapper.IsSystemDrive(driveName, systemDrive));
+    }
+
+    [Theory]
     [InlineData("Core (Tctl/Tdie)", 100)]
     [InlineData("CCD1 (Tdie)", 95)]
     [InlineData("Core (Tctl)", 90)]
