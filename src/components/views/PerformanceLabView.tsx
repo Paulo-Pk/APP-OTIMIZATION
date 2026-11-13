@@ -37,11 +37,24 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
       // the user choose a game by its display title instead of knowing its .exe name.
       const gameEntries = (installedGames || []).filter((game) => game.isInstalled && game.executablePath);
       const titleByProcess: Record<string, string> = {};
+      const normalizeGameLabel = (value: string) => value.toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]/g, '');
       for (const game of gameEntries) {
-        const executableName = game.executablePath!.split(/[\\/]/).pop()?.replace(/\.exe$/i, '').toLowerCase();
-        if (executableName) titleByProcess[executableName] = game.title;
+        if (game.executablePath) {
+          const executableName = game.executablePath.split(/[\\/]/).pop()?.replace(/\.exe$/i, '').toLowerCase();
+          if (executableName) titleByProcess[executableName] = game.title;
+        }
       }
-      const matchedGames = visibleProcesses.filter((process) => Boolean(titleByProcess[process.processName.toLowerCase()]));
+      const matchedGames = visibleProcesses.filter((process) => {
+        const processName = process.processName.toLowerCase();
+        if (titleByProcess[processName]) return true;
+        const windowTitle = normalizeGameLabel(process.mainWindowTitle);
+        const matchingInstalledGame = gameEntries.find((game) => {
+          const gameTitle = normalizeGameLabel(game.title);
+          return gameTitle.length >= 4 && windowTitle.includes(gameTitle);
+        });
+        if (matchingInstalledGame) titleByProcess[processName] = matchingInstalledGame.title;
+        return Boolean(matchingInstalledGame);
+      });
       const candidates = matchedGames.length > 0 ? matchedGames : visibleProcesses;
 
       setGameTitlesByProcess(titleByProcess);
