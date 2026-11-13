@@ -270,7 +270,7 @@ export interface DriverInfo {
 export interface SoftwareApp {
   id: string;
   name: string;
-  category: 'Runtimes' | 'Comunicação' | 'Gravação & Streaming' | 'Diagnóstico' | 'Utilitários';
+  category: 'Runtimes' | 'Comunicação' | 'Gravação & Streaming' | 'Diagnóstico' | 'Utilitários' | 'Launchers' | 'Multimídia' | 'Navegadores' | 'Produtividade';
   description: string;
   version: string;
   isInstalled: boolean;
