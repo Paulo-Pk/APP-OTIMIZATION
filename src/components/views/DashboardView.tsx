@@ -98,7 +98,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Physical storage sensor entries may not include volume capacity/free space.
   // Prefer a mounted volume for capacity metrics and keep physical temperature
   // as a separate fallback when the volume itself has no temperature sensor.
-  const primaryDisk = telemetry.disks.find((disk) => disk.capacityGB > 0) ?? telemetry.disks[0];
+  const primaryDisk = telemetry.disks.find((disk) => disk.isSystemDisk && disk.capacityGB > 0)
+    ?? telemetry.disks.find((disk) => disk.capacityGB > 0)
+    ?? telemetry.disks[0];
   const diskTemperature = telemetry.disks.find((disk) => disk.temperature > 0)?.temperature
     ?? (primaryDisk?.temperature || 0);
   const diskUsagePercent = primaryDisk && primaryDisk.capacityGB > 0
