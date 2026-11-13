@@ -73,6 +73,9 @@ jobs:
           $publishDir = "artifacts/publish/win-x64"
           $requiredFiles = @(
             "PCControlUltimate.App.exe",
+            "wwwroot/index.html",
+            "Microsoft.Web.WebView2.Core.dll",
+            "Microsoft.Web.WebView2.Wpf.dll",
             "PCControlUltimate.App.dll",
             "PCControlUltimate.Core.dll",
             "PCControlUltimate.Infrastructure.dll",
