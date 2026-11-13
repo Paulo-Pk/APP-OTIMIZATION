@@ -54,7 +54,8 @@ public static class DiskCleanerEngine
         "temp-windows",
         "temp-user",
         "update-cache",
-        "temp-prefetch"
+        "temp-prefetch",
+        "temp-delivery-optimization"
     };
 
     public static IReadOnlyList<CleanerCategoryMetadata> GetAuthorizedCategories()
@@ -70,7 +71,9 @@ public static class DiskCleanerEngine
             new("update-cache", "Downloads antigos do Windows Update", "Windows Update download cache",
                 GetCategoryPath("update-cache") ?? "", true, true),
             new("temp-prefetch", "Cache de inicialização do Windows (Prefetch)", "Windows Prefetch cache",
-                GetCategoryPath("temp-prefetch") ?? "", true, true)
+                GetCategoryPath("temp-prefetch") ?? "", true, true),
+            new("temp-delivery-optimization", "Cache de Entrega do Windows", "Windows Delivery Optimization cache",
+                GetCategoryPath("temp-delivery-optimization") ?? "", true, true)
         };
     }
 
@@ -86,6 +89,7 @@ public static class DiskCleanerEngine
             "temp-user" => Path.GetTempPath(),
             "update-cache" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SoftwareDistribution", "Download"),
             "temp-prefetch" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch"),
+            "temp-delivery-optimization" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
             _ => null
         };
     }
