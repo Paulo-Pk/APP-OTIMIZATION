@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { nativeBridge } from '../../services/nativeBridge';
 import {
   Globe,
   ShieldCheck,
@@ -63,14 +64,12 @@ export const GameNetworkAcceleratorView: React.FC = () => {
     setError(null);
     try {
       if (selectedGames.length === 0) throw new Error('Selecione ao menos um jogo para medir os endpoints de referência.');
-      const response = await fetch(`/api/network/measure-targets?games=${encodeURIComponent(selectedGames.join(','))}`, { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error(`O servidor de medição respondeu HTTP ${response.status}.`);
+      const data = await nativeBridge.measureGameReferenceTargets(selectedGames) as MeasurementResponse | null;
+      if (!data) {
+        throw new Error('Não foi possível consultar o agente Windows. Verifique a conexão e a autenticação do agente.');
       }
-
-      const data = (await response.json()) as MeasurementResponse;
       if (!Array.isArray(data.results)) {
-        throw new Error('A resposta não contém resultados de medição válidos.');
+        throw new Error('A resposta do agente não contém resultados de medição válidos.');
       }
 
       const measured = data.results;
