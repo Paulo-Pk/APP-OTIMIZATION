@@ -7,7 +7,6 @@ import {
   OptimizationLevel,
 } from './types';
 import { initialTweaks } from './data/defaultTweaks';
-import { initialGames } from './data/defaultGames';
 import { initialHardwareTelemetry } from './services/hardwareService';
 import { exportCompleteSolutionZip, downloadBlob } from './services/solutionExporter';
 import { nativeBridge, NativeAgentStatus } from './services/nativeBridge';
@@ -63,7 +62,7 @@ export default function App() {
       isUndeterminable: true,
     }))
   );
-  const [games, setGames] = useState<GameProfile[]>(initialGames);
+  const [games, setGames] = useState<GameProfile[]>([]);
   const [agentStatus, setAgentStatus] = useState<NativeAgentStatus>(nativeBridge.getStatus());
 
   // Restore records: strictly no fake entries. Loaded from local storage or empty.
@@ -206,6 +205,26 @@ export default function App() {
       clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    if (!agentStatus.isConnected) { setGames([]); return; }
+    let cancelled = false;
+    nativeBridge.discoverInstalledGames().then((found) => {
+      if (cancelled || !found) return;
+      const mapped: GameProfile[] = found
+        .filter((game) => game.isInstalled && game.title && !/\b(dlc|season pass|expansion|add.?on)\b/i.test(game.title))
+        .map((game, index) => ({
+          id: `installed-${game.launcher.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${game.appId || index}`,
+          title: game.title,
+          platform: (["Steam", "Epic", "Epic Games", "Xbox", "GOG", "Ubisoft Connect", "EA app"].includes(game.launcher) ? game.launcher : "Manual") as GameProfile["platform"],
+          executablePath: game.executablePath || "", coverImage: "",
+          processPriority: "Normal", cpuAffinity: "Todos", gpuPreference: "Alto Desempenho", powerProfile: "Equilibrado",
+          monitorFps: true, monitorTemps: true, boostEnabled: false,
+        }));
+      setGames(mapped);
+    });
+    return () => { cancelled = true; };
+  }, [agentStatus.isConnected]);
 
   // Toggle single tweak with authentic Windows Registry catalog verification
   const handleToggleTweak = async (id: string) => {

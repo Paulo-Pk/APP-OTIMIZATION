@@ -318,6 +318,19 @@ class NativeBridgeService {
     }
   }
 
+  public async discoverInstalledGames(): Promise<Array<{ title: string; launcher: string; installLocation: string; appId: string; executablePath: string | null; isInstalled: boolean }> | null> {
+    if (!this.agentStatus.isConnected) return null;
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/games/discover`, { headers: this.getAuthHeaders() });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.games) ? data.games : [];
+    } catch (err) {
+      console.warn("Failed to discover installed games:", err);
+      return null;
+    }
+  }
+
   public async listRunningProcesses(): Promise<Array<{ processId: number; processName: string; mainWindowTitle: string }> | null> {
     if (!this.agentStatus.isConnected) return null;
     try {

@@ -170,7 +170,7 @@ export interface HardwareTelemetry {
 export interface GameProfile {
   id: string;
   title: string;
-  platform: 'Steam' | 'Epic' | 'Xbox' | 'Manual';
+  platform: 'Steam' | 'Epic' | 'Epic Games' | 'Xbox' | 'GOG' | 'Ubisoft Connect' | 'EA app' | 'Manual';
   executablePath: string;
   coverImage: string;
   processPriority: 'Normal' | 'Acima do Normal' | 'Alta' | 'Tempo Real';

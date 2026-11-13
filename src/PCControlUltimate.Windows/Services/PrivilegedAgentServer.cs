@@ -580,6 +580,13 @@ public class PrivilegedAgentServer : IDisposable
                 return;
             }
 
+            if (path == "/api/games/discover" && req.HttpMethod == "GET")
+            {
+                var games = GameNetworkAcceleratorService.DiscoverInstalledGames();
+                await SendJsonAsync(res, new { games, scannedAtUtc = DateTime.UtcNow.ToString("O"), scope = "Supported launcher manifests and registered game catalogs; no full-disk scan." });
+                return;
+            }
+
             if (path == "/api/presentmon/processes" && req.HttpMethod == "GET")
             {
                 var processes = PresentMonSessionParser.ListAvailableProcesses();
