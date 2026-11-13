@@ -187,7 +187,12 @@ public class WingetSoftwareCenterService
         new("WireGuard.WireGuard", "WireGuard for Windows", "WireGuard LLC", SoftwarePackageCategory.FerramentasDeSistema, "Ferramentas de Sistema", "Cliente oficial de túnel VPN criptografado de baixa latência.", "winget", true),
 
         // 14. Personalização
-        new("TranslucentTB.TranslucentTB", "TranslucentTB", "Charles Milette", SoftwarePackageCategory.Personalizacao, "Personalização", "Utilitário leve para personalização da barra de tarefas do Windows.", "winget", false)
+        new("TranslucentTB.TranslucentTB", "TranslucentTB", "Charles Milette", SoftwarePackageCategory.Personalizacao, "Personalização", "Utilitário leve para personalização da barra de tarefas do Windows.", "winget", false),
+        new("ElectronicArts.EADesktop", "EA app", "Electronic Arts", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial para instalar e atualizar jogos da Electronic Arts.", "winget", true),
+        new("Ubisoft.Connect", "Ubisoft Connect", "Ubisoft", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial da Ubisoft para biblioteca, atualizações e serviços dos jogos.", "winget", true),
+        new("GOG.Galaxy", "GOG GALAXY", "GOG", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial para organizar e instalar jogos da biblioteca GOG.", "winget", true),
+        new("Rem0o.FanControl", "Fan Control", "Rem0o", SoftwarePackageCategory.Hardware, "Hardware", "Controle de ventoinhas com curvas personalizadas em hardware compatível.", "winget", true),
+        new("ShareX.ShareX", "ShareX", "ShareX Team", SoftwarePackageCategory.FerramentasDeSistema, "Ferramentas de Sistema", "Captura de tela e gravação de área de trabalho.", "winget", false)
     ];
 
     public IReadOnlyList<WingetSoftwarePackage> SearchCatalog(string? query = null, SoftwarePackageCategory? category = null)

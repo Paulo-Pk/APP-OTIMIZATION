@@ -1552,7 +1552,8 @@ public class MainViewModel : INotifyPropertyChanged
             _presentMonCts?.Cancel();
         });
 
-        RefreshDriversCommand = new RelayCommand(_ => RefreshDriversList());
+        RefreshDriversCommand = new RelayCommand(async _ => await RefreshDriversListAsync());
+        _ = RefreshDriversListAsync();
         RefreshAuditLogsCommand = new RelayCommand(_ => RefreshAuditLogs());
 
         RequestElevationCommand = new RelayCommand(_ =>
@@ -2051,12 +2052,25 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void RefreshDriversList()
+    private async Task RefreshDriversListAsync()
     {
-        InstalledDrivers.Clear();
-        foreach (var drv in DriverScannerService.QuerySignedDrivers())
+        try
         {
-            InstalledDrivers.Add(drv);
+            var drivers = await Task.Run(() => DriverScannerService.QuerySignedDrivers());
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                InstalledDrivers.Clear();
+                foreach (var driver in drivers) InstalledDrivers.Add(driver);
+                StatusMessage = $"Inventário concluído: {InstalledDrivers.Count} driver(s) lido(s) do Windows.";
+            });
+        }
+        catch (Exception ex)
+        {
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                InstalledDrivers.Clear();
+                StatusMessage = $"Não foi possível consultar os drivers instalados: {ex.Message}";
+            });
         }
     }
 

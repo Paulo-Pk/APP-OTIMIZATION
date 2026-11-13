@@ -1421,7 +1421,18 @@
                 <Border Style="{StaticResource CardBorderStyle}">
                     <DataGrid ItemsSource="{Binding VerifiedWingetCatalog}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="500">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Aplicativo" Binding="{Binding Name}" Width="190"/>
+                            <DataGridTemplateColumn Header="Aplicativo" Width="220">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Width="26" Height="26" CornerRadius="6" Background="#24163F" BorderBrush="#7C3AED" BorderThickness="1" Margin="0,0,8,0">
+                                                <TextBlock Text="▣" FontSize="15" Foreground="#C4B5FD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Foreground="#F8FAFC" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="150"/>
                             <DataGridTextColumn Header="Winget ID Oficial" Binding="{Binding PackageId}" Width="210"/>
                             <DataGridTextColumn Header="Publicador" Binding="{Binding Publisher}" Width="160"/>
