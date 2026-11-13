@@ -1838,22 +1838,23 @@ public class MainViewModel : INotifyPropertyChanged
 
                 sw.Stop();
                 long cpuMs = Math.Max(1, sw.ElapsedMilliseconds);
-                int opsScore = (int)Math.Round(250_000.0 / cpuMs * 10.0);
+                long iterationsPerSecond = (long)Math.Round(2_500_000.0 / (cpuMs / 1000.0));
 
                 var memSw = System.Diagnostics.Stopwatch.StartNew();
                 byte[] buffer = new byte[32 * 1024 * 1024];
-                for (int i = 0; i < buffer.Length; i += 64)
+                for (int i = 0; i < buffer.Length; i++)
                     buffer[i] = (byte)(i & 0xFF);
 
                 memSw.Stop();
-                double memBandwidthGbS = Math.Round((32.0 / 1024.0) / Math.Max(0.0005, memSw.Elapsed.TotalSeconds), 2);
-                return (opsScore, cpuMs, memBandwidthGbS, checksum: acc);
+                double bufferSizeGb = buffer.Length / (1024.0 * 1024.0 * 1024.0);
+                double memBandwidthGbS = Math.Round(bufferSizeGb / Math.Max(0.0005, memSw.Elapsed.TotalSeconds), 2);
+                return (iterationsPerSecond, cpuMs, memBandwidthGbS, checksum: acc);
             });
 
             BenchmarkResultSummary = Loc.CurrentCulture == "pt-BR"
-                ? $"CPU: {result.opsScore} pontos ({result.cpuMs} ms) · Memória: {result.memBandwidthGbS:F2} GB/s · Teste local concluído."
-                : $"CPU: {result.opsScore} points ({result.cpuMs} ms) · Memory: {result.memBandwidthGbS:F2} GB/s · Local test completed.";
-            BenchmarkCpuScoreText = result.opsScore.ToString("N0");
+                ? $"CPU: {result.iterationsPerSecond:N0} iterações/s ({result.cpuMs} ms) · Escrita sequencial em RAM: {result.memBandwidthGbS:F2} GB/s · Teste concluído."
+                : $"CPU: {result.iterationsPerSecond:N0} iterations/s ({result.cpuMs} ms) · Sequential RAM write: {result.memBandwidthGbS:F2} GB/s · Test completed.";
+            BenchmarkCpuScoreText = result.iterationsPerSecond.ToString("N0") + " it/s";
             BenchmarkCpuTimeText = result.cpuMs.ToString("N0") + " ms";
             BenchmarkMemoryBandwidthText = result.memBandwidthGbS.ToString("F2") + " GB/s";
         });
