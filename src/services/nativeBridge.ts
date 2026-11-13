@@ -62,13 +62,9 @@ class NativeBridgeService {
       path === '/api/network/game-targets' || path === '/api/network/diagnostics' ? 30 * 1000 :
       15 * 1000;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(url, { ...init, signal: controller.signal });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    // Keep the deadline active while the caller consumes the response body,
+    // not just until the server sends response headers.
+    return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   }
 
   private getAuthHeaders(): Record<string, string> {
