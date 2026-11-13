@@ -197,56 +197,18 @@ public class NetworkDiagnosticsService
     /// </summary>
     public async Task<NetworkDiagnosticsReport> RunRealDiagnosticsAsync(CancellationToken cancellationToken = default)
     {
-        var targetResults = new List<NetworkTargetProbeResult>();
+        // Probe independent endpoints concurrently. The previous sequential implementation
+        // could exceed the native agent's 15-second request deadline when several hosts timed out.
+        var targetTask = Task.WhenAll(
+            DefaultVerifiedEndpoints.Select(endpoint => ProbeEndpointAsync(endpoint, cancellationToken))
+        );
+        var dnsTask = MeasureDnsResolutionAsync("steampowered.com", cancellationToken);
 
-        foreach (var endpoint in DefaultVerifiedEndpoints)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+        await Task.WhenAll(targetTask, dnsTask);
+        cancellationToken.ThrowIfCancellationRequested();
 
-            int epIcmpSent = 3;
-            int epExplicitUnreachable = 0;
-            var epIcmpSamples = new List<double>();
-
-            using (var ping = new Ping())
-            {
-                for (int i = 0; i < epIcmpSent; i++)
-                {
-                    try
-                    {
-                        var reply = await ping.SendPingAsync(endpoint.IpAddress, 1200);
-                        if (reply.Status == IPStatus.Success)
-                        {
-                            epIcmpSamples.Add(reply.RoundtripTime);
-                        }
-                        else if (reply.Status is IPStatus.DestinationHostUnreachable
-                                 or IPStatus.DestinationNetworkUnreachable
-                                 or IPStatus.DestinationUnreachable)
-                        {
-                            epExplicitUnreachable++;
-                        }
-                    }
-                    catch { }
-                }
-            }
-
-            var tcpProbe = await ProbeTcpEndpointAsync(endpoint.IpAddress, endpoint.TcpPort, 1500, cancellationToken);
-
-            var probeOutcome = EvaluateTargetProbeOutcome(
-                endpoint.Name,
-                endpoint.IpAddress,
-                endpoint.TcpPort,
-                epIcmpSent,
-                epIcmpSamples,
-                tcpProbe.State,
-                tcpProbe.LatencyMs,
-                epExplicitUnreachable
-            );
-
-            targetResults.Add(probeOutcome);
-        }
-
-        var dnsProbe = await MeasureDnsResolutionAsync("steampowered.com", cancellationToken);
-
+        var targetResults = await targetTask;
+        var dnsProbe = await dnsTask;
         var report = BuildAggregateReportFromTargets(
             "Multi-Target (Cloudflare / Google / Quad9 / OpenDNS)",
             targetResults,
@@ -256,6 +218,55 @@ public class NetworkDiagnosticsService
 
         RecordHistoryEntry($"[{DateTime.UtcNow:HH:mm:ss} UTC] {report.DiagnosticSummary}");
         return report;
+    }
+
+    private static async Task<NetworkTargetProbeResult> ProbeEndpointAsync(
+        VerifiedDiagnosticEndpoint endpoint,
+        CancellationToken cancellationToken)
+    {
+        const int icmpSent = 3;
+        int explicitUnreachable = 0;
+        var icmpSamples = new List<double>();
+
+        // Run TCP handshake in parallel with the three ICMP samples to keep the
+        // total request comfortably below the local agent's timeout.
+        var tcpTask = ProbeTcpEndpointAsync(endpoint.IpAddress, endpoint.TcpPort, 1500, cancellationToken);
+
+        using (var ping = new Ping())
+        {
+            for (int i = 0; i < icmpSent; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var reply = await ping.SendPingAsync(endpoint.IpAddress, 1200);
+                    if (reply.Status == IPStatus.Success)
+                    {
+                        icmpSamples.Add(reply.RoundtripTime);
+                    }
+                    else if (reply.Status is IPStatus.DestinationHostUnreachable
+                             or IPStatus.DestinationNetworkUnreachable
+                             or IPStatus.DestinationUnreachable)
+                    {
+                        explicitUnreachable++;
+                    }
+                }
+                catch (PingException) { }
+                catch (SocketException) { }
+            }
+        }
+
+        var tcpProbe = await tcpTask;
+        return EvaluateTargetProbeOutcome(
+            endpoint.Name,
+            endpoint.IpAddress,
+            endpoint.TcpPort,
+            icmpSent,
+            icmpSamples,
+            tcpProbe.State,
+            tcpProbe.LatencyMs,
+            explicitUnreachable
+        );
     }
 
     /// <summary>
