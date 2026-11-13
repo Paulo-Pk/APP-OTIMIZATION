@@ -393,7 +393,16 @@ public static class GameNetworkAcceleratorService
         AddMicrosoftStoreGames(games);
         AddXboxGamesFolderGames(games);
 
-        return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+        return games.Values
+            .Where(game => !IsDlcOrNonGameCatalogEntry(game.Title))
+            .Select(game =>
+                string.Equals(game.Launcher, "Steam", StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(game.AppId, @"^\d+$") &&
+                string.IsNullOrWhiteSpace(game.CoverImageUrl)
+                    ? game with { CoverImageUrl = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.AppId}/library_600x900.jpg" }
+                    : game)
+            .OrderBy(game => game.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
     }
 
     private static bool IsDlcOrNonGameCatalogEntry(string title)
