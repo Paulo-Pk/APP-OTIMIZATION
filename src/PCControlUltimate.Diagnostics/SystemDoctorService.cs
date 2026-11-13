@@ -366,3 +366,19 @@ public class SystemDoctorService
             DateTime.UtcNow
         );
     }
+
+    private static bool CheckIsAdministrator()
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}
