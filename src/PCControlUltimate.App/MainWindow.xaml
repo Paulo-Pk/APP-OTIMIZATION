@@ -1512,7 +1512,8 @@
                         <StackPanel>
                             <TextBlock Text="INVENTÁRIO SOMENTE LEITURA DE DRIVERS ASSINADOS (WMI)" FontSize="10" FontWeight="Bold" Foreground="#10B981" Margin="0,0,0,4"/>
                             <TextBlock Text="Driver Center — Auditoria de Assinaturas &amp; Versões" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="Lista drivers instalados no sistema. Por segurança, nunca baixa nem instala pacotes de terceiros silenciosamente." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                            <TextBlock Text="Lista os drivers encontrados pelo Windows. A assinatura é mostrada separadamente do estado de atualização." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                            <TextBlock Text="{Binding DriverScanStatusText}" FontSize="11" Foreground="#A78BFA" Margin="0,6,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
                         <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionPrimaryButton}" Command="{Binding RefreshDriversCommand}">
                             <TextBlock Text="Escanear Drivers Instalados"/>
