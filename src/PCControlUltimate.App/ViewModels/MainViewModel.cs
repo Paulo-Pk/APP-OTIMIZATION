@@ -282,8 +282,8 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isCleanerBusy;
 
     // Network Lab properties
-    private string _networkSummaryText = "Clique em Executar Diagnóstico para medir ICMP, TCP e DNS.";
-    private string _externalThroughputText = "Clique para medir throughput real contra Cloudflare CDN.";
+    private string _networkSummaryText = "Clique em Testar conexão para verificar a resposta de serviços na internet e a resolução de endereços.";
+    private string _externalThroughputText = "Faça o teste de download para medir a velocidade da sua conexão.";
 
     // Game Network Accelerator properties
     private string _acceleratorGameName = "Counter-Strike 2";

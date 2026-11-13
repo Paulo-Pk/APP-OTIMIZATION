@@ -1165,8 +1165,8 @@
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
-                            <TextBlock Text="PROTEÇÃO ANTI-SYMLINK / REPARSE POINT &amp; DRY-RUN OBRIGATÓRIO" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
-                            <TextBlock Text="Debloat &amp; Cleaner — Limpeza Segura de Caches" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="LIMPEZA SEGURA COM VERIFICAÇÃO ANTES DE EXCLUIR" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
+                            <TextBlock Text="Limpeza segura do PC" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="{Binding DebloatSummaryText}" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Grid>
@@ -1175,24 +1175,24 @@
                 <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,18">
                     <StackPanel>
                         <CheckBox IsChecked="{Binding ConfirmCleanerDeletion, Mode=TwoWay}"
-                                  Content="Autorizo a exclusão dos arquivos elegíveis da categoria em que clicar em Limpar."
+                                  Content="Entendi que os arquivos encontrados nas categorias selecionadas serão excluídos."
                                   Foreground="#FBBF24" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,6"
                                   ToolTip="A confirmação é obrigatória. Arquivos em uso, links simbólicos e caminhos fora das categorias autorizadas são preservados."/>
-                        <TextBlock Text="A limpeza é executada pelo agente privilegiado. No cache do Windows Update, o aplicativo não interrompe serviços: arquivos em uso ou bloqueados serão preservados e relatados."
+                        <TextBlock Text="Primeiro confira quantos arquivos podem ser removidos. Arquivos que estiverem em uso ou forem necessários ao Windows serão preservados; o resultado real será mostrado depois da limpeza."
                                    Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
                         <DataGrid ItemsSource="{Binding CleanerCategories}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="360">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Categoria" Binding="{Binding DisplayName}" Width="190"/>
-                                <DataGridTextColumn Header="Diretório Autorizado" Binding="{Binding TargetPath}" Width="*"/>
+                                
                                 <DataGridTextColumn Header="Arquivos" Binding="{Binding ScannedFilesCount}" Width="75"/>
-                                <DataGridTextColumn Header="Estimativa" Binding="{Binding EstimatedBytesFormatted}" Width="100"/>
+                                <DataGridTextColumn Header="Espaço encontrado" Binding="{Binding EstimatedBytesFormatted}" Width="100"/>
                                 <DataGridTextColumn Header="Status" Binding="{Binding LastOperationStatus}" Width="145"/>
-                                <DataGridTextColumn Header="Resultado real" Binding="{Binding RealFreedText}" Width="270"/>
+                                <DataGridTextColumn Header="Espaço liberado de verdade" Binding="{Binding RealFreedText}" Width="270"/>
                                 <DataGridTemplateColumn Header="Operação" Width="230">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" Margin="4,2">
-                                            <Button Content="Simular (Dry-Run)" Style="{StaticResource ActionSecondaryButton}" Padding="8,4" Margin="0,0,6,0"
+                                            <Button Content="Ver o que será limpo" Style="{StaticResource ActionSecondaryButton}" Padding="8,4" Margin="0,0,6,0"
                                                     Command="{Binding DataContext.SimulateDryRunCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                     CommandParameter="{Binding}"
                                                     IsEnabled="{Binding DataContext.CanRunCleanerOperation, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
@@ -1211,7 +1211,7 @@
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Relatório de Auditoria de Arquivos Processados / Ignorados" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <TextBlock Text="Relatório do que foi removido ou preservado" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
                         <ListBox ItemsSource="{Binding CleanerAffectedFilesLog}" Background="#090C14" Foreground="#94A3B8" BorderBrush="#181E2C" Height="160" FontFamily="Consolas" FontSize="11"/>
                     </StackPanel>
                 </Border>
@@ -1226,16 +1226,16 @@
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
-                            <TextBlock Text="SONDAGEM REAL ICMP ECHO + TCP:443 + DNS + THROUGHPUT" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
-                            <TextBlock Text="Network Lab — Diagnóstico de Latência, Jitter &amp; Banda" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="TESTE DE CONEXÃO, VELOCIDADE E RESPOSTA DA INTERNET" FontSize="10" FontWeight="Bold" Foreground="#06B6D4" Margin="0,0,0,4"/>
+                            <TextBlock Text="Internet e rede" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Text="{Binding NetworkSummaryText}" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <Button Style="{StaticResource ActionSecondaryButton}" Command="{Binding RunNetworkDiagCommand}" Margin="0,0,10,0">
-                                <TextBlock Text="Testar Latência &amp; DNS"/>
+                                <TextBlock Text="Testar conexão"/>
                             </Button>
                             <Button Style="{StaticResource ActionPrimaryButton}" Command="{Binding RunExternalThroughputCommand}">
-                                <TextBlock Text="Medir Throughput HTTPS"/>
+                                <TextBlock Text="Testar velocidade de download"/>
                             </Button>
                         </StackPanel>
                     </Grid>
@@ -1244,7 +1244,7 @@
                 <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                     <StackPanel>
                         <CheckBox IsChecked="{Binding ConsentExternalThroughputTest}" Foreground="#E2E8F0" FontSize="12"
-                                  Content="Autorizo o download de payload temporário em memória via CDN pública (Cloudflare Speed) para medição real de banda."/>
+                                  Content="Autorizo baixar temporariamente dados de teste para medir a velocidade da minha internet. Os dados ficam apenas na memória."/>
                         <TextBlock Text="{Binding ThroughputTestResultText}" FontSize="12.5" FontWeight="SemiBold" Foreground="#10B981" Margin="0,8,0,0" FontFamily="Consolas"/>
                     </StackPanel>
                 </Border>
@@ -1258,15 +1258,15 @@
 
                     <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}">
                         <StackPanel>
-                            <TextBlock Text="Endpoints Globais (ICMP RTT, Jitter, Perda e Handshake TCP:443)" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                            <TextBlock Text="Resposta dos serviços testados" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
                             <DataGrid ItemsSource="{Binding NetworkEndpoints}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="280">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Alvo" Binding="{Binding TargetName}" Width="150"/>
                                     <DataGridTextColumn Header="IP" Binding="{Binding HostOrIp}" Width="115"/>
-                                    <DataGridTextColumn Header="RTT Médio (ms)" Binding="{Binding AverageRttMs}" Width="110"/>
-                                    <DataGridTextColumn Header="Jitter (ms)" Binding="{Binding JitterMs}" Width="95"/>
-                                    <DataGridTextColumn Header="Perda (%)" Binding="{Binding PacketLossPercent}" Width="90"/>
-                                    <DataGridTextColumn Header="TCP:443 (ms)" Binding="{Binding TcpHandshakeMs}" Width="*"/>
+                                    <DataGridTextColumn Header="Tempo médio (ms)" Binding="{Binding AverageRttMs}" Width="110"/>
+                                    <DataGridTextColumn Header="Variação (ms)" Binding="{Binding JitterMs}" Width="95"/>
+                                    <DataGridTextColumn Header="Falhas (%)" Binding="{Binding PacketLossPercent}" Width="90"/>
+                                    <DataGridTextColumn Header="Tempo para conectar (ms)" Binding="{Binding TcpHandshakeMs}" Width="*"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </StackPanel>
@@ -1274,7 +1274,7 @@
 
                     <Border Grid.Column="2" Style="{StaticResource CardBorderStyle}">
                         <StackPanel>
-                            <TextBlock Text="Resolução DNS Real" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                            <TextBlock Text="Tempo para localizar endereços" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
                             <DataGrid ItemsSource="{Binding DnsResults}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="280">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Domínio" Binding="{Binding Hostname}" Width="140"/>
