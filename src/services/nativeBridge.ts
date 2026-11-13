@@ -417,8 +417,8 @@ class NativeBridgeService {
   public async purgeRealDebloatDirectory(
     categoryKey: string,
     confirmUpdateCache: boolean = true
-  ): Promise<{ success: boolean; partialSuccess: boolean; freedBytes: number; deletedFilesCount: number; skippedLockedCount: number; errors: string[]; status: string }> {
-    if (!this.agentStatus.isConnected) return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: ['Agente Windows desconectado.'], status: 'Unavailable' };
+  ): Promise<{ success: boolean; partialSuccess: boolean; freedBytes: number; deletedFilesCount: number; skippedLockedCount: number; skippedSymlinksCount: number; errors: string[]; status: string }> {
+    if (!this.agentStatus.isConnected) return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, skippedSymlinksCount: 0, errors: ['Agente Windows desconectado.'], status: 'Unavailable' };
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/debloat/purge`, {
         method: 'POST', headers: this.getAuthHeaders(),
@@ -426,11 +426,11 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        return { success: !!data.success, partialSuccess: !!data.partialSuccess, freedBytes: Number(data.freedBytes) || 0, deletedFilesCount: Number(data.deletedFilesCount) || 0, skippedLockedCount: Number(data.skippedLockedCount) || 0, errors: Array.isArray(data.errors) ? data.errors : [], status: String(data.status || 'Unknown') };
+        return { success: !!data.success, partialSuccess: !!data.partialSuccess, freedBytes: Number(data.freedBytes) || 0, deletedFilesCount: Number(data.deletedFilesCount) || 0, skippedLockedCount: Number(data.skippedLockedCount) || 0, skippedSymlinksCount: Number(data.skippedSymlinksCount) || 0, errors: Array.isArray(data.errors) ? data.errors : [], status: String(data.status || 'Unknown') };
       }
-      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: [`Agente respondeu HTTP ${res.status}.`], status: 'Failed' };
+      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, skippedSymlinksCount: 0, errors: [`Agente respondeu HTTP ${res.status}.`], status: 'Failed' };
     } catch (err: any) {
-      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: [err?.message || 'Falha de comunicação com o agente.'], status: 'Failed' };
+      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, skippedSymlinksCount: 0, errors: [err?.message || 'Falha de comunicação com o agente.'], status: 'Failed' };
     }
   }
 
