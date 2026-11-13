@@ -8,7 +8,11 @@
     <UseWPF>true</UseWPF>
     <LangVersion>latest</LangVersion>
     <RootNamespace>PCControlUltimate.App</RootNamespace>
+    <ApplicationIcon>Assets\pc-control.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\pc-control.ico" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
     <ProjectReference Include="../PCControlUltimate.Infrastructure/PCControlUltimate.Infrastructure.csproj" />

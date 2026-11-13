@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:PCControlUltimate.App.ViewModels"
         Title="PC Control Ultimate — Controle do PC"
+        Icon="pack://application:,,,/Assets/pc-control.ico"
         Height="920" Width="1540" MinHeight="740" MinWidth="1180"
         WindowStartupLocation="CenterScreen"
         Background="#07090E" Foreground="#F8FAFC" FontFamily="Segoe UI Variable Display, Segoe UI">
