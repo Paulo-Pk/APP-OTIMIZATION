@@ -17,7 +17,10 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
 }) => {
   const { t } = useI18n();
 
-  const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
+  const hasCpuTemperature = telemetry.cpu.temperatureAvailable ?? telemetry.cpu.temperature > 0;
+  const hasGpuCoreTemperature = telemetry.gpu.temperatureAvailable ?? telemetry.gpu.temperature > 0;
+  const hasGpuHotspotTemperature = telemetry.gpu.hotspotAvailable ?? telemetry.gpu.hotspot > 0;
+  const hasGpuTemps = hasGpuCoreTemperature && hasGpuHotspotTemperature;
   const hasCpuLoadReading = (telemetry.sensors || []).some((sensor) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.sensorType === 'Load' && /total/i.test(sensor.name) && sensor.isAvailable && sensor.value !== null && Number.isFinite(sensor.value));
   // The native bridge already scopes VRAM readings to the primary GPU adapter.
   // Do not fall back to the unfiltered sensor list here: it contains every GPU
@@ -95,7 +98,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Temperatura da CPU</span>
-            <span className="text-lg font-mono font-bold text-white">{telemetry.cpu.temperature > 0 ? `${telemetry.cpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}</span>
+            <span className="text-lg font-mono font-bold text-white">{hasCpuTemperature ? `${telemetry.cpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}</span>
           </div>
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Frequência da CPU</span>
@@ -180,12 +183,12 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               Temperatura da GPU
             </span>
             <span className="text-base font-mono font-bold text-white">
-              {telemetry.gpu.temperature > 0
+              {hasGpuCoreTemperature
                 ? `${telemetry.gpu.temperature.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
             <span className="text-[10px] text-emerald-400 block mt-0.5">
-              {telemetry.gpu.temperature > 0 ? t.common.good : '--'}
+              {hasGpuCoreTemperature ? t.common.good : '--'}
             </span>
           </div>
 
@@ -194,7 +197,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               Hotspot
             </span>
             <span className="text-base font-mono font-bold text-amber-400">
-              {telemetry.gpu.hotspot > 0
+              {hasGpuHotspotTemperature
                 ? `${telemetry.gpu.hotspot.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
