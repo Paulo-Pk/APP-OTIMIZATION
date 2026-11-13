@@ -37,6 +37,7 @@ public class SystemStabilityAuditor
         int lookbackDays = 7,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int days = Math.Clamp(lookbackDays, 1, 90);
         DateTime cutoffUtc = DateTime.UtcNow.AddDays(-days);
         var events = new List<SystemStabilityEventItem>();
