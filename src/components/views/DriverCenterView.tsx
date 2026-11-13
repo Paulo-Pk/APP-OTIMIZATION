@@ -68,7 +68,7 @@ export const DriverCenterView: React.FC = () => {
         <div className="divide-y divide-slate-800/80">
           {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum driver retornado pelo Windows. Clique em “Escanear drivers instalados” para tentar novamente.</div> : null}
           {drivers.map((driver, idx) => {
-            const isUpToDate = driver.status === 'Atualizado';
+            const hasVerifiedSignature = driver.status.toLowerCase().includes('assinado digitalmente');
 
             return (
               <div
@@ -80,16 +80,16 @@ export const DriverCenterView: React.FC = () => {
                     <span className="font-bold text-white text-sm">{driver.device}</span>
                     <span
                       className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
-                        isUpToDate
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                          : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                        hasVerifiedSignature
+                          ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
                       }`}
                     >
-                      {isUpToDate ? t.driverCenter.statusUpdated : t.driverCenter.statusAvailable}
+                      {driver.status || 'Versão instalada — estado não confirmado'}
                     </span>
                   </div>
                   <div className="text-slate-400 text-[11px]">
-                    {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate})
+                    {driver.category || 'Dispositivo'} · {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate})
                   </div>
                 </div>
 
