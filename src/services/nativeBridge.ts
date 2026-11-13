@@ -133,7 +133,7 @@ class NativeBridgeService {
         const findSensor = (items: any[], type: string, pattern: RegExp) => items.find((s) => String(s.sensorType || '').toLowerCase() === type.toLowerCase() && pattern.test(String(s.name || '')))?.value;
         const numeric = (value: any, fallback = 0) => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : fallback;
         const gpuAdapter = Array.isArray(data.gpuAdapters) ? data.gpuAdapters[0] : null;
-        const cpuClockMhz = numeric(data.cpuClockMhz, numeric(findSensor(cpuSensors, 'Clock', /core/i)));
+        const cpuClockMhz = numeric(data.cpuClockMhz, numeric(findSensor(cpuSensors, 'Clock', /core|cpu|clock/i)));
         const cpuTemp = numeric(data.cpuPackageTemp, numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
         const gpuCoreTemp = numeric(data.gpuCoreTemp, numeric(gpuAdapter?.coreTempC, numeric(findSensor(gpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
         const gpuHotspot = numeric(data.gpuHotspotTemp, numeric(gpuAdapter?.hotspotTempC, numeric(findSensor(gpuSensors, 'Temperature', /hot.?spot|junction/i))));

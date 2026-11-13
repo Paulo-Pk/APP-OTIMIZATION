@@ -18,6 +18,8 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
   const { t } = useI18n();
 
   const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
+  const sensorTypeLabel = (type: string) => ({ Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' }[type] || type);
+  const hardwareTypeLabel = (type: string) => ({ Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' }[type] || type);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -277,6 +279,21 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               </span>
             </div>
           </div>
+        </div>
+
+        <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between"><h3 className="text-xs font-bold text-white uppercase tracking-wider">Leituras dos componentes</h3><span className="text-[11px] text-slate-500">{(telemetry.sensors || []).filter((sensor) => sensor.isAvailable && sensor.value !== null).length} sensores disponíveis</span></div>
+          {(telemetry.sensors || []).filter((sensor) => sensor.isAvailable && sensor.value !== null).length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {(telemetry.sensors || []).filter((sensor) => sensor.isAvailable && sensor.value !== null).map((sensor) => (
+                <div key={sensor.identifier} className="rounded-lg bg-[#0a0c13] border border-slate-800 px-3 py-2">
+                  <div className="text-[10px] text-slate-500">{hardwareTypeLabel(sensor.hardwareType)} · {sensorTypeLabel(sensor.sensorType)}</div>
+                  <div className="text-xs text-slate-300 truncate">{sensor.name}</div>
+                  <div className="text-sm font-mono font-bold text-white">{Number(sensor.value).toFixed(1)} {sensor.unit}</div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-xs text-slate-500">O agente não disponibilizou leituras individuais nesta sessão.</p>}
         </div>
 
         <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
