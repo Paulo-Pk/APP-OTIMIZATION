@@ -533,6 +533,16 @@ public static class RegistrySnapshotEngine
             if (manifest == null || string.IsNullOrWhiteSpace(manifest.SnapshotId) || manifest.Entries == null)
                 return (false, null, "Estrutura JSON do arquivo de backup está corrompida ou inválida.");
 
+            // Only accept snapshot schemas whose semantics are understood by this
+            // restore engine. Missing fields retain their model defaults for legacy files;
+            // explicitly unknown or null values fail closed.
+            if (manifest.FormatVersion is not ("2.0" or CurrentFormatVersion))
+                return (false, manifest.ChecksumSha256,
+                    $"Versão de backup não suportada: {manifest.FormatVersion ?? "(nula)"}.");
+            if (!string.Equals(manifest.SnapshotType, "CatalogRegistrySnapshot", StringComparison.Ordinal))
+                return (false, manifest.ChecksumSha256,
+                    $"Tipo de backup não suportado: {manifest.SnapshotType ?? "(nulo)"}.");
+
             // Validate every entry path against the strict whitelist and reject duplicate
             // targets before any restore can write the same Registry value more than once.
             var seenTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
