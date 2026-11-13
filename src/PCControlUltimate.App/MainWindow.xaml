@@ -1486,12 +1486,12 @@
                 <Border Style="{StaticResource CardBorderStyle}">
                     <DataGrid ItemsSource="{Binding InstalledDrivers}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="500">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Dispositivo" Binding="{Binding DeviceName}" Width="*"/>
-                            <DataGridTextColumn Header="Classe" Binding="{Binding DeviceClass}" Width="140"/>
-                            <DataGridTextColumn Header="Fabricante" Binding="{Binding Manufacturer}" Width="180"/>
-                            <DataGridTextColumn Header="Versão" Binding="{Binding DriverVersion}" Width="140"/>
-                            <DataGridTextColumn Header="Data" Binding="{Binding DriverDate}" Width="115"/>
-                            <DataGridTextColumn Header="Assinado" Binding="{Binding IsSigned}" Width="90"/>
+                            <DataGridTextColumn Header="Dispositivo" Binding="{Binding Device}" Width="*"/>
+                            <DataGridTextColumn Header="Classe" Binding="{Binding Category}" Width="140"/>
+                            <DataGridTextColumn Header="Fabricante" Binding="{Binding Vendor}" Width="180"/>
+                            <DataGridTextColumn Header="Versão" Binding="{Binding InstalledVersion}" Width="140"/>
+                            <DataGridTextColumn Header="Data" Binding="{Binding ReleaseDate}" Width="115"/>
+                            <DataGridTextColumn Header="Assinado" Binding="{Binding Status}" Width="90"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Border>
