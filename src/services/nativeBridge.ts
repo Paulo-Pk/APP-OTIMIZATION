@@ -182,7 +182,7 @@ class NativeBridgeService {
         // temperature or clock sensors remain null instead of being displayed as zero.
         const cpuCoresById = new Map<number, { coreId: number; load: number | null; temp: number | null; frequencyGHz: number | null }>();
         for (const sensor of cpuSensors) {
-          const coreMatch = sensor.name.match(/\\bcore\\s*#?\\s*(\\d+)\\b/i);
+          const coreMatch = sensor.name.match(/\bcore\s*#?\s*(\d+)\b/i);
           if (!coreMatch) continue;
           const coreId = Number(coreMatch[1]);
           if (!Number.isSafeInteger(coreId) || coreId < 0) continue;
@@ -199,7 +199,7 @@ class NativeBridgeService {
           else if (sensorType === 'clock') core.frequencyGHz = value / 1000;
         }
         const cpuCoreList = Array.from(cpuCoresById.values())
-          .filter((core) => core.load !== null)
+          .filter((core): core is { coreId: number; load: number; temp: number | null; frequencyGHz: number | null } => core.load !== null)
           .sort((a, b) => a.coreId - b.coreId);
         const cpuClockMhz = numeric(read(data, 'cpuClockMhz'), cpuClockFallback);
         const cpuTemp = numeric(read(data, 'cpuPackageTemp'), numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
