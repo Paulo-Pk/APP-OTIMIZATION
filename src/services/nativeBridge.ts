@@ -51,6 +51,26 @@ class NativeBridgeService {
     this.listeners.forEach((l) => l(this.agentStatus));
   }
 
+  private async fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+    const path = new URL(url).pathname;
+    const timeoutMs =
+      path === '/api/software/install' ? 5 * 60 * 1000 :
+      path === '/api/presentmon/capture' ? 135 * 1000 :
+      path === '/api/debloat/purge' ? 120 * 1000 :
+      path === '/api/snapshot/restore' ? 60 * 1000 :
+      path === '/api/network/throughput' ? 45 * 1000 :
+      path === '/api/network/game-targets' || path === '/api/network/diagnostics' ? 30 * 1000 :
+      15 * 1000;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   private getAuthHeaders(): Record<string, string> {
     const nonce =
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -122,7 +142,7 @@ class NativeBridgeService {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/telemetry`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/telemetry`, {
         headers: this.getAuthHeaders(),
         signal: controller.signal,
       });
@@ -234,7 +254,7 @@ class NativeBridgeService {
     }
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/inspect`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/tweaks/inspect`, {
         headers: this.getAuthHeaders(),
       });
       const data = await res.json();
@@ -282,7 +302,7 @@ class NativeBridgeService {
 
     try {
       // Security Policy: Send exclusively tweakId and targetValue; backend determines path, valueName, and valueKind from closed catalog
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/apply`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/tweaks/apply`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
@@ -327,7 +347,7 @@ class NativeBridgeService {
     try {
       // Security Policy (Etapa 2): Never send originalValue, valueKind, wasInitiallyAbsent, or keyCreatedByApp from frontend.
       // Backend restores exclusively from its DPAPI+HMAC state ledger or a verified snapshot.
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/restore`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/tweaks/restore`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
@@ -354,7 +374,7 @@ class NativeBridgeService {
   public async discoverInstalledGames(): Promise<Array<{ title: string; launcher: string; installLocation: string; appId: string; executablePath: string | null; isInstalled: boolean }> | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/games/discover`, { headers: this.getAuthHeaders() });
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/games/discover`, { headers: this.getAuthHeaders() });
       if (!res.ok) return null;
       const data = await res.json();
       return Array.isArray(data.games) ? data.games : [];
@@ -367,7 +387,7 @@ class NativeBridgeService {
   public async listRunningProcesses(): Promise<Array<{ processId: number; processName: string; mainWindowTitle: string }> | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/presentmon/processes`, { headers: this.getAuthHeaders() });
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/presentmon/processes`, { headers: this.getAuthHeaders() });
       if (!res.ok) return null;
       const data = await res.json();
       return Array.isArray(data.processes) ? data.processes : [];
@@ -392,7 +412,7 @@ class NativeBridgeService {
     if (!this.agentStatus.isConnected) return null;
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/presentmon/capture`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/presentmon/capture`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({ processName, durationSeconds }),
@@ -430,7 +450,7 @@ class NativeBridgeService {
     }
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/software/install`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/software/install`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({ packageId: packageId.trim(), userConfirmed: true }),
@@ -462,7 +482,7 @@ class NativeBridgeService {
     if (!this.agentStatus.isConnected) return null;
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/debloat/scan`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/debloat/scan`, {
         headers: this.getAuthHeaders(),
       });
       if (res.ok) return await res.json();
@@ -478,7 +498,7 @@ class NativeBridgeService {
   ): Promise<{ success: boolean; partialSuccess: boolean; freedBytes: number; deletedFilesCount: number; skippedLockedCount: number; skippedSymlinksCount: number; errors: string[]; status: string }> {
     if (!this.agentStatus.isConnected) return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, skippedSymlinksCount: 0, errors: ['Agente Windows desconectado.'], status: 'Unavailable' };
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/debloat/purge`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/debloat/purge`, {
         method: 'POST', headers: this.getAuthHeaders(),
         body: JSON.stringify({ categoryKey, confirmUpdateCache }),
       });
@@ -505,7 +525,7 @@ class NativeBridgeService {
     if (!this.agentStatus.isConnected || gameIds.length === 0) return null;
     try {
       const query = encodeURIComponent(gameIds.join(','));
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/network/game-targets?games=${query}`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/network/game-targets?games=${query}`, {
         headers: this.getAuthHeaders(),
       });
       const data = await res.json();
@@ -548,7 +568,7 @@ class NativeBridgeService {
     if (!this.agentStatus.isConnected) return null;
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/network/diagnostics`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/network/diagnostics`, {
         headers: this.getAuthHeaders(),
       });
       if (res.ok) return await res.json();
@@ -561,7 +581,7 @@ class NativeBridgeService {
   public async measureExternalThroughput(): Promise<{ available: boolean; downloadMbps: number | null; error?: string } | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/network/throughput`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/network/throughput`, {
         headers: this.getAuthHeaders(),
       });
       const data = await res.json();
@@ -579,7 +599,7 @@ class NativeBridgeService {
   public async queryInstalledDrivers(): Promise<{ drivers: DriverInfo[]; scanError?: string } | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/drivers`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/drivers`, {
         headers: this.getAuthHeaders(),
       });
       if (res.ok) {
@@ -624,7 +644,7 @@ class NativeBridgeService {
     }
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/create`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/snapshot/create`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({}),
@@ -667,7 +687,7 @@ class NativeBridgeService {
     }
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/snapshot/restore`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/snapshot/restore`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({ filePath: filePathOrId }),
@@ -703,7 +723,7 @@ class NativeBridgeService {
     }
 
     try {
-      const res = await fetch(
+      const res = await this.fetchWithTimeout(
         `${LOCAL_AGENT_URL}/api/snapshot/verify?path=${encodeURIComponent(filePathOrId)}`,
         { headers: this.getAuthHeaders() }
       );
@@ -737,7 +757,7 @@ class NativeBridgeService {
     }
 
     try {
-      const res = await fetch(`${LOCAL_AGENT_URL}/api/display/info`, {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/display/info`, {
         headers: this.getAuthHeaders(),
       });
       if (res.ok) {
