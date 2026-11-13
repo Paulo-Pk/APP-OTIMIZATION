@@ -63,8 +63,8 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
     };
 
     telemetrySamples.current.push({
-      cpuLoad: findAvailableSensor(/^cpu$/i, 'Load', /total|cpu/i),
-      gpuLoad: findAvailableSensor(/^gpu/i, 'Load', /core|gpu|total/i),
+      cpuLoad: findAvailableSensor(/^cpu$/i, 'Load', /total/i),
+      gpuLoad: findAvailableSensor(/^gpu/i, 'Load', /core|total/i),
       cpuTemp: Number.isFinite(telemetry.cpu.temperature) && telemetry.cpu.temperature > 0 ? telemetry.cpu.temperature : null,
       gpuTemp: Number.isFinite(telemetry.gpu.temperature) && telemetry.gpu.temperature > 0 ? telemetry.gpu.temperature : null,
     });
