@@ -513,7 +513,11 @@ public static class GameNetworkAcceleratorService
             Task<string> errorTask = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(15000))
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+                try { process.WaitForExit(5000); } catch { }
+                // Observe both redirected-stream tasks after terminating a timed-out
+                // PowerShell process so no background reads are left unobserved.
+                try { Task.WhenAll(outputTask, errorTask).GetAwaiter().GetResult(); } catch { }
                 return;
             }
 
