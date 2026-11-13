@@ -1963,12 +1963,12 @@ public class MainViewModel : INotifyPropertyChanged
             "OBSProject.OBSStudio" => "obsstudio/FFFFFF",
             "REALiX.HWiNFO" => "hwinfo/FFFFFF",
             "Intel.PresentMon" => "intel/0071C5",
-            "CPUID.CPU-Z" => "cpu/FFFFFF",
-            "TechPowerUp.GPU-Z" => "nvidia/76B900",
+            "CPUID.CPU-Z" => "https://www.google.com/s2/favicons?domain=cpuid.com&sz=64",
+            "TechPowerUp.GPU-Z" => "https://www.google.com/s2/favicons?domain=techpowerup.com&sz=64",
             _ => null
         };
 
-        return string.IsNullOrEmpty(slug) ? string.Empty : $"https://cdn.simpleicons.org/{slug}";
+        return string.IsNullOrEmpty(slug) ? string.Empty : (slug.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? slug : $"https://cdn.simpleicons.org/{slug}");
     }
 
     private void InitializeVerifiedSoftwareCatalog()
