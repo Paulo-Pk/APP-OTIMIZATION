@@ -832,7 +832,7 @@ public class WingetSoftwareCenterService
 
         progress?.Report($"Atualizando {pkg.Name} ({pkg.PackageId})...");
         var (exitCode, output) = await RunWingetCommandAsync(
-            $"upgrade --id \"{pkg.PackageId}\" --exact --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity",
+            $"upgrade --id \"{pkg.PackageId}\" --exact --source {pkg.OfficialSource} --accept-package-agreements --accept-source-agreements --disable-interactivity",
             progress,
             cancellationToken
         );
@@ -928,31 +928,52 @@ public class WingetSoftwareCenterService
             StandardErrorEncoding = Encoding.UTF8
         };
 
+        ct.ThrowIfCancellationRequested();
         using var process = Process.Start(psi);
         if (process == null)
             return (-1, "Não foi possível iniciar o processo winget.exe.");
 
-        var sb = new StringBuilder();
-        while (!process.StandardOutput.EndOfStream)
+        // Drain stderr concurrently with stdout. Reading one redirected stream to
+        // completion before touching the other can deadlock when its OS pipe fills.
+        var standardErrorTask = process.StandardError.ReadToEndAsync(ct);
+        var output = new StringBuilder();
+
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            string? line = await process.StandardOutput.ReadLineAsync(ct);
-            if (!string.IsNullOrWhiteSpace(line))
+            while (true)
             {
-                sb.AppendLine(line);
-                progress?.Report(line.Trim());
+                ct.ThrowIfCancellationRequested();
+                string? line = await process.StandardOutput.ReadLineAsync(ct);
+                if (line == null) break;
+
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    output.AppendLine(line);
+                    progress?.Report(line.Trim());
+                }
             }
+
+            await process.WaitForExitAsync(ct);
+            string standardError = await standardErrorTask;
+            if (!string.IsNullOrWhiteSpace(standardError))
+                output.AppendLine(standardError.Trim());
+
+            return (process.ExitCode, output.ToString().Trim());
         }
-
-        string stdErr = await process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-
-        if (!string.IsNullOrWhiteSpace(stdErr))
+        catch (OperationCanceledException)
         {
-            sb.AppendLine(stdErr.Trim());
-        }
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Preserve the original cancellation result if the process already exited.
+            }
 
-        return (process.ExitCode, sb.ToString().Trim());
+            throw;
+        }
     }
 
     private static bool CheckIsAdministrator()
