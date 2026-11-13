@@ -51,6 +51,20 @@ class NativeBridgeService {
     this.listeners.forEach((l) => l(this.agentStatus));
   }
 
+  private updateStatus(nextStatus: NativeAgentStatus) {
+    const previous = this.agentStatus;
+    const changed =
+      previous.isConnected !== nextStatus.isConnected ||
+      previous.isAuthenticated !== nextStatus.isAuthenticated ||
+      previous.version !== nextStatus.version ||
+      previous.platform !== nextStatus.platform ||
+      previous.isElevated !== nextStatus.isElevated ||
+      previous.agentUrl !== nextStatus.agentUrl;
+
+    this.agentStatus = nextStatus;
+    if (changed) this.notify();
+  }
+
   private async fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
     const path = new URL(url).pathname;
     const timeoutMs =
@@ -98,35 +112,33 @@ class NativeBridgeService {
 
       if (res.ok) {
         const data = await res.json();
-        const isAuthenticated = !!data.isAuthenticated;
+        const isAuthenticated = data.isAuthenticated === true;
 
-        // Rule: Never report "Agente conectado" when communication has not been authenticated!
-        this.agentStatus = {
+        // Never report a connected agent until its status endpoint confirms authentication.
+        this.updateStatus({
           isConnected: isAuthenticated,
           isAuthenticated,
           version: data.version || '2.5.0',
           platform: data.os || 'Windows 10/11 x64',
-          isElevated: !!data.isElevated,
+          isElevated: data.isElevated === true,
           agentUrl: LOCAL_AGENT_URL,
-        };
-        this.notify();
+        });
         return isAuthenticated;
       }
     } catch {
-      // Agent not reachable in browser sandbox
+      // Agent not reachable or its status endpoint did not respond in time.
     } finally {
       clearTimeout(timeoutId);
     }
 
-    this.agentStatus = {
+    this.updateStatus({
       isConnected: false,
       isAuthenticated: false,
       version: null,
       platform: 'Web / Sandbox (Agente Desconectado)',
       isElevated: false,
       agentUrl: LOCAL_AGENT_URL,
-    };
-    this.notify();
+    });
     return false;
   }
 
