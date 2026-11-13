@@ -177,6 +177,30 @@ class NativeBridgeService {
           : gpuSensors;
         const cpuClockCandidates = cpuSensors.filter((sensor: any) => sensor.sensorType.toLowerCase() === 'clock').map((sensor: any) => Number(sensor.value)).filter((value: number) => Number.isFinite(value));
         const cpuClockFallback = cpuClockCandidates.length ? Math.max(...cpuClockCandidates) : 0;
+        // Build per-core readings only from sensors explicitly labeled with a core index.
+        // A core is included only when an actual per-core Load reading exists; missing
+        // temperature or clock sensors remain null instead of being displayed as zero.
+        const cpuCoresById = new Map<number, { coreId: number; load: number | null; temp: number | null; frequencyGHz: number | null }>();
+        for (const sensor of cpuSensors) {
+          const coreMatch = sensor.name.match(/\\bcore\\s*#?\\s*(\\d+)\\b/i);
+          if (!coreMatch) continue;
+          const coreId = Number(coreMatch[1]);
+          if (!Number.isSafeInteger(coreId) || coreId < 0) continue;
+          const sensorType = sensor.sensorType.toLowerCase();
+          let core = cpuCoresById.get(coreId);
+          if (!core) {
+            core = { coreId, load: null, temp: null, frequencyGHz: null };
+            cpuCoresById.set(coreId, core);
+          }
+          const value = Number(sensor.value);
+          if (!Number.isFinite(value)) continue;
+          if (sensorType === 'load') core.load = value;
+          else if (sensorType === 'temperature') core.temp = value;
+          else if (sensorType === 'clock') core.frequencyGHz = value / 1000;
+        }
+        const cpuCoreList = Array.from(cpuCoresById.values())
+          .filter((core) => core.load !== null)
+          .sort((a, b) => a.coreId - b.coreId);
         const cpuClockMhz = numeric(read(data, 'cpuClockMhz'), cpuClockFallback);
         const cpuTemp = numeric(read(data, 'cpuPackageTemp'), numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
         const gpuCoreTemp = numeric(read(data, 'gpuCoreTemp'), numeric(read(gpuAdapter, 'coreTempC'), numeric(findSensor(primaryGpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
@@ -198,7 +222,7 @@ class NativeBridgeService {
           cpu: {
             name: String(read(data, 'cpuModelName') || ''), socket: 'Não informado', temperature: cpuTemp,
             load: numeric(read(data, 'cpuTotalLoad')), frequencyGHz: cpuClockMhz / 1000,
-            cores: 0, threads: 0, powerWatts: numeric(read(data, 'cpuPowerWatts')), voltageV: 0, coreList: [],
+            cores: 0, threads: 0, powerWatts: numeric(read(data, 'cpuPowerWatts')), voltageV: 0, coreList: cpuCoreList,
           },
           gpu: {
             name: String(read(data, 'gpuModelName') || read(gpuAdapter, 'model') || ''), vendor: gpuVendor,
