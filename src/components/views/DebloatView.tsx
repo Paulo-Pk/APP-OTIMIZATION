@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Trash2,
-  HardDrive,
   CheckCircle2,
   AlertTriangle,
-  RotateCcw,
   Sparkles,
   ShieldCheck,
-  Check,
   AlertCircle,
   X,
 } from 'lucide-react';

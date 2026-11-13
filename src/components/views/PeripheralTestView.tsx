@@ -4,10 +4,6 @@ import {
   Mouse,
   Monitor,
   RotateCcw,
-  Sparkles,
-  Maximize2,
-  CheckCircle2,
-  AlertCircle,
   Info,
 } from 'lucide-react';
 import { useI18n } from '../../i18n';

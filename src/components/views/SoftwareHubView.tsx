@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   DownloadCloud,
-  CheckCircle2,
   ExternalLink,
   Download,
   ShieldCheck,
