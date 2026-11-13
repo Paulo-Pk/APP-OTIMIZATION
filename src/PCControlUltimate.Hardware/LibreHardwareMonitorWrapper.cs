@@ -111,7 +111,9 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         try
         {
             // Order hardware so discrete GPUs are listed before integrated GPUs without favoring any specific vendor/model
-            var orderedHardware = new List<IHardware>(_computer.Hardware);
+            var orderedHardware = new List<IHardware>();
+            foreach (var rootHardware in _computer.Hardware)
+                AddHardwareTree(rootHardware, orderedHardware);
             orderedHardware.Sort((a, b) => GetHardwarePriorityScore(b).CompareTo(GetHardwarePriorityScore(a)));
 
             foreach (var hardware in orderedHardware)
@@ -451,6 +453,15 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         if (sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase)) return 60;
 
         return 1;
+    }
+
+    private static void AddHardwareTree(IHardware hardware, List<IHardware> destination)
+    {
+        destination.Add(hardware);
+        // Some CPU/GPU sensor groups are exposed as child hardware nodes by LHM.
+        // Visit them explicitly; reading only the root node silently misses valid temperatures/clocks.
+        foreach (var child in hardware.SubHardware)
+            AddHardwareTree(child, destination);
     }
 
     private static int GetHardwarePriorityScore(IHardware hardware)
