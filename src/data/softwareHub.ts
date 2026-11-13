@@ -137,7 +137,6 @@ export const curatedSoftware: SoftwareApp[] = [
     officialSite: 'https://www.7-zip.org',
     isOfficialVendor: true,
   },
-,
   { id: 'sw-steam', name: 'Steam', category: 'Launchers', description: 'Loja e biblioteca de jogos para PC, com atualizações, nuvem e recursos multiplayer.', version: 'Página oficial', isInstalled: false, installerUrl: 'https://store.steampowered.com/about/', officialSite: 'https://store.steampowered.com', isOfficialVendor: true },
   { id: 'sw-epic', name: 'Epic Games Launcher', category: 'Launchers', description: 'Biblioteca e instalador oficial dos jogos da Epic Games.', version: 'Página oficial', isInstalled: false, installerUrl: 'https://store.epicgames.com/download', officialSite: 'https://www.epicgames.com', isOfficialVendor: true },
   { id: 'sw-ea', name: 'EA app', category: 'Launchers', description: 'Gerencie e instale jogos publicados pela Electronic Arts.', version: 'Página oficial', isInstalled: false, installerUrl: 'https://www.ea.com/ea-app', officialSite: 'https://www.ea.com', isOfficialVendor: true },

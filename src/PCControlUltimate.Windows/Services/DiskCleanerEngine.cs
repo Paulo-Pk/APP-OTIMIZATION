@@ -85,7 +85,7 @@ public static class DiskCleanerEngine
             "temp-windows" => @"C:\Windows\Temp",
             "temp-user" => Path.GetTempPath(),
             "update-cache" => @"C:\Windows\SoftwareDistribution\Download",
-            "temp-prefetch" => @"C:\Windows\Prefetch",
+            "temp-prefetch" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch"),
             _ => null
         };
     }
