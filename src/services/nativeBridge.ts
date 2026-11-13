@@ -479,14 +479,7 @@ class NativeBridgeService {
     }
   }
 
-  public async runRealNetworkDiagnostics(): Promise<{
-    valvePing: number;
-    riotPing: number;
-    cloudflarePing: number;
-    googleDnsPing: number;
-    jitterMs: number;
-    packetLoss: number;
-  } | null> {
+  public async runRealNetworkDiagnostics(): Promise<any | null> {
     if (!this.agentStatus.isConnected) return null;
 
     try {
@@ -498,6 +491,24 @@ class NativeBridgeService {
       // unavailable
     }
     return null;
+  }
+
+  public async measureExternalThroughput(): Promise<{ available: boolean; downloadMbps: number | null; error?: string } | null> {
+    if (!this.agentStatus.isConnected) return null;
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/network/throughput`, {
+        headers: this.getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) return { available: false, downloadMbps: null, error: data?.error || `HTTP ${res.status}` };
+      return {
+        available: Boolean(data.available ?? data.Available),
+        downloadMbps: data.downloadMbps ?? data.DownloadMbps ?? null,
+        error: data.errorReason ?? data.ErrorReason ?? undefined,
+      };
+    } catch (error) {
+      return { available: false, downloadMbps: null, error: error instanceof Error ? error.message : 'Falha de comunicação com o agente.' };
+    }
   }
 
   public async queryInstalledDrivers(): Promise<{ drivers: DriverInfo[]; scanError?: string } | null> {
