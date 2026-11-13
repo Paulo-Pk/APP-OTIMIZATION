@@ -820,7 +820,8 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RegisterSampleVpsNodeCommand { get; }
     public ICommand ApplySafeBoostProfileCommand { get; }
     public ICommand RunBenchmarkCommand { get; }
-    public ICommand RunGpuBenchmarkCommand { get; }\n    public ICommand InstallSoftwareCommand { get; }
+    public ICommand RunGpuBenchmarkCommand { get; }
+    public ICommand InstallSoftwareCommand { get; }
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
 
