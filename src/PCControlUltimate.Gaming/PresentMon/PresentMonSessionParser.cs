@@ -53,9 +53,7 @@ public static class PresentMonSessionParser
         "msBetweenDisplayChange",
         "FrameTime",
         "FrameTimeMs",
-        "MsBetweenPresents",
-        "msCPUBusy",
-        "msGPUBusy"
+        "MsBetweenPresents"
     };
 
     public static IReadOnlyList<PresentMonCaptureResponse> GetSessionHistory() => _sessionHistory.ToArray();
