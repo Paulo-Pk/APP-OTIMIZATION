@@ -1543,15 +1543,15 @@
                                                     <Image Source="{Binding IconUrl}" Stretch="Uniform" Margin="4" ToolTip="{Binding AppName}"/>
                                                 </Grid>
                                             </Border>
-                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Foreground="#F8FAFC" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding AppName}" VerticalAlignment="Center" Foreground="#F8FAFC" TextTrimming="CharacterEllipsis"/>
                                         </StackPanel>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="150"/>
-                            <DataGridTextColumn Header="Winget ID Oficial" Binding="{Binding PackageId}" Width="210"/>
+                            <DataGridTextColumn Header="ID oficial" Binding="{Binding WingetId}" Width="210"/>
                             <DataGridTextColumn Header="Publicador" Binding="{Binding Publisher}" Width="160"/>
-                            <DataGridTextColumn Header="Comando Auditável" Binding="{Binding ExactCommand}" Width="*"/>
+                            <DataGridTextColumn Header="Descrição" Binding="{Binding Description}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Border>
