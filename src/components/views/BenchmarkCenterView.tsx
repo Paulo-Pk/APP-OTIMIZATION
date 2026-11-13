@@ -30,6 +30,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
   const [records, setRecords] = useState<BenchmarkRecord[]>([]);
 
   const [activeTest, setActiveTest] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
   const [progressState, setProgressState] = useState<BenchmarkProgress>({
     status: 'idle',
     progress: 0,
@@ -38,6 +39,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
   const handleRunCpu = async () => {
     setActiveTest('CPU');
+    setTestError(null);
     try {
       const result = await runCpuBenchmark(setProgressState);
       const newRecord: BenchmarkRecord = {
@@ -53,6 +55,8 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         notes: `${result.details} (Teste Sintético Navegador V8)`,
       };
       setRecords((prev) => [newRecord, ...prev]);
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : 'Não foi possível concluir o teste do processador.');
     } finally {
       setActiveTest(null);
     }
@@ -60,6 +64,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
   const handleRunGpu = async () => {
     setActiveTest('GPU');
+    setTestError(null);
     try {
       const result = await runGpuBenchmark(setProgressState);
       const newRecord: BenchmarkRecord = {
@@ -75,6 +80,8 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         notes: `${result.details} (Teste Sintético WebGL2)`,
       };
       setRecords((prev) => [newRecord, ...prev]);
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : 'Não foi possível concluir o teste da placa de vídeo. Verifique se o navegador permite WebGL2.');
     } finally {
       setActiveTest(null);
     }
@@ -82,6 +89,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
   const handleRunRam = async () => {
     setActiveTest('RAM');
+    setTestError(null);
     try {
       const result = await runRamBenchmark(setProgressState);
       const newRecord: BenchmarkRecord = {
@@ -100,6 +108,8 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         notes: `${result.details} (Teste Sintético ArrayBuffer)`,
       };
       setRecords((prev) => [newRecord, ...prev]);
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : 'Não foi possível concluir o teste de memória.');
     } finally {
       setActiveTest(null);
     }
@@ -145,6 +155,26 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
           </p>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-xl border border-purple-500/30 bg-gradient-to-br from-[#171329] to-[#0f121b] p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-purple-300">Processador detectado</div>
+          <div className="mt-2 text-sm font-bold text-white truncate">{telemetry.cpu.name || 'Não identificado'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">Temperatura atual: {telemetry.cpu.temperature > 0 ? telemetry.cpu.temperature.toFixed(1) + '°C' : 'N/D'}</div>
+        </div>
+        <div className="rounded-xl border border-rose-500/30 bg-gradient-to-br from-[#21131a] to-[#0f121b] p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-rose-300">Placa de vídeo detectada</div>
+          <div className="mt-2 text-sm font-bold text-white truncate">{telemetry.gpu.name || 'Não identificada'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">Temperatura: {telemetry.gpu.temperature > 0 ? telemetry.gpu.temperature.toFixed(1) + '°C' : 'N/D'} · Uso: {telemetry.gpu.utilization > 0 ? telemetry.gpu.utilization.toFixed(0) + '%' : 'N/D'}</div>
+        </div>
+        <div className="rounded-xl border border-cyan-500/30 bg-gradient-to-br from-[#10202a] to-[#0f121b] p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Memória RAM</div>
+          <div className="mt-2 text-sm font-bold text-white">{telemetry.ram.totalGB > 0 ? telemetry.ram.totalGB + ' GB' : 'Não identificada'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">Em uso: {telemetry.ram.usedGB > 0 ? telemetry.ram.usedGB.toFixed(1) + ' GB' : 'N/D'}</div>
+        </div>
+      </div>
+
+      {testError && <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">{testError}</div>}
 
       {/* Progress status if test running */}
       {isRunning && (
