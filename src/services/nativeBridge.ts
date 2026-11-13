@@ -268,6 +268,7 @@ class NativeBridgeService {
               interface: /nvme/i.test(model) ? 'NVMe' : /ssd/i.test(model) ? 'SATA SSD' : /hdd|hard disk/i.test(model) ? 'HDD' : 'Outro',
               temperature: numeric(read(drive, 'temperatureC')), capacityGB: numeric(read(drive, 'capacityGb')),
               freeSpaceGB: numeric(read(drive, 'freeSpaceGb')), healthPercent: 0, readSpeedMBs: 0, writeSpeedMBs: 0, smartStatus: 'N/D',
+              isSystemDisk: Boolean(read(drive, 'isSystemDisk')),
             };
           }),
           motherboard: {
