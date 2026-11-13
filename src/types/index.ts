@@ -259,7 +259,7 @@ export interface RestoreItem {
 
 export interface DriverInfo {
   device: string;
-  category: 'GPU' | 'Chipset' | 'Audio' | 'Rede' | 'Armazenamento';
+  category: 'GPU' | 'Chipset' | 'Audio' | 'Rede' | 'Armazenamento' | 'Outros';
   installedVersion: string;
   releaseDate: string;
   vendor: string;
