@@ -1550,10 +1550,18 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="150"/>
-                            <DataGridTextColumn Header="Winget ID Oficial" Binding="{Binding WingetId}" Width="210"/>
-                            <DataGridTextColumn Header="Publicador" Binding="{Binding Publisher}" Width="160"/>
-                            <DataGridTextColumn Header="Comando Auditável" Binding="{Binding CommandLine}" Width="*"/>
+                            <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="125"/>
+                            <DataGridTextColumn Header="Publicador" Binding="{Binding Publisher}" Width="150"/>
+                            <DataGridTextColumn Header="Descrição" Binding="{Binding Description}" Width="*"/>
+                            <DataGridTemplateColumn Header="Ação" Width="110">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="Instalar" Style="{StaticResource ActionPrimaryButton}" Padding="10,4"
+                                                Command="{Binding DataContext.InstallSoftwareCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
                     </StackPanel>
