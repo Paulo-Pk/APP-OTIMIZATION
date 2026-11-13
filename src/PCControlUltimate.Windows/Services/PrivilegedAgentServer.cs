@@ -518,6 +518,7 @@ public class PrivilegedAgentServer : IDisposable
                 var tempUser = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
                 var softDist = DiskCleanerEngine.SimulateCategoryDryRun("update-cache");
                 var prefetch = DiskCleanerEngine.SimulateCategoryDryRun("temp-prefetch");
+                var deliveryOptimization = DiskCleanerEngine.SimulateCategoryDryRun("temp-delivery-optimization");
 
                 await SendJsonAsync(res, new
                 {
@@ -527,7 +528,8 @@ public class PrivilegedAgentServer : IDisposable
                     tempUserBytes = tempUser.EstimatedBytes,
                     softwareDistributionBytes = softDist.EstimatedBytes,
                     prefetchBytes = prefetch.EstimatedBytes,
-                    categories = new[] { d3d, tempWin, tempUser, softDist, prefetch }
+                    deliveryOptimizationBytes = deliveryOptimization.EstimatedBytes,
+                    categories = new[] { d3d, tempWin, tempUser, softDist, prefetch, deliveryOptimization }
                 });
                 return;
             }
