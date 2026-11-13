@@ -40,6 +40,16 @@ interface MeasurementResponse {
 
 export const GameNetworkAcceleratorView: React.FC = () => {
   const [isProbing, setIsProbing] = useState(false);
+  const [selectedGames, setSelectedGames] = useState<string[]>(['cs2', 'valorant']);
+  const gameOptions = [
+    { id: 'cs2', label: 'Counter-Strike 2', publisher: 'Steam' },
+    { id: 'valorant', label: 'VALORANT', publisher: 'Riot Games' },
+    { id: 'fortnite', label: 'Fortnite', publisher: 'Epic Games' },
+    { id: 'apex', label: 'Apex Legends', publisher: 'EA' },
+    { id: 'lol', label: 'League of Legends', publisher: 'Riot Games' },
+    { id: 'r6', label: 'Rainbow Six Siege', publisher: 'Ubisoft' },
+    { id: 'rocketleague', label: 'Rocket League', publisher: 'Epic Games' },
+  ];
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [results, setResults] = useState<TargetMeasurement[]>([]);
   const [summary, setSummary] = useState('Nenhuma medição executada nesta sessão.');
@@ -52,7 +62,8 @@ export const GameNetworkAcceleratorView: React.FC = () => {
     setIsProbing(true);
     setError(null);
     try {
-      const response = await fetch('/api/network/measure-targets', { cache: 'no-store' });
+      if (selectedGames.length === 0) throw new Error('Selecione ao menos um jogo para medir os endpoints de referência.');
+      const response = await fetch(`/api/network/measure-targets?games=${encodeURIComponent(selectedGames.join(','))}`, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error(`O servidor de medição respondeu HTTP ${response.status}.`);
       }
@@ -102,12 +113,29 @@ export const GameNetworkAcceleratorView: React.FC = () => {
 
         <button
           onClick={handleEvaluateRoute}
-          disabled={isProbing}
+          disabled={isProbing || selectedGames.length === 0}
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40 disabled:opacity-50"
         >
           <Play className="w-4 h-4 fill-current" />
           <span>{isProbing ? 'Medindo endpoints...' : 'Executar diagnóstico TCP'}</span>
         </button>
+      </div>
+
+      <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-white">Selecione os jogos para verificar</h2>
+          <span className="text-[11px] text-slate-400">{selectedGames.length} selecionado(s)</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {gameOptions.map((game) => (
+            <label key={game.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer ${selectedGames.includes(game.id) ? 'border-purple-500/50 bg-purple-500/10 text-white' : 'border-slate-800 bg-[#0a0c13] text-slate-300'}`}>
+              <input type="checkbox" checked={selectedGames.includes(game.id)} onChange={(e) => setSelectedGames((previous) => e.target.checked ? [...previous, game.id] : previous.filter((id) => id !== game.id))} />
+              <span className="text-xs font-semibold">{game.label}</span>
+              <span className="ml-auto text-[10px] text-slate-500">{game.publisher}</span>
+            </label>
+          ))}
+        </div>
+        <p className="text-[11px] text-slate-500">Os testes usam endereços públicos de referência dos serviços dos jogos. Não são os servidores da partida e não substituem ping UDP/ICMP do jogo.</p>
       </div>
 
       <div className="p-4 rounded-xl bg-[#0e121e] border border-amber-500/30 text-xs text-amber-200 leading-relaxed flex items-start gap-3">

@@ -81,9 +81,6 @@ export const WindowsTweaksView: React.FC<WindowsTweaksViewProps> = ({
           </div>
           <h1 className="text-xl font-black text-white mt-0.5">Ajustes do Windows</h1>
           <p className="text-xs text-slate-300 mt-1">Escolha apenas o que você entende. Cada opção explica o que muda, o possível benefício e os riscos antes de aplicar.</p>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
-            {t.windowsTweaks.description}
-          </p>
         </div>
 
         <div className="flex items-center gap-2">

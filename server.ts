@@ -50,7 +50,7 @@ async function startServer() {
       port: number;
     }
 
-    const targets: TargetConfig[] = [
+    const defaultTargets: TargetConfig[] = [
       { id: 'sp', server: 'Valve CS2 / Steam Cluster (América do Sul)', location: 'São Paulo, BR', host: 'steampowered.com', port: 443 },
       { id: 'santiago', server: 'Riot Games Valorant Cluster (América do Sul)', location: 'Santiago, CL', host: 'riotgames.com', port: 443 },
       { id: 'miami', server: 'Epic Games / AWS us-east-1 (América do Norte)', location: 'Miami / Virginia, EUA', host: 'epicgames.com', port: 443 },
@@ -58,6 +58,20 @@ async function startServer() {
       { id: 'cf-dns', server: 'Cloudflare Edge Anycast (TCP 443)', location: 'Anycast Global', host: '1.1.1.1', port: 443 },
       { id: 'google-dns', server: 'Google Public Edge (TCP 443)', location: 'Anycast Global', host: '8.8.8.8', port: 443 },
     ];
+
+    const gameReferenceTargets: Record<string, TargetConfig> = {
+      cs2: { id: 'game-cs2', server: 'Counter-Strike 2 · referência Steam', location: 'Endpoint público Steam', host: 'steampowered.com', port: 443 },
+      valorant: { id: 'game-valorant', server: 'VALORANT · referência Riot Games', location: 'Endpoint público Riot', host: 'riotgames.com', port: 443 },
+      fortnite: { id: 'game-fortnite', server: 'Fortnite · referência Epic Games', location: 'Endpoint público Epic', host: 'epicgames.com', port: 443 },
+      apex: { id: 'game-apex', server: 'Apex Legends · referência EA', location: 'Endpoint público EA', host: 'ea.com', port: 443 },
+      lol: { id: 'game-lol', server: 'League of Legends · referência Riot', location: 'Endpoint público Riot', host: 'leagueoflegends.com', port: 443 },
+      r6: { id: 'game-r6', server: 'Rainbow Six Siege · referência Ubisoft', location: 'Endpoint público Ubisoft', host: 'ubisoft.com', port: 443 },
+      rocketleague: { id: 'game-rocketleague', server: 'Rocket League · referência oficial', location: 'Endpoint público Rocket League', host: 'rocketleague.com', port: 443 },
+    };
+    const selectedGameIds = String(_req.query.games || '').split(',').map((id) => id.trim()).filter(Boolean);
+    const targets: TargetConfig[] = selectedGameIds.length
+      ? selectedGameIds.map((id) => gameReferenceTargets[id]).filter((target): target is TargetConfig => !!target)
+      : defaultTargets;
 
     const measureHost = (target: TargetConfig) => {
       return new Promise<{
