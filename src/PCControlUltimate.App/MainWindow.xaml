@@ -1132,9 +1132,10 @@
                     </StackPanel>
                 </Border>
 
-                <Border Style="{StaticResource CardBorderStyle}">
+                <Expander Header="Detalhes avançados do aplicativo (opcional)" IsExpanded="False" Foreground="#C4B5FD" FontWeight="SemiBold" Margin="0,8,0,0">
+                    <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Matriz Auditável de Capacidades Reais dos 17 Módulos" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
+                        <TextBlock Text="Informações técnicas dos módulos" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
                         <DataGrid ItemsSource="{Binding ModuleCapabilityMatrix}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="470">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="#" Binding="{Binding ModuleNumber}" Width="45"/>
