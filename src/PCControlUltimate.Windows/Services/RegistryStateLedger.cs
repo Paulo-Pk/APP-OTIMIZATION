@@ -109,6 +109,9 @@ public static class RegistryStateLedger
     {
         try
         {
+            // Serialize first-run key creation across application processes.
+            using var processLock = AcquireCrossProcessLock();
+
             // Never rotate an existing but unreadable key: doing so would permanently orphan
             // the authenticated recovery history. Create a key only on first use.
             if (File.Exists(LedgerKeyFilePath))
