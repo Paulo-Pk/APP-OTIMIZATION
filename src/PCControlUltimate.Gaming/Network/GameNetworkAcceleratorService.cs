@@ -228,6 +228,17 @@ public static class GameNetworkAcceleratorService
         return true;
     }
 
+    private static bool IsMainGameTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+
+        // Exclude separately catalogued add-ons while keeping normal editions of base games.
+        return !Regex.IsMatch(
+            title,
+            @"\b(dlc|season\s*pass|expansion(?:\s*pass|\s*pack)?|add[\s-]?on|content\s*pack|soundtrack|original\s*soundtrack|ost|supporter\s*pack|upgrade\s*pack|cosmetic\s*pack|bonus\s*content|artbook|map\s*pack|character\s*pack|mission\s*pack|story\s*pack|starter\s*pack|demo|playtest)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
     /// <summary>
     /// Discovers installed games from supported Steam and Epic manifests plus GOG, Ubisoft Connect, and EA registry catalogs. No full-disk scan.
     /// </summary>
@@ -236,7 +247,7 @@ public static class GameNetworkAcceleratorService
         var games = new Dictionary<string, InstalledGameEntry>(StringComparer.OrdinalIgnoreCase);
         void Add(InstalledGameEntry game)
         {
-            if (!string.IsNullOrWhiteSpace(game.Title) && !string.IsNullOrWhiteSpace(game.InstallLocation))
+            if (IsMainGameTitle(game.Title) && !string.IsNullOrWhiteSpace(game.InstallLocation))
                 games[game.Launcher + ":" + game.AppId] = game;
         }
 
