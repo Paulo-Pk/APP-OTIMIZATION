@@ -57,7 +57,8 @@ public class PrivilegedAgentServer : IDisposable
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:52194",
-        "http://127.0.0.1:52194"
+        "http://127.0.0.1:52194",
+        "https://app.pccontrol.local"
     };
 
     public PrivilegedAgentServer(int port = DefaultPort) : this(null, port, null)
