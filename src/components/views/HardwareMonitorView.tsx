@@ -18,6 +18,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
   const { t } = useI18n();
 
   const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
+  const hasCpuLoadReading = (telemetry.sensors || []).some((sensor) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.sensorType === 'Load' && /total/i.test(sensor.name) && sensor.isAvailable && sensor.value !== null && Number.isFinite(sensor.value));
   const hasVramUsedReading = telemetry.gpu.vramUsedMB > 0 || (telemetry.sensors || []).some((sensor) =>
     /^gpu/i.test(sensor.hardwareType) &&
     sensor.sensorType === 'SmallData' &&
@@ -48,7 +49,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0e111a] border border-slate-800 text-xs font-mono text-slate-300">
           <span
             className={`w-2 h-2 rounded-full ${
-              telemetry.cpu.cores > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+              (hasCpuLoadReading || telemetry.cpu.temperature > 0 || telemetry.cpu.frequencyGHz > 0) ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
             }`}
           />
           <span>{t.hardwareMonitor.pollingLabel}</span>
@@ -105,7 +106,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           </div>
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Uso da CPU</span>
-            <span className="text-lg font-mono font-bold text-cyan-300">{(telemetry.sensors || []).some((sensor) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.sensorType === 'Load' && /total/i.test(sensor.name) && sensor.isAvailable && sensor.value !== null && Number.isFinite(sensor.value)) ? `${telemetry.cpu.load.toFixed(0)}%` : t.common.sensorNotAvailable}</span>
+            <span className="text-lg font-mono font-bold text-cyan-300">{hasCpuLoadReading ? `${telemetry.cpu.load.toFixed(0)}%` : t.common.sensorNotAvailable}</span>
           </div>
         </div>
 
