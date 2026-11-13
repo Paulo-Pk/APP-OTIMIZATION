@@ -161,7 +161,7 @@ public static class RegistryStateLedger
             .ThenBy(x => x.OperationId, StringComparer.Ordinal))
         {
             sb.Append(BuildPreviousEntryCanonicalString(entry)).Append('|')
-              .Append(entry.EntryHmacSha256).Append('\\n');
+              .Append(entry.EntryHmacSha256).Append('\n');
         }
         return sb.ToString();
     }
