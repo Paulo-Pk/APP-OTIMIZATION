@@ -180,6 +180,12 @@ class NativeBridgeService {
         const gpuSensors = sensors.filter((sensor: any) => /^gpu/i.test(sensor.hardwareType) && hasNumericReading(sensor));
         const findSensor = (items: any[], type: string, pattern: RegExp) => items.find((sensor) => sensor.sensorType.toLowerCase() === type.toLowerCase() && pattern.test(sensor.name))?.value;
         const numeric = (value: any, fallback = 0) => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : fallback;
+        // Preserve a legitimate zero from the first available telemetry source.
+        const firstNumeric = (...values: any[]) => {
+          const value = values.find((candidate) =>
+            candidate !== null && candidate !== undefined && Number.isFinite(Number(candidate)));
+          return value === undefined ? 0 : Number(value);
+        };
         const gpuAdaptersRaw = read(data, 'gpuAdapters');
         const gpuAdapter = Array.isArray(gpuAdaptersRaw) ? gpuAdaptersRaw[0] : null;
         // Sensor snapshots contain readings for every installed GPU. When the primary
@@ -227,12 +233,16 @@ class NativeBridgeService {
         // Some adapters expose dedicated VRAM only as SmallData sensors rather
         // than through the aggregate snapshot fields. Resolve those fallbacks
         // against the primary adapter only; never mix in a secondary GPU.
-        const gpuVramUsed = numeric(read(data, 'gpuVramUsedMb')) ||
-          numeric(read(gpuAdapter, 'vramUsedMb')) ||
-          numeric(findSensor(primaryGpuSensors, 'SmallData', /^(GPU Memory Used|D3D Dedicated Memory Used)$/i));
-        const gpuVramTotal = numeric(read(data, 'gpuVramTotalMb')) ||
-          numeric(read(gpuAdapter, 'vramTotalMb')) ||
-          numeric(findSensor(primaryGpuSensors, 'SmallData', /^(GPU Memory Total|D3D Dedicated Memory Total)$/i));
+        const gpuVramUsed = firstNumeric(
+          read(data, 'gpuVramUsedMb'),
+          read(gpuAdapter, 'vramUsedMb'),
+          findSensor(primaryGpuSensors, 'SmallData', /^(GPU Memory Used|D3D Dedicated Memory Used)$/i),
+        );
+        const gpuVramTotal = firstNumeric(
+          read(data, 'gpuVramTotalMb'),
+          read(gpuAdapter, 'vramTotalMb'),
+          findSensor(primaryGpuSensors, 'SmallData', /^(GPU Memory Total|D3D Dedicated Memory Total)$/i),
+        );
         const gpuFanRpm = numeric(read(data, 'gpuFanRpm'), numeric(read(gpuAdapter, 'fanRpm'), numeric(findSensor(primaryGpuSensors, 'Fan', /fan/i))));
         const ramTotal = numeric(read(data, 'ramTotalGb'));
         const ramUsed = numeric(read(data, 'ramUsedGb'));
