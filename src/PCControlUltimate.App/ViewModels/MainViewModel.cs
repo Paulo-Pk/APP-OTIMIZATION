@@ -355,6 +355,8 @@ public class MainViewModel : INotifyPropertyChanged
     private string _benchmarkCpuScoreText = "—";
     private string _benchmarkCpuTimeText = "—";
     private string _benchmarkMemoryBandwidthText = "—";
+    private string _benchmarkGpuScoreText = "Ainda não testada";
+    private string _benchmarkGpuStatusText = "Teste Direct3D do Windows disponível quando o WinSAT estiver instalado.";
     private string _peripheralCadenceSummary = "Clique na área de teste para conferir as teclas e os botões do mouse.";
     private int _peripheralKeyPressCount;
     private string _peripheralLastKey = "—";
@@ -489,6 +491,8 @@ public class MainViewModel : INotifyPropertyChanged
     public string BenchmarkCpuScoreText { get => _benchmarkCpuScoreText; set { _benchmarkCpuScoreText = value; OnPropertyChanged(); } }
     public string BenchmarkCpuTimeText { get => _benchmarkCpuTimeText; set { _benchmarkCpuTimeText = value; OnPropertyChanged(); } }
     public string BenchmarkMemoryBandwidthText { get => _benchmarkMemoryBandwidthText; set { _benchmarkMemoryBandwidthText = value; OnPropertyChanged(); } }
+    public string BenchmarkGpuScoreText { get => _benchmarkGpuScoreText; set { _benchmarkGpuScoreText = value; OnPropertyChanged(); } }
+    public string BenchmarkGpuStatusText { get => _benchmarkGpuStatusText; set { _benchmarkGpuStatusText = value; OnPropertyChanged(); } }
     public string PeripheralCadenceSummary { get => _peripheralCadenceSummary; set { _peripheralCadenceSummary = value; OnPropertyChanged(); } }
     public int PeripheralKeyPressCount { get => _peripheralKeyPressCount; private set { _peripheralKeyPressCount = value; OnPropertyChanged(); } }
     public string PeripheralLastKey { get => _peripheralLastKey; private set { _peripheralLastKey = value; OnPropertyChanged(); } }
@@ -809,6 +813,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RegisterSampleVpsNodeCommand { get; }
     public ICommand ApplySafeBoostProfileCommand { get; }
     public ICommand RunBenchmarkCommand { get; }
+    public ICommand RunGpuBenchmarkCommand { get; }
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
 
@@ -1888,6 +1893,68 @@ public class MainViewModel : INotifyPropertyChanged
             BenchmarkCpuScoreText = result.iterationsPerSecond.ToString("N0") + " it/s";
             BenchmarkCpuTimeText = result.cpuMs.ToString("N0") + " ms";
             BenchmarkMemoryBandwidthText = result.memBandwidthGbS.ToString("F2") + " GB/s";
+        });
+
+        RunGpuBenchmarkCommand = new RelayCommand(async _ =>
+        {
+            BenchmarkGpuStatusText = "Executando teste gráfico Direct3D do Windows...";
+            BenchmarkGpuScoreText = "Em andamento";
+            try
+            {
+                string winsatPath = System.IO.Path.Combine(Environment.SystemDirectory, "winsat.exe");
+                if (!System.IO.File.Exists(winsatPath))
+                    throw new FileNotFoundException("O componente de avaliação gráfica do Windows (WinSAT) não foi encontrado.");
+
+                var startInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = winsatPath,
+                    Arguments = "graphics -d3d",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+                if (!process.Start())
+                    throw new InvalidOperationException("O Windows não iniciou o teste gráfico.");
+
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+                Task<string> errorTask = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync(timeout.Token);
+                string output = await outputTask;
+                string error = await errorTask;
+                string combined = output + Environment.NewLine + error;
+
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(error)
+                        ? $"O teste gráfico terminou com código {process.ExitCode}."
+                        : error.Trim());
+
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    combined,
+                    @"D3D\s+Batch\s+Performance\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*([^\r\n]*)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                BenchmarkGpuScoreText = match.Success
+                    ? $"{match.Groups[1].Value} {match.Groups[2].Value.Trim()}".Trim()
+                    : "Concluído";
+
+                BenchmarkGpuStatusText = match.Success
+                    ? "Teste Direct3D concluído pelo WinSAT. Resultado sintético; compare somente testes feitos nas mesmas condições."
+                    : "O WinSAT concluiu o teste Direct3D, mas não forneceu uma pontuação reconhecida. Nenhuma pontuação foi inventada.";
+            }
+            catch (OperationCanceledException)
+            {
+                BenchmarkGpuScoreText = "Tempo esgotado";
+                BenchmarkGpuStatusText = "O teste gráfico ultrapassou 60 segundos e foi interrompido.";
+            }
+            catch (Exception ex)
+            {
+                BenchmarkGpuScoreText = "Indisponível";
+                BenchmarkGpuStatusText = $"Não foi possível testar a placa de vídeo: {ex.Message}";
+            }
         });
 
         MeasureInputCadenceCommand = new RelayCommand(_ =>
