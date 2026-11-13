@@ -111,7 +111,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
                     <span>
-                      {core.frequencyGHz > 0 ? `${core.frequencyGHz.toFixed(2)}GHz` : '--'}
+                      {core.frequencyGHz > 0 ? `${Math.round(core.frequencyGHz * 1000).toLocaleString('pt-BR')} MHz` : '--'}
                     </span>
                     <span>{core.temp ? `${core.temp.toFixed(0)}°C` : '--'}</span>
                   </div>

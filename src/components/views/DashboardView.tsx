@@ -165,7 +165,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="text-slate-500 block text-[10px]">{t.dashboard.frequency}</span>
               <span className="font-mono font-semibold text-slate-200">
                 {telemetry.cpu.frequencyGHz > 0
-                  ? `${telemetry.cpu.frequencyGHz.toFixed(2)} GHz`
+                  ? `${Math.round(telemetry.cpu.frequencyGHz * 1000).toLocaleString('pt-BR')} MHz`
                   : t.common.sensorNotAvailable}
               </span>
             </div>
