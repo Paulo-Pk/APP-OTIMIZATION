@@ -383,7 +383,25 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.success) return data;
+        if (data.success) {
+          // The Windows agent returns PresentMonCaptureResponse.Summary, not flat FPS fields.
+          // Normalize camelCase and PascalCase so the UI always receives real calculated metrics.
+          const summary = data.summary ?? data.Summary ?? {};
+          const readNumber = (...values: unknown[]) => {
+            const value = values.find((item) => item !== undefined && item !== null);
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          return {
+            avgFps: readNumber(summary.averageFps, summary.AverageFps, data.avgFps, data.AvgFps),
+            minFps: readNumber(summary.minFps, summary.MinFps, data.minFps, data.MinFps),
+            onePercentLow: readNumber(summary.onePercentLowFps, summary.OnePercentLowFps, data.onePercentLow, data.OnePercentLow),
+            frametimeAvgMs: readNumber(summary.averageFrametimeMs, summary.AverageFrametimeMs, data.frametimeAvgMs, data.FrametimeAvgMs),
+            frametimeStDevMs: readNumber(summary.frametimeStandardDeviationMs, summary.FrametimeStandardDeviationMs, data.frametimeStDevMs, data.FrametimeStDevMs),
+            capturedFrames: readNumber(summary.totalFramesCount, summary.TotalFramesCount, data.capturedFrames, data.CapturedFrames),
+            error: data.errorMessage ?? data.ErrorMessage,
+          };
+        }
       }
     } catch (err) {
       console.warn('PresentMon capture native error:', err);
