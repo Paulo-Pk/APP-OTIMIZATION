@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Gauge,
   Activity,
@@ -6,11 +6,13 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-import { PresentMonSession } from '../../types';
+import { HardwareTelemetry, PresentMonSession } from '../../types';
 import { useI18n } from '../../i18n';
 import { nativeBridge } from '../../services/nativeBridge';
 
-export const PerformanceLabView: React.FC = () => {
+interface PerformanceLabViewProps { telemetry: HardwareTelemetry; }
+
+export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetry }) => {
   const { t } = useI18n();
   // Strictly empty until a real PresentMon capture is completed via the Windows Agent
   const [sessions, setSessions] = useState<PresentMonSession[]>([]);
@@ -40,41 +42,64 @@ export const PerformanceLabView: React.FC = () => {
   const [durationSec, setDurationSec] = useState<number>(10);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const telemetrySamples = useRef<Array<{ cpuLoad: number; gpuLoad: number; cpuTemp: number; gpuTemp: number }>>([]);
+
+  useEffect(() => {
+    if (!isRecording) return;
+    telemetrySamples.current.push({
+      cpuLoad: Number(telemetry.cpu.load) || 0,
+      gpuLoad: Number(telemetry.gpu.load) || 0,
+      cpuTemp: Number(telemetry.cpu.temperature) || 0,
+      gpuTemp: Number(telemetry.gpu.temperature) || 0,
+    });
+  }, [telemetry, isRecording]);
 
   const handleStartCapture = async () => {
     if (!selectedProcess) {
       setStatusMessage('Selecione um jogo ou processo em execução antes de iniciar a captura.');
       return;
     }
+
+    telemetrySamples.current = [];
     setIsRecording(true);
     setStatusMessage(t.performanceLab.initializingHook);
 
-    const nativeResult = await nativeBridge.runPresentMonCapture(selectedProcess, durationSec);
-    if (nativeResult && nativeResult.capturedFrames > 0) {
-      const newSession: PresentMonSession = {
-        id: `session-${Date.now()}`,
-        gameTitle: `${selectedProcess} (PresentMon Real)`,
-        date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        durationSeconds: durationSec,
-        avgFps: nativeResult.avgFps,
-        minFps: nativeResult.minFps ?? 0,
-        onePercentLow: nativeResult.onePercentLow,
-        pointOnePercentLow: 0,
-        frametimeAvgMs: nativeResult.frametimeAvgMs,
-        frametimeStDevMs: nativeResult.frametimeStDevMs,
-        cpuLoadAvg: 0,
-        gpuLoadAvg: 0,
-        cpuTempAvg: 0,
-        gpuTempAvg: 0,
-        isOptimized: true,
-      };
-      setSessions((prev) => [newSession, ...prev]);
-      setStatusMessage(t.performanceLab.captureSuccess);
-    } else {
-      setStatusMessage(t.performanceLab.agentRequiredPresentMon);
-    }
+    try {
+      const nativeResult = await nativeBridge.runPresentMonCapture(selectedProcess, durationSec);
+      if (nativeResult && nativeResult.capturedFrames > 0) {
+        const samples = telemetrySamples.current;
+        const average = (key: 'cpuLoad' | 'gpuLoad' | 'cpuTemp' | 'gpuTemp') => {
+          const values = samples.map((sample) => sample[key]).filter((value) => Number.isFinite(value) && value > 0);
+          return values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : 0;
+        };
 
-    setIsRecording(false);
+        const newSession: PresentMonSession = {
+          id: `session-${Date.now()}`,
+          gameTitle: `${selectedProcess} (PresentMon Real)`,
+          date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          durationSeconds: durationSec,
+          avgFps: nativeResult.avgFps,
+          minFps: nativeResult.minFps ?? 0,
+          onePercentLow: nativeResult.onePercentLow,
+          pointOnePercentLow: 0,
+          frametimeAvgMs: nativeResult.frametimeAvgMs,
+          frametimeStDevMs: nativeResult.frametimeStDevMs,
+          cpuLoadAvg: average('cpuLoad'),
+          gpuLoadAvg: average('gpuLoad'),
+          cpuTempAvg: average('cpuTemp'),
+          gpuTempAvg: average('gpuTemp'),
+          isOptimized: false,
+        };
+        setSessions((prev) => [newSession, ...prev]);
+        setStatusMessage(t.performanceLab.captureSuccess);
+      } else {
+        setStatusMessage(t.performanceLab.agentRequiredPresentMon);
+      }
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? `Não foi possível concluir a captura: ${error.message}` : 'Não foi possível concluir a captura PresentMon.');
+    } finally {
+      setIsRecording(false);
+    }
   };
 
   return (
@@ -196,6 +221,22 @@ export const PerformanceLabView: React.FC = () => {
                     {t.performanceLab.frametimeJitter}
                   </span>
                   <span className="text-xl font-bold text-cyan-300">±{s.frametimeStDevMs} ms</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Uso médio da CPU</span>
+                  <span className="text-xl font-bold text-purple-300">{s.cpuLoadAvg > 0 ? `${s.cpuLoadAvg}%` : 'N/D'}</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Uso médio da GPU</span>
+                  <span className="text-xl font-bold text-cyan-300">{s.gpuLoadAvg > 0 ? `${s.gpuLoadAvg}%` : 'N/D'}</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Temperatura média da CPU</span>
+                  <span className="text-xl font-bold text-amber-300">{s.cpuTempAvg > 0 ? `${s.cpuTempAvg}°C` : 'N/D'}</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Temperatura média da GPU</span>
+                  <span className="text-xl font-bold text-rose-300">{s.gpuTempAvg > 0 ? `${s.gpuTempAvg}°C` : 'N/D'}</span>
                 </div>
               </div>
             </div>
