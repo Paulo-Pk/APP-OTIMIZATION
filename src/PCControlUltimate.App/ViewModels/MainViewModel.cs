@@ -1624,6 +1624,9 @@ public class MainViewModel : INotifyPropertyChanged
             }
         }, _ => CanRefreshGameConnections);
 
+        // Discover installed games automatically in the background at startup.
+        RefreshGameConnectionsCommand.Execute(null);
+
         EvaluateGameRouteCommand = new RelayCommand(async _ =>
         {
             RouteVerdictText = Loc.CurrentCulture == "pt-BR"
