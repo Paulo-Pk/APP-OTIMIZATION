@@ -1397,7 +1397,6 @@ public class UniversalHardwareEngine
         var result = new List<DetectedStorageDeviceInfo>();
         if (snapshot.StorageDrives != null && snapshot.StorageDrives.Count > 0)
         {
-            int index = 0;
             foreach (var d in snapshot.StorageDrives)
             {
                 bool isNvme = d.Model.Contains("NVMe", StringComparison.OrdinalIgnoreCase);
@@ -1431,10 +1430,9 @@ public class UniversalHardwareEngine
                     TemperatureC: d.TemperatureC.HasValue
                         ? new DetectedMetric<float?>(d.TemperatureC, HardwareDataSource.SmartNvme, DateTime.UtcNow, MetricReliability.VerifiedPhysicalSensor, true, UniversalSensorStatus.Available, null, "°C")
                         : DetectedMetric<float?>.Unavailable(isAdmin ? UniversalSensorStatus.NotSupported : UniversalSensorStatus.RequiresAdmin, "Temperatura SMART requer suporte do controlador/UAC", "°C"),
-                    IsSystemDisk: index == 0,
+                    IsSystemDisk: d.IsSystemDisk,
                     Capabilities: caps
                 ));
-                index++;
             }
         }
         return result;
