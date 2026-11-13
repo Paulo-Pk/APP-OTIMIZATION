@@ -1090,15 +1090,16 @@
 
                 <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,14">
                     <StackPanel>
-                        <TextBlock Text="Resultado do diagnóstico" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
-                        <TextBlock Text="{Binding SystemDoctorSummaryText}" FontSize="13" Foreground="#E2E8F0" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <TextBlock Text="O que encontramos" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding SystemDoctorSummaryText}" FontSize="13" Foreground="#E2E8F0" TextWrapping="Wrap" Margin="0,0,0,5"/>
+                        <TextBlock Text="Os resultados abaixo explicam o que foi encontrado, por que isso importa e o que você pode fazer. O diagnóstico é somente leitura." FontSize="11" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,10"/>
                         <DataGrid ItemsSource="{Binding SystemDoctorFindings}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="230">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Área" Binding="{Binding Category}" Width="125"/>
-                                <DataGridTextColumn Header="Resultado" Binding="{Binding Title}" Width="230"/>
-                                <DataGridTextColumn Header="Nível" Binding="{Binding Severity}" Width="85"/>
-                                <DataGridTextColumn Header="O que foi encontrado" Binding="{Binding Evidence}" Width="2*"/>
-                                <DataGridTextColumn Header="O que fazer" Binding="{Binding RecommendedAction}" Width="2*"/>
+                                <DataGridTextColumn Header="Área" Binding="{Binding Category}" Width="115"/>
+                                <DataGridTextColumn Header="Situação" Binding="{Binding Title}" Width="220"/>
+                                <DataGridTextColumn Header="Prioridade" Binding="{Binding Severity}" Width="90"/>
+                                <DataGridTextColumn Header="O que isso significa" Binding="{Binding ProbableCause}" Width="2*"/>
+                                <DataGridTextColumn Header="Como resolver" Binding="{Binding RecommendedAction}" Width="2*"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </StackPanel>
