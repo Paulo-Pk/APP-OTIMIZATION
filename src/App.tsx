@@ -618,10 +618,19 @@ export default function App() {
       userInitiated: true,
     };
     setRestoreItems((prev) => [snapItem, ...prev]);
-    setNotification({
-      type: 'success',
-      message: `${t.restoreCenter.snapshotCreatedSuccess}`,
-    });
+    const readFailures = res.readFailuresCount ?? 0;
+    if (res.isComplete === false || readFailures > 0) {
+      setNotification({
+        type: 'warning',
+        title: 'Backup criado, mas incompleto',
+        message: `O arquivo foi gravado e teve sua integridade verificada, mas ${readFailures} item(ns) não puderam ser lidos. Ele foi mantido; a restauração exigirá confirmação explícita de backup incompleto.`,
+      });
+    } else {
+      setNotification({
+        type: 'success',
+        message: `${t.restoreCenter.snapshotCreatedSuccess}`,
+      });
+    }
   };
 
   // Apply diagnostic fix with verified registry execution and restore record
