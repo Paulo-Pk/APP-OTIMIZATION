@@ -119,9 +119,12 @@ class NativeBridgeService {
 
   public async fetchRealTelemetry(): Promise<HardwareTelemetry | null> {
     if (!this.agentStatus.isConnected) return null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/telemetry`, {
         headers: this.getAuthHeaders(),
+        signal: controller.signal,
       });
       if (res.ok) {
         const data = await res.json();
@@ -205,6 +208,8 @@ class NativeBridgeService {
       }
     } catch (e) {
       console.warn('Failed to fetch real telemetry from native agent:', e);
+    } finally {
+      clearTimeout(timeoutId);
     }
     return null;
   }
