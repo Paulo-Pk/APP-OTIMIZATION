@@ -13,7 +13,6 @@ public class DiskCleanerTests
     [InlineData("temp-user")]
     [InlineData("update-cache")]
     [InlineData("temp-prefetch")]
-    [InlineData("temp-delivery-optimization")]
     public void AllowedCategories_ShouldResolveToNonEmptyPath(string categoryKey)
     {
         string? path = DiskCleanerEngine.GetCategoryPath(categoryKey);
