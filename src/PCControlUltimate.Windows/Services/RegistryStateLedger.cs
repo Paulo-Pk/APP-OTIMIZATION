@@ -6,6 +6,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using Microsoft.Win32;
 using PCControlUltimate.Security;
 
@@ -72,6 +73,32 @@ public static class RegistryStateLedger
 
     // Initialize only after LedgerFilePath so DPAPI key and ledger share the protected application directory.
     private static readonly string _ledgerSecretKey = InitializeProcessLedgerKey();
+
+    private static FileStream AcquireCrossProcessLock()
+    {
+        string? directory = Path.GetDirectoryName(LedgerFilePath);
+        if (string.IsNullOrWhiteSpace(directory))
+            throw new InvalidOperationException("Diretório do Ledger inválido.");
+        Directory.CreateDirectory(directory);
+
+        string lockPath = LedgerFilePath + ".lock";
+        DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+        while (true)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(50);
+            }
+            catch (IOException ex)
+            {
+                throw new TimeoutException("Tempo esgotado aguardando outra instância do PC Control liberar o Ledger.", ex);
+            }
+        }
+    }
 
     private static string LedgerKeyFilePath => Path.Combine(
         Path.GetDirectoryName(LedgerFilePath) ?? Path.GetTempPath(),
@@ -273,6 +300,7 @@ public static class RegistryStateLedger
             if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
                 throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Ajuste não pode ser aplicado com segurança.");
 
+using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal();
             if (ledger == null)
                 throw new InvalidOperationException("O Ledger existente não pôde ser autenticado. Ajuste bloqueado para preservar o histórico.");
@@ -321,6 +349,7 @@ public static class RegistryStateLedger
 
         lock (_syncRoot)
         {
+using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal(out string? integrityError);
             if (ledger == null)
             {
@@ -427,6 +456,7 @@ public static class RegistryStateLedger
 
         lock (_syncRoot)
         {
+using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal();
             if (ledger == null) return false;
 
@@ -447,6 +477,7 @@ public static class RegistryStateLedger
     {
         lock (_syncRoot)
         {
+using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal();
             return ledger?.Entries.ToList() ?? new List<RegistryLedgerEntry>();
         }
@@ -458,6 +489,7 @@ public static class RegistryStateLedger
     {
         lock (_syncRoot)
         {
+using var processLock = AcquireCrossProcessLock();
             if (File.Exists(LedgerFilePath))
             {
                 try { File.Delete(LedgerFilePath); } catch { }
@@ -472,6 +504,7 @@ public static class RegistryStateLedger
     {
         lock (_syncRoot)
         {
+using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal() ?? new RegistryLedgerFile();
             ledger.Entries.RemoveAll(e => string.Equals(e.OperationId, entry.OperationId, StringComparison.OrdinalIgnoreCase));
             if (recomputeValidHmac)
@@ -490,6 +523,7 @@ public static class RegistryStateLedger
     {
         lock (_syncRoot)
         {
+using var processLock = AcquireCrossProcessLock();
             var ledger = new RegistryLedgerFile { Entries = entries.ToList() };
             foreach (var entry in ledger.Entries)
                 entry.EntryHmacSha256 = ComputeEntryHmac(entry);
