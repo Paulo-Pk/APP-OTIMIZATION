@@ -1086,8 +1086,8 @@
                     <Grid>
                         <StackPanel>
                             <TextBlock Text="CATÁLOGO FECHADO AUDITADO COM REVERSÃO INDIVIDUAL" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
-                            <TextBlock Text="Windows Tweaks — Otimizações Reais de Registro" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="Nenhuma chave fora da whitelist é tocada. Toda operação registra o estado anterior real no Ledger DPAPI+HMAC." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                            <TextBlock Text="Ajustes do Windows" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Opções para mudar o comportamento do Windows. Cada ajuste mostra o que faz e só pode ser aplicado quando o estado atual é conhecido." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <Button Style="{StaticResource ActionSecondaryButton}" Margin="0,0,8,0" Command="{Binding RefreshTweakStatesCommand}" IsEnabled="{Binding CanRefreshTweakStates}">
@@ -1101,21 +1101,31 @@
                 </Border>
 
                 <TextBlock Text="{Binding TweakStatesSummaryText}" Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,8"/>
-                <TextBlock Text="Aplicar só fica disponível quando a leitura confirma que o ajuste está no padrão/inativo conhecido. Valores personalizados, ausentes sem padrão confirmado, com tipo incorreto ou sem acesso ficam bloqueados para evitar sobrescrever configurações sem diagnóstico. A aplicação registra o estado original no histórico seguro. Restaurar recupera esse estado original; snapshots completos são restaurados separadamente no Restore Center." Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,12"/>
+                <TextBlock Text="Antes de aplicar, confira a explicação e crie um ponto de restauração do sistema. Se o Windows indicar que uma configuração é personalizada, desconhecida ou sem acesso, o aplicativo bloqueia a alteração para não sobrescrever suas escolhas. Use Restaurar para voltar ao estado salvo pelo aplicativo." Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,12"/>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <DataGrid ItemsSource="{Binding CatalogTweaks}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="520">
+                        <DataGrid.RowDetailsVisibilityMode>VisibleWhenSelected</DataGrid.RowDetailsVisibilityMode>
+                        <DataGrid.RowDetailsTemplate>
+                            <DataTemplate>
+                                <Border Background="#0A0C13" BorderBrush="#273047" BorderThickness="1" CornerRadius="6" Padding="10" Margin="6">
+                                    <StackPanel>
+                                        <TextBlock Text="Detalhes técnicos (somente consulta)" Foreground="#C4B5FD" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
+                                        <TextBlock Text="{Binding RegistryPath, StringFormat=Caminho: {0}}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding ValueName, StringFormat=Nome do valor: {0}}" Foreground="#94A3B8" FontSize="10"/>
+                                        <TextBlock Text="{Binding RecommendedValue, StringFormat=Valor sugerido: {0}}" Foreground="#94A3B8" FontSize="10"/>
+                                        <TextBlock Text="{Binding RegistryTypeText, StringFormat=Tipo do valor: {0}}" Foreground="#94A3B8" FontSize="10"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </DataGrid.RowDetailsTemplate>
+
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="ID interno" Binding="{Binding TweakId}" Width="155"/>
-                            <DataGridTextColumn Header="Categoria" Binding="{Binding Category}" Width="115"/>
-                            <DataGridTextColumn Header="Descrição" Binding="{Binding Name}" Width="*"/>
-                            <DataGridTextColumn Header="Caminho do Registro" Binding="{Binding RegistryPath}" Width="250"/>
-                            <DataGridTextColumn Header="Valor" Binding="{Binding ValueName}" Width="130"/>
-                            <DataGridTextColumn Header="Recomendado" Binding="{Binding RecommendedValue}" Width="95"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding VerificationState}" Width="155"/>
-                            <DataGridTextColumn Header="Valor atual" Binding="{Binding CurrentValueText}" Width="110"/>
-                            <DataGridTextColumn Header="Tipo encontrado" Binding="{Binding RegistryTypeText}" Width="110"/>
-                            <DataGridTextColumn Header="Detalhe da leitura" Binding="{Binding DiagnosticDetailText}" Width="280"/>
+                            <DataGridTextColumn Header="Grupo" Binding="{Binding Category}" Width="110"/>
+                            <DataGridTextColumn Header="O que este ajuste faz" Binding="{Binding Name}" Width="2*"/>
+                            <DataGridTextColumn Header="Situação atual" Binding="{Binding VerificationState}" Width="170"/>
+                            <DataGridTextColumn Header="Valor lido" Binding="{Binding CurrentValueText}" Width="100"/>
+                            <DataGridTextColumn Header="Observação" Binding="{Binding DiagnosticDetailText}" Width="2*"/>
                             <DataGridTemplateColumn Header="Ações" Width="195">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
