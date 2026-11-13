@@ -193,6 +193,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                 float? adapterFanRpm = null;
                 float? adapterVramUsed = null;
                 float? adapterVramTotal = null;
+                float? adapterDedicatedVramUsed = null;
+                float? adapterDedicatedVramTotal = null;
 
                 foreach (var sensor in hardware.Sensors)
                 {
@@ -279,10 +281,24 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             adapterPower ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Fan)
                             adapterFanRpm ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.SmallData && sensor.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase))
+                        // Only the GPU's dedicated-memory sensors represent VRAM.
+                        // "D3D Shared Memory" is backed by system RAM and must never be
+                        // merged into the dedicated VRAM figures.
+                        if (sensor.SensorType == SensorType.SmallData &&
+                            sensor.Name.Equals("GPU Memory Used", StringComparison.OrdinalIgnoreCase))
                             adapterVramUsed ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.SmallData && sensor.Name.Contains("Memory Total", StringComparison.OrdinalIgnoreCase))
+                        if (sensor.SensorType == SensorType.SmallData &&
+                            sensor.Name.Equals("GPU Memory Total", StringComparison.OrdinalIgnoreCase))
                             adapterVramTotal ??= sensor.Value;
+
+                        // Some drivers expose dedicated VRAM only through the D3D counters.
+                        // Keep these as a fallback, but intentionally ignore D3D Shared Memory.
+                        if (sensor.SensorType == SensorType.SmallData &&
+                            sensor.Name.Equals("D3D Dedicated Memory Used", StringComparison.OrdinalIgnoreCase))
+                            adapterDedicatedVramUsed ??= sensor.Value;
+                        if (sensor.SensorType == SensorType.SmallData &&
+                            sensor.Name.Equals("D3D Dedicated Memory Total", StringComparison.OrdinalIgnoreCase))
+                            adapterDedicatedVramTotal ??= sensor.Value;
 
                         if (isPrimaryGpuCandidate)
                         {
@@ -296,11 +312,16 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             gpuVramTotal ??= adapterVramTotal;
                         }
                     }
-                    else if (hardware.HardwareType == HardwareType.Memory)
+                    else if (hardware.HardwareType == HardwareType.Memory &&
+                             hardware.Name.Equals("Total Memory", StringComparison.OrdinalIgnoreCase) &&
+                             hardware.Identifier.ToString().Equals("/ram", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (sensor.SensorType == SensorType.Data && sensor.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase))
+                        // LibreHardwareMonitor also reports "Virtual Memory" as HardwareType.Memory
+                        // (with a /vram identifier). That is the page file, not physical RAM or GPU VRAM.
+                        // Only the /ram hardware node is allowed to populate system RAM telemetry.
+                        if (sensor.SensorType == SensorType.Data && sensor.Name.Equals("Memory Used", StringComparison.OrdinalIgnoreCase))
                             ramUsed ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.Data && sensor.Name.Contains("Memory Available", StringComparison.OrdinalIgnoreCase))
+                        if (sensor.SensorType == SensorType.Data && sensor.Name.Equals("Memory Available", StringComparison.OrdinalIgnoreCase))
                             ramAvailable ??= sensor.Value;
                     }
                     else if (hardware.HardwareType == HardwareType.Storage)
@@ -312,6 +333,9 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                 if (isGpuHardware)
                 {
+                    adapterVramUsed ??= adapterDedicatedVramUsed;
+                    adapterVramTotal ??= adapterDedicatedVramTotal;
+
                     gpuAdapters.Add(new GpuAdapterTelemetryPoint(
                         Model: hardware.Name,
                         HardwareType: hardware.HardwareType.ToString(),
