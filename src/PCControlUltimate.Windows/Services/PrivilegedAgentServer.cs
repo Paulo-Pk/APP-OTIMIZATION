@@ -1054,7 +1054,9 @@ public class PrivilegedAgentServer : IDisposable
         Stop();
         _disposed = true;
         _listener.Close();
-        _mutationLock.Dispose();
-        _cts?.Dispose();
+        // Request handlers may still be unwinding and releasing/waiting on these
+        // shared synchronization primitives. Do not dispose them while requests
+        // are in flight; the server and its managed primitives can be collected
+        // together after the outstanding handlers complete.
     }
 }
