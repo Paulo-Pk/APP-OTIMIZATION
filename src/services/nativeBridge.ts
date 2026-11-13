@@ -384,8 +384,8 @@ class NativeBridgeService {
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          // The Windows agent returns PresentMonCaptureResponse.Summary, not flat FPS fields.
-          // Normalize camelCase and PascalCase so the UI always receives real calculated metrics.
+          // The Windows agent currently returns flat JSON fields; also accept a nested Summary
+          // for compatibility with agent builds that serialize the response DTO directly.
           const summary = data.summary ?? data.Summary ?? {};
           const readNumber = (...values: unknown[]) => {
             const value = values.find((item) => item !== undefined && item !== null);
@@ -399,7 +399,7 @@ class NativeBridgeService {
             frametimeAvgMs: readNumber(summary.averageFrametimeMs, summary.AverageFrametimeMs, data.frametimeAvgMs, data.FrametimeAvgMs),
             frametimeStDevMs: readNumber(summary.frametimeStandardDeviationMs, summary.FrametimeStandardDeviationMs, data.frametimeStDevMs, data.FrametimeStDevMs),
             capturedFrames: readNumber(summary.totalFramesCount, summary.TotalFramesCount, data.capturedFrames, data.CapturedFrames),
-            error: data.errorMessage ?? data.ErrorMessage,
+            error: data.errorMessage ?? data.ErrorMessage ?? data.error ?? data.Error,
           };
         }
       }
