@@ -836,7 +836,7 @@ export default function App() {
           )}
 
           {currentTab === 'performance-lab' && (
-            <PerformanceLabView />
+            <PerformanceLabView telemetry={telemetry} />
           )}
 
           {currentTab === 'benchmarks' && (
