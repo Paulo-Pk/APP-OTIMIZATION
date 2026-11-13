@@ -292,7 +292,7 @@ class NativeBridgeService {
       });
       const data = await res.json();
       return {
-        success: !!data.success,
+        success: res.ok && data.success === true,
         operationId: data.operationId,
         previousValue: data.previousValue ?? '',
         verifiedValue: data.verifiedValue ?? '',
@@ -338,8 +338,8 @@ class NativeBridgeService {
       });
       const data = await res.json();
       return {
-        success: !!data.success,
-        verified: !!data.verified,
+        success: res.ok && data.success === true && data.verified === true,
+        verified: res.ok && data.verified === true,
         error: data.error || data.message,
       };
     } catch (err: any) {
@@ -631,7 +631,7 @@ class NativeBridgeService {
       });
       const data = await res.json();
       return {
-        success: !!data.success,
+        success: res.ok && data.success === true,
         snapshotId: data.snapshotId,
         filePath: data.filePath,
         fileSizeBytes: data.fileSizeBytes,
@@ -674,7 +674,7 @@ class NativeBridgeService {
       });
       const data = await res.json();
       return {
-        success: !!data.success,
+        success: res.ok && data.success === true,
         partialSuccess: !!data.partialSuccess,
         restoredKeysCount: data.restoredKeysCount,
         failedKeysCount: data.failedKeysCount,
@@ -709,8 +709,8 @@ class NativeBridgeService {
       );
       const data = await res.json();
       return {
-        success: !!data.success,
-        isValid: !!data.isValid,
+        success: res.ok && data.success === true,
+        isValid: res.ok && data.isValid === true,
         checksum: data.checksum,
         error: data.error,
       };
