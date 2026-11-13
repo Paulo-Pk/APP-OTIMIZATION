@@ -1325,6 +1325,29 @@
                     </Grid>
                 </Border>
 
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Teste de teclado e mouse" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,6"/>
+                        <TextBlock Text="Clique na área abaixo para dar foco. Pressione teclas, clique com os botões esquerdo/direito/meio e mova a roda do mouse." FontSize="11" Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                        <Border Focusable="True" Background="#0A0C13" BorderBrush="#7C3AED" BorderThickness="1" CornerRadius="10" Padding="18" MinHeight="150"
+                                PreviewKeyDown="PeripheralTestArea_PreviewKeyDown" PreviewMouseDown="PeripheralTestArea_PreviewMouseDown"
+                                PreviewMouseMove="PeripheralTestArea_PreviewMouseMove" PreviewMouseWheel="PeripheralTestArea_PreviewMouseWheel">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock Text="🎮  ÁREA DE TESTE INTERATIVA" FontSize="15" FontWeight="Bold" Foreground="#C4B5FD" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding PeripheralCadenceSummary}" FontSize="12" Foreground="#E2E8F0" Margin="0,8,0,12" TextWrapping="Wrap" HorizontalAlignment="Center"/>
+                                <UniformGrid Columns="3" Rows="2">
+                                    <TextBlock Text="{Binding PeripheralKeyPressCount, StringFormat='Teclas: {0}'}" Foreground="#A78BFA" Margin="8,3"/>
+                                    <TextBlock Text="{Binding PeripheralLastKey, StringFormat='Última tecla: {0}'}" Foreground="#E2E8F0" Margin="8,3"/>
+                                    <TextBlock Text="{Binding PeripheralMouseClickCount, StringFormat='Cliques: {0}'}" Foreground="#A78BFA" Margin="8,3"/>
+                                    <TextBlock Text="{Binding PeripheralLastMouseButton, StringFormat='Último botão: {0}'}" Foreground="#E2E8F0" Margin="8,3"/>
+                                    <TextBlock Text="{Binding PeripheralMouseMoveCount, StringFormat='Movimentos: {0}'}" Foreground="#A78BFA" Margin="8,3"/>
+                                    <TextBlock Text="{Binding PeripheralMouseWheelCount, StringFormat='Roda: {0}'}" Foreground="#A78BFA" Margin="8,3"/>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
                         <TextBlock Text="O que este módulo verifica" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>

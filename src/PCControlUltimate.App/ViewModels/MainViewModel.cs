@@ -350,7 +350,14 @@ public class MainViewModel : INotifyPropertyChanged
     private string _gpuHotspotDeltaText = "N/D";
     private string _overallHealthScore = "N/D";
     private string _benchmarkResultSummary = "Clique em Executar Benchmark Determinístico para medir throughput real de CPU e Memória.";
-    private string _peripheralCadenceSummary = "Este módulo mostra os dados da tela. Os testes de mouse e teclado ainda não estão disponíveis.";
+    private string _peripheralCadenceSummary = "Clique na área de teste para conferir as teclas e os botões do mouse.";
+    private int _peripheralKeyPressCount;
+    private string _peripheralLastKey = "—";
+    private int _peripheralMouseClickCount;
+    private int _peripheralMouseMoveCount;
+    private int _peripheralMouseWheelCount;
+    private string _peripheralLastMouseButton = "—";
+    private DateTime _lastPeripheralMouseMoveUtc = DateTime.MinValue;
 
     // Preview Visual Parity & Extended Real Hardware Properties
     private string _detectedProfileDisplay = "Desktop";
@@ -475,6 +482,35 @@ public class MainViewModel : INotifyPropertyChanged
     public string OverallHealthScore { get => _overallHealthScore; set { _overallHealthScore = value; OnPropertyChanged(); } }
     public string BenchmarkResultSummary { get => _benchmarkResultSummary; set { _benchmarkResultSummary = value; OnPropertyChanged(); } }
     public string PeripheralCadenceSummary { get => _peripheralCadenceSummary; set { _peripheralCadenceSummary = value; OnPropertyChanged(); } }
+    public int PeripheralKeyPressCount { get => _peripheralKeyPressCount; private set { _peripheralKeyPressCount = value; OnPropertyChanged(); } }
+    public string PeripheralLastKey { get => _peripheralLastKey; private set { _peripheralLastKey = value; OnPropertyChanged(); } }
+    public int PeripheralMouseClickCount { get => _peripheralMouseClickCount; private set { _peripheralMouseClickCount = value; OnPropertyChanged(); } }
+    public int PeripheralMouseMoveCount { get => _peripheralMouseMoveCount; private set { _peripheralMouseMoveCount = value; OnPropertyChanged(); } }
+    public int PeripheralMouseWheelCount { get => _peripheralMouseWheelCount; private set { _peripheralMouseWheelCount = value; OnPropertyChanged(); } }
+    public string PeripheralLastMouseButton { get => _peripheralLastMouseButton; private set { _peripheralLastMouseButton = value; OnPropertyChanged(); } }
+
+    public void RecordPeripheralKey(string key)
+    {
+        PeripheralKeyPressCount++;
+        PeripheralLastKey = key;
+        PeripheralCadenceSummary = $"Teclado respondendo: {PeripheralKeyPressCount} tecla(s) detectada(s). Última tecla: {key}.";
+    }
+
+    public void RecordPeripheralMouseButton(string button)
+    {
+        PeripheralMouseClickCount++;
+        PeripheralLastMouseButton = button;
+    }
+
+    public void RecordPeripheralMouseMove()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastPeripheralMouseMoveUtc).TotalMilliseconds < 80) return;
+        _lastPeripheralMouseMoveUtc = now;
+        PeripheralMouseMoveCount++;
+    }
+
+    public void RecordPeripheralMouseWheel() => PeripheralMouseWheelCount++;
 
     public bool IsAgentConnected
     {
@@ -1804,8 +1840,8 @@ public class MainViewModel : INotifyPropertyChanged
         MeasureInputCadenceCommand = new RelayCommand(_ =>
         {
             PeripheralCadenceSummary = Loc.CurrentCulture == "pt-BR"
-                ? $"Tela detectada: {DisplayInfoText}. No momento, este módulo consulta apenas as informações do monitor; ainda não testa a resposta do mouse ou do teclado."
-                : $"Detected display: {DisplayInfoText}. This module currently reads monitor information only; mouse and keyboard response tests are not available yet.";
+                ? $"Tela detectada: {DisplayInfoText}. Clique na área de teste e pressione teclas ou botões do mouse para conferir a resposta."
+                : $"Detected display: {DisplayInfoText}. Click the test area and press keys or mouse buttons to check input response.";
         });
 
         GenerateDiagnosticInsightsCommand = new RelayCommand(_ => RefreshAssistantInsights());
