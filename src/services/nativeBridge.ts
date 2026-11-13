@@ -527,7 +527,7 @@ class NativeBridgeService {
           releaseDate: String(driver.releaseDate ?? driver.ReleaseDate ?? 'N/D'),
           vendor: String(driver.vendor ?? driver.Vendor ?? 'Fabricante não informado'),
           // WMI inventory verifies that Windows reports the driver; it does not compare the latest release.
-          status: 'Verificado via WMI',
+          status: 'Inventariado via WMI',
           signatureStatus: String(driver.status ?? driver.Status ?? 'Assinatura não informada'),
           officialUrl: String(driver.officialUrl ?? driver.OfficialUrl ?? 'https://support.microsoft.com/windows'),
         }));
