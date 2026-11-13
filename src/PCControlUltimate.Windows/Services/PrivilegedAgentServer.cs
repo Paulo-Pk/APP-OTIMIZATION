@@ -307,6 +307,16 @@ public class PrivilegedAgentServer : IDisposable
         DateTimeOffset requestTime;
         if (long.TryParse(timestampHeader.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long unixSeconds))
         {
+            // FromUnixTimeSeconds throws for values outside DateTimeOffset's
+            // supported range. Treat hostile/out-of-range headers as invalid
+            // input instead of allowing an exception to escape validation.
+            if (unixSeconds < DateTimeOffset.MinValue.ToUnixTimeSeconds() ||
+                unixSeconds > DateTimeOffset.MaxValue.ToUnixTimeSeconds())
+            {
+                errorCode = "INVALID_TIMESTAMP_FORMAT";
+                return false;
+            }
+
             requestTime = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
         }
         else if (!DateTimeOffset.TryParse(timestampHeader.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out requestTime))
