@@ -49,22 +49,22 @@ export const SoftwareHubView: React.FC = () => {
       </div>
 
       {/* Software Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {filteredSoftware.map((app) => (
           <div
             key={app.id}
-            className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between space-y-3"
+            className="p-3.5 rounded-xl bg-[#0f121b] border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between space-y-2.5"
           >
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">
                   {app.category}
                 </span>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">Catálogo oficial</span>
+                
               </div>
 
               <div className="flex items-center gap-3"><img src={officialBrandIcons[app.id] || ('https://www.google.com/s2/favicons?domain=' + new URL(app.officialSite).hostname + '&sz=64')} alt={'Ícone do ' + app.name} className="w-9 h-9 rounded-lg bg-[#171C2A] border border-slate-700/70 p-1.5 object-contain" loading="lazy" /><h3 className="font-bold text-sm text-white">{app.name}</h3></div>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">
                 {app.description}
               </p>
 
