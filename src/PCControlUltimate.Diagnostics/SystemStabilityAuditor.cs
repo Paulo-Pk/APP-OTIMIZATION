@@ -48,9 +48,9 @@ public class SystemStabilityAuditor
                 AuditedAtUtc: DateTime.UtcNow,
                 LookbackDays: days,
                 EventLogAccessible: false,
-                IsSystemStable: true,
+                IsSystemStable: false,
                 CriticalEvents: events,
-                DiagnosticSummary: "Leitura do Windows Event Viewer requer sistema operacional Windows nativo."
+                DiagnosticSummary: "Não foi possível verificar a estabilidade: a leitura do Windows Event Viewer requer sistema operacional Windows nativo."
             ));
         }
 
@@ -83,9 +83,9 @@ public class SystemStabilityAuditor
                 AuditedAtUtc: DateTime.UtcNow,
                 LookbackDays: days,
                 EventLogAccessible: false,
-                IsSystemStable: true,
+                IsSystemStable: false,
                 CriticalEvents: events,
-                DiagnosticSummary: $"Acesso ao log de eventos 'System' restrito ou indisponível nesta sessão: {ex.Message}"
+                DiagnosticSummary: $"Estabilidade não verificada: acesso ao log de eventos 'System' restrito ou indisponível nesta sessão: {ex.Message}"
             ));
         }
     }
@@ -121,7 +121,10 @@ public class SystemStabilityAuditor
             string source = entry.Source ?? string.Empty;
 
             bool isKernelPower41 = eventId == 41 && source.Contains("Kernel-Power", StringComparison.OrdinalIgnoreCase);
-            bool isWhea = source.Contains("WHEA-Logger", StringComparison.OrdinalIgnoreCase);
+            // Only classify the hardware-error IDs documented by this auditor.
+            // Other WHEA informational/operational events must not become false alarms.
+            bool isWhea = source.Contains("WHEA-Logger", StringComparison.OrdinalIgnoreCase) &&
+                eventId is 1 or 17 or 18 or 19 or 46;
             bool isDisplayTdr = eventId == 4101 && source.Contains("Display", StringComparison.OrdinalIgnoreCase);
 
             if (isKernelPower41 || isWhea || isDisplayTdr)
