@@ -42,13 +42,13 @@ export const GameNetworkAcceleratorView: React.FC = () => {
   const [isProbing, setIsProbing] = useState(false);
   const [selectedGames, setSelectedGames] = useState<string[]>(['cs2', 'valorant']);
   const gameOptions = [
-    { id: 'cs2', label: 'Counter-Strike 2', publisher: 'Steam' },
-    { id: 'valorant', label: 'VALORANT', publisher: 'Riot Games' },
-    { id: 'fortnite', label: 'Fortnite', publisher: 'Epic Games' },
-    { id: 'apex', label: 'Apex Legends', publisher: 'EA' },
-    { id: 'lol', label: 'League of Legends', publisher: 'Riot Games' },
-    { id: 'r6', label: 'Rainbow Six Siege', publisher: 'Ubisoft' },
-    { id: 'rocketleague', label: 'Rocket League', publisher: 'Epic Games' },
+    { id: 'cs2', label: 'Counter-Strike 2', publisher: 'Steam', target: 'steampowered.com' },
+    { id: 'valorant', label: 'VALORANT', publisher: 'Riot Games', target: 'riotgames.com' },
+    { id: 'fortnite', label: 'Fortnite', publisher: 'Epic Games', target: 'epicgames.com' },
+    { id: 'apex', label: 'Apex Legends', publisher: 'EA', target: 'ea.com' },
+    { id: 'lol', label: 'League of Legends', publisher: 'Riot Games', target: 'leagueoflegends.com' },
+    { id: 'r6', label: 'Rainbow Six Siege', publisher: 'Ubisoft', target: 'ubisoft.com' },
+    { id: 'rocketleague', label: 'Rocket League', publisher: 'Epic Games', target: 'rocketleague.com' },
   ];
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [results, setResults] = useState<TargetMeasurement[]>([]);
@@ -128,10 +128,10 @@ export const GameNetworkAcceleratorView: React.FC = () => {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {gameOptions.map((game) => (
-            <label key={game.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer ${selectedGames.includes(game.id) ? 'border-purple-500/50 bg-purple-500/10 text-white' : 'border-slate-800 bg-[#0a0c13] text-slate-300'}`}>
-              <input type="checkbox" checked={selectedGames.includes(game.id)} onChange={(e) => setSelectedGames((previous) => e.target.checked ? [...previous, game.id] : previous.filter((id) => id !== game.id))} />
-              <span className="text-xs font-semibold">{game.label}</span>
-              <span className="ml-auto text-[10px] text-slate-500">{game.publisher}</span>
+            <label key={game.id} className={`flex items-center gap-3 rounded-lg border px-3 py-3 cursor-pointer transition-colors [color-scheme:dark] ${selectedGames.includes(game.id) ? 'border-purple-500/60 bg-purple-500/10 text-white' : 'border-slate-800 bg-[#0a0c13] text-slate-200 hover:border-slate-600'}`}>
+              <input className="accent-purple-500 shrink-0" type="checkbox" checked={selectedGames.includes(game.id)} onChange={(e) => setSelectedGames((previous) => e.target.checked ? [...previous, game.id] : previous.filter((id) => id !== game.id))} />
+              <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-white">{game.label}</span><span className="block text-[10px] text-slate-400 mt-0.5">{'Destino de referência: ' + game.target}</span></span>
+              <span className="text-[10px] text-slate-400 shrink-0">{game.publisher}</span>
             </label>
           ))}
         </div>
