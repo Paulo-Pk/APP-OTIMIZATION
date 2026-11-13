@@ -53,9 +53,7 @@ public static class PresentMonSessionParser
         "msBetweenDisplayChange",
         "FrameTime",
         "FrameTimeMs",
-        "MsBetweenPresents",
-        "msCPUBusy",
-        "msGPUBusy"
+        "MsBetweenPresents"
     };
 
     public static IReadOnlyList<PresentMonCaptureResponse> GetSessionHistory() => _sessionHistory.ToArray();
@@ -180,13 +178,22 @@ public static class PresentMonSessionParser
         string procNameWithoutExt = Path.GetFileNameWithoutExtension(safeExeName);
 
         var runningProcs = Process.GetProcessesByName(procNameWithoutExt);
-        bool isRunning = runningProcs.Length > 0;
+        int matchingProcessCount = runningProcs.Length;
         foreach (var rp in runningProcs)
         {
             try { rp.Dispose(); } catch { }
         }
 
-        if (!isRunning)
+        if (matchingProcessCount > 1)
+        {
+            return new PresentMonCaptureResponse(
+                false, safeExeName, version, null, -1, null, null, null,
+                $"Há {matchingProcessCount} instâncias de '{safeExeName}' em execução. A captura por nome seria ambígua; feche as instâncias extras e tente novamente.",
+                timestamp
+            );
+        }
+
+        if (matchingProcessCount == 0)
         {
             return new PresentMonCaptureResponse(
                 false, safeExeName, version, null, -1, null, null, null,
@@ -249,6 +256,12 @@ public static class PresentMonSessionParser
             catch (OperationCanceledException)
             {
                 try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+
+                // Both redirected streams use the same cancellation token. Observe
+                // their completion after terminating PresentMon so canceled/faulted
+                // read tasks are not left unobserved during shutdown.
+                try { await Task.WhenAll(stdOutTask, stdErrTask).ConfigureAwait(false); } catch { }
+
                 string cancelReason = cancellationToken.IsCancellationRequested
                     ? "Captura cancelada pelo usuário."
                     : "Tempo limite excedido aguardando encerramento do PresentMon.";
@@ -369,9 +382,13 @@ public static class PresentMonSessionParser
 
         var sortedDescending = frametimesMs.OrderByDescending(f => f).ToList();
 
-        int onePctIndex = Math.Min(sortedDescending.Count - 1, Math.Max(0, (int)(sortedDescending.Count * 0.01)));
-        double onePctFt = sortedDescending[onePctIndex];
-        double onePctLowFps = onePctFt > 0 ? (1000.0 / onePctFt) : 0;
+        // 1% low is the average FPS represented by the slowest 1% of frames,
+        // not the frame at an arbitrary percentile index.
+        int onePctFrameCount = Math.Max(1, (int)Math.Ceiling(sortedDescending.Count * 0.01));
+        double onePctAverageFrametimeMs = sortedDescending.Take(onePctFrameCount).Average();
+        double onePctLowFps = onePctAverageFrametimeMs > 0
+            ? 1000.0 / onePctAverageFrametimeMs
+            : 0;
 
         double maxFt = sortedDescending.First();
         double minFps = maxFt > 0 ? (1000.0 / maxFt) : 0;

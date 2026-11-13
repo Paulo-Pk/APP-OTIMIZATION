@@ -70,7 +70,7 @@ export const DriverCenterView: React.FC = () => {
         <div className="divide-y divide-slate-800/80">
           {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum dispositivo ou driver foi retornado pelo Windows nesta consulta. Verifique o serviço WMI e tente novamente.</div> : null}
           {drivers.map((driver, idx) => {
-            const isVerified = driver.status === 'Inventariado via WMI';
+            const hasVerifiedSignature = (driver.status || '').toLowerCase().includes('assinado digitalmente');
 
             return (
               <div
@@ -82,16 +82,16 @@ export const DriverCenterView: React.FC = () => {
                     <span className="font-bold text-white text-sm">{driver.device}</span>
                     <span
                       className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
-                        isVerified
-                          ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30'
-                          : 'bg-slate-500/10 text-slate-300 border border-slate-500/30'
+                        hasVerifiedSignature
+                          ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
                       }`}
                     >
-                      {isVerified ? 'Inventariado pelo Windows' : driver.status}
+                      {driver.status || 'Versão instalada — estado não confirmado'}
                     </span>
                   </div>
                   <div className="text-slate-400 text-[11px]">
-                    Categoria: <span className="text-slate-200">{driver.category || 'Outros'}</span> · {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate}) · {driver.signatureStatus || 'Assinatura não informada'}
+                    {driver.category || 'Dispositivo'} · {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate})
                   </div>
                 </div>
 

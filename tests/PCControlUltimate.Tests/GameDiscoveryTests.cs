@@ -407,33 +407,25 @@ public sealed class GameDiscoveryTests : IDisposable
     }
 
     [Theory]
-    [InlineData("PC Control Game DLC")]
-    [InlineData("PC Control Game Expansion Pack")]
-    [InlineData("PC Control Game Season Pass")]
-    [InlineData("PC Control Game Soundtrack")]
-    [InlineData("PC Control Game - Character Pack")]
-    public void MainGameCatalogFilter_ExcludesDlcAndStandaloneAddOnEntries(string title)
+    [InlineData("Forza Horizon 6", false)]
+    [InlineData("Game Name - Expansion Pack", true)]
+    [InlineData("Game Name Season Pass", true)]
+    [InlineData("Game Name Original Soundtrack", true)]
+    [InlineData("Game Name Dedicated Server", true)]
+    [InlineData("Game Name DLC", true)]
+    [InlineData("Game Name - Add-on Pack", true)]
+    [InlineData("Game Name - Expansions", true)]
+    [InlineData("Game Name Workshop Tools", true)]
+    [InlineData("Game Name Dedicated Server Tools", true)]
+    [InlineData("Microsoft Visual C++ Redistributable", true)]
+    [InlineData("Steam Linux Runtime", true)]
+    public void GameCatalogFilter_ExcludesAddonsButKeepsBaseGames(string title, bool expectedExcluded)
     {
         MethodInfo filter = typeof(GameNetworkAcceleratorService).GetMethod(
-            "IsMainGameTitle", BindingFlags.NonPublic | BindingFlags.Static)!;
+            "IsDlcOrNonGameCatalogEntry", BindingFlags.NonPublic | BindingFlags.Static)!;
 
-        bool isMainGame = (bool)filter.Invoke(null, new object?[] { title })!;
-
-        Assert.False(isMainGame);
-    }
-
-    [Theory]
-    [InlineData("Counter-Strike 2")]
-    [InlineData("Forza Horizon 6")]
-    [InlineData("Cyberpunk 2077 Ultimate Edition")]
-    public void MainGameCatalogFilter_KeepsBaseGameAndNormalEditions(string title)
-    {
-        MethodInfo filter = typeof(GameNetworkAcceleratorService).GetMethod(
-            "IsMainGameTitle", BindingFlags.NonPublic | BindingFlags.Static)!;
-
-        bool isMainGame = (bool)filter.Invoke(null, new object?[] { title })!;
-
-        Assert.True(isMainGame);
+        bool excluded = (bool)filter.Invoke(null, new object[] { title })!;
+        Assert.Equal(expectedExcluded, excluded);
     }
 
     public void Dispose()

@@ -22,7 +22,8 @@ public record InstalledGameEntry(
     string InstallLocation,
     string AppId,
     string? ExecutablePath,
-    bool IsInstalled
+    bool IsInstalled,
+    string? CoverImageUrl = null
 );
 
 public record DetectedGameConnection(
@@ -247,8 +248,27 @@ public static class GameNetworkAcceleratorService
         var games = new Dictionary<string, InstalledGameEntry>(StringComparer.OrdinalIgnoreCase);
         void Add(InstalledGameEntry game)
         {
-            if (IsMainGameTitle(game.Title) && !string.IsNullOrWhiteSpace(game.InstallLocation))
-                games[game.Launcher + ":" + game.AppId] = game;
+            if (string.IsNullOrWhiteSpace(game.Title) || string.IsNullOrWhiteSpace(game.InstallLocation))
+                return;
+
+            // Launcher catalogs may include DLC apps, expansion packs, soundtracks,
+            // dedicated servers and tools alongside the base games. Keep the library
+            // focused on standalone playable titles.
+            if (IsDlcOrNonGameCatalogEntry(game.Title))
+                return;
+
+            // Steam exposes official library artwork by AppID. Other launchers do not
+            // provide a common public artwork URL in their local install catalogs.
+            if (string.Equals(game.Launcher, "Steam", StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(game.AppId, @"^\d+$"))
+            {
+                game = game with
+                {
+                    CoverImageUrl = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.AppId}/library_600x900.jpg"
+                };
+            }
+
+            games[game.Launcher + ":" + game.AppId] = game;
         }
 
         try
@@ -384,7 +404,25 @@ public static class GameNetworkAcceleratorService
         AddMicrosoftStoreGames(games);
         AddXboxGamesFolderGames(games);
 
-        return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+        return games.Values
+            .Where(game => !IsDlcOrNonGameCatalogEntry(game.Title))
+            .Select(game =>
+                string.Equals(game.Launcher, "Steam", StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(game.AppId, @"^\d+$") &&
+                string.IsNullOrWhiteSpace(game.CoverImageUrl)
+                    ? game with { CoverImageUrl = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.AppId}/library_600x900.jpg" }
+                    : game)
+            .OrderBy(game => game.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsDlcOrNonGameCatalogEntry(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return true;
+        return Regex.IsMatch(
+            title,
+            @"\b(DLCs?|Expansions?(?:\s+Pack)?|Season\s+Pass|Add[- ]?ons?|Soundtracks?|Original\s+Soundtrack|Dedicated\s+Server|Server\s+Tools|Workshop\s+Tools|Test\s+Server|Public\s+Test|Test\s+Application|SDK|Editor|Mod\s+Tools|Redistributables?|Runtimes?)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static void AddXboxGamesFolderGames(Dictionary<string, InstalledGameEntry> games)
@@ -1235,10 +1273,11 @@ public static class GameNetworkAcceleratorService
         double? currentPacketLossPercent = null,
         CancellationToken cancellationToken = default)
     {
-        string nicName = "Adaptador Padrão";
-        string nicType = "Ethernet";
+        string nicName = "Não detectado";
+        string nicType = "Indisponível";
         bool isWifi = false;
-        long speedMbps = 1000;
+        bool interfaceDetected = false;
+        long speedMbps = 0;
         long rxBytes = 0;
         long txBytes = 0;
 
@@ -1252,6 +1291,7 @@ public static class GameNetworkAcceleratorService
 
             if (activeNic != null)
             {
+                interfaceDetected = true;
                 nicName = activeNic.Description;
                 nicType = activeNic.NetworkInterfaceType.ToString();
                 isWifi = activeNic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 ||
@@ -1263,38 +1303,78 @@ public static class GameNetworkAcceleratorService
                 txBytes = stats.BytesSent;
             }
         }
-        catch { }
+        catch
+        {
+            interfaceDetected = false;
+            nicName = "Não detectado";
+            nicType = "Indisponível";
+            speedMbps = 0;
+            rxBytes = 0;
+            txBytes = 0;
+        }
 
         double? dnsMs = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var sw = Stopwatch.StartNew();
             await Dns.GetHostAddressesAsync("steampowered.com", cancellationToken);
             sw.Stop();
             dnsMs = Math.Round(sw.Elapsed.TotalMilliseconds, 1);
         }
-        catch { }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // DNS measurement is optional; absence is reported as unavailable.
+        }
 
-        bool congestion = (currentJitterMs ?? 0) >= 12.0 || (currentPacketLossPercent ?? 0) >= 1.5;
+        bool hasJitterMeasurement = currentJitterMs.HasValue &&
+                                    double.IsFinite(currentJitterMs.Value) &&
+                                    currentJitterMs.Value >= 0;
+        bool hasPacketLossMeasurement = currentPacketLossPercent.HasValue &&
+                                        double.IsFinite(currentPacketLossPercent.Value) &&
+                                        currentPacketLossPercent.Value >= 0;
+        bool congestion = (hasJitterMeasurement && currentJitterMs!.Value >= 12.0) ||
+                          (hasPacketLossMeasurement && currentPacketLossPercent!.Value >= 1.5);
 
         AcceleratorOperatingMode mode;
         string justification;
-        if (isWifi || congestion)
+        if (!interfaceDetected)
+        {
+            mode = AcceleratorOperatingMode.Automatico;
+            justification = "Nenhuma interface de rede ativa pôde ser confirmada. A recomendação de modo foi mantida neutra; verifique a conexão e tente novamente.";
+        }
+        else if (isWifi)
         {
             mode = AcceleratorOperatingMode.Estabilidade;
-            justification = isWifi
-                ? $"Conexão sem fio (Wi-Fi) detectada em '{nicName}'. Modo Estabilidade recomendado para mitigar jitter de radiofrequência."
-                : $"Oscilação de rede detectada (Jitter: {currentJitterMs ?? 0:F1} ms). Modo Estabilidade prioriza consistência de entrega.";
+            justification = $"Conexão sem fio (Wi-Fi) detectada em '{nicName}'. Modo Estabilidade recomendado para reduzir oscilações típicas do enlace sem fio; isso não garante redução de ping.";
         }
-        else if (speedMbps >= 500 && (currentJitterMs ?? 0) < 4.0)
+        else if (congestion)
+        {
+            mode = AcceleratorOperatingMode.Estabilidade;
+            string evidence = hasJitterMeasurement && currentJitterMs!.Value >= 12.0
+                ? $"jitter medido de {currentJitterMs.Value:F1} ms"
+                : $"perda de pacotes medida de {currentPacketLossPercent!.Value:F1}%";
+            justification = $"Sinal de instabilidade detectado ({evidence}). Modo Estabilidade recomendado para priorizar consistência.";
+        }
+        else if (speedMbps >= 500 && hasJitterMeasurement && currentJitterMs!.Value < 4.0)
         {
             mode = AcceleratorOperatingMode.BaixaLatencia;
-            justification = $"Link Ethernet de alta velocidade ({speedMbps} Mbps) com baixo jitter. Modo Baixa Latência otimiza o caminho direto.";
+            justification = $"Link de alta velocidade ({speedMbps} Mbps) e jitter medido baixo ({currentJitterMs.Value:F1} ms). Modo Baixa Latência recomendado; o resultado depende também do servidor e da rota do jogo.";
         }
         else
         {
             mode = AcceleratorOperatingMode.Gaming;
-            justification = $"Conexão cabeada estável ({speedMbps} Mbps). Modo Gaming mantém priorização MMCSS e rota direta verificada.";
+            string link = speedMbps > 0
+                ? $"Interface '{nicName}' negociada a {speedMbps} Mbps"
+                : $"Interface '{nicName}' detectada, mas a velocidade negociada não foi informada";
+            string jitter = hasJitterMeasurement
+                ? $" Jitter medido: {currentJitterMs!.Value:F1} ms."
+                : " Jitter não medido nesta análise.";
+            justification = $"{link}.{jitter} Não há evidência suficiente para recomendar uma rota alternativa; mantenha a rota direta.";
         }
 
         return new AcceleratorNetworkEnvironmentAnalysis(

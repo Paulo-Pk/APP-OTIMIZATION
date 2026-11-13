@@ -19,11 +19,19 @@ namespace PCControlUltimate.Windows.Services;
 
 public class PrivilegedAgentServer : IDisposable
 {
+    private sealed class RequestBodyTooLargeException : Exception
+    {
+        public RequestBodyTooLargeException() : base("Request body exceeds maximum allowed size of 64 KB.") { }
+    }
+
     private readonly HttpListener _listener;
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
     private readonly WingetSoftwareCenterService _softwareCenter = new();
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
+    // Bound concurrent handlers so loopback clients cannot create an unbounded
+    // number of fire-and-forget request tasks.
+    private readonly SemaphoreSlim _requestSlots = new(32, 32);
     private readonly ConcurrentQueue<DateTime> _requestTimestamps = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedNonces = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _recentAuditEvents = new();
@@ -110,7 +118,38 @@ public class PrivilegedAgentServer : IDisposable
             try
             {
                 var context = await _listener.GetContextAsync();
-                _ = Task.Run(() => HandleRequestWithTimeoutAsync(context, token), token);
+
+                try
+                {
+                    // Stop accepting additional requests while all handler slots
+                    // are occupied. This keeps queued work bounded by HttpListener
+                    // instead of allocating an unbounded number of managed tasks.
+                    await _requestSlots.WaitAsync(token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    try { context.Response.Abort(); } catch { }
+                    break;
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await HandleRequestWithTimeoutAsync(context, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Observe unexpected handler failures and release the
+                        // connection without leaking an unobserved task exception.
+                        WriteAuditLog("REQUEST_HANDLER_FAILURE", ex.GetType().Name);
+                        try { context.Response.Abort(); } catch { }
+                    }
+                    finally
+                    {
+                        _requestSlots.Release();
+                    }
+                }, CancellationToken.None);
             }
             catch (Exception)
             {
@@ -122,7 +161,17 @@ public class PrivilegedAgentServer : IDisposable
     private async Task HandleRequestWithTimeoutAsync(HttpListenerContext context, CancellationToken serverToken)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(serverToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        // PresentMon captures may run for up to 120 seconds, plus the parser's
+        // 10-second process-exit grace period. Keep ordinary API requests short.
+        TimeSpan requestTimeout = string.Equals(
+            context.Request.Url?.AbsolutePath,
+            "/api/presentmon/capture",
+            StringComparison.OrdinalIgnoreCase)
+            ? TimeSpan.FromSeconds(135)
+            : TimeSpan.FromSeconds(15);
+
+        timeoutCts.CancelAfter(requestTimeout);
         await HandleRequestAsync(context, timeoutCts.Token);
     }
 
@@ -294,6 +343,16 @@ public class PrivilegedAgentServer : IDisposable
         DateTimeOffset requestTime;
         if (long.TryParse(timestampHeader.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long unixSeconds))
         {
+            // FromUnixTimeSeconds throws for values outside DateTimeOffset's
+            // supported range. Treat hostile/out-of-range headers as invalid
+            // input instead of allowing an exception to escape validation.
+            if (unixSeconds < DateTimeOffset.MinValue.ToUnixTimeSeconds() ||
+                unixSeconds > DateTimeOffset.MaxValue.ToUnixTimeSeconds())
+            {
+                errorCode = "INVALID_TIMESTAMP_FORMAT";
+                return false;
+            }
+
             requestTime = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
         }
         else if (!DateTimeOffset.TryParse(timestampHeader.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out requestTime))
@@ -534,7 +593,9 @@ public class PrivilegedAgentServer : IDisposable
                 var tempUser = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
                 var softDist = DiskCleanerEngine.SimulateCategoryDryRun("update-cache");
                 var prefetch = DiskCleanerEngine.SimulateCategoryDryRun("temp-prefetch");
-                var deliveryOptimization = DiskCleanerEngine.SimulateCategoryDryRun("temp-delivery-optimization");
+                var deliveryOptimization = DiskCleanerEngine.SimulateCategoryDryRun("cache-delivery-optimization");
+                var werQueue = DiskCleanerEngine.SimulateCategoryDryRun("wer-report-queue");
+                var werArchive = DiskCleanerEngine.SimulateCategoryDryRun("wer-report-archive");
 
                 await SendJsonAsync(res, new
                 {
@@ -545,7 +606,9 @@ public class PrivilegedAgentServer : IDisposable
                     softwareDistributionBytes = softDist.EstimatedBytes,
                     prefetchBytes = prefetch.EstimatedBytes,
                     deliveryOptimizationBytes = deliveryOptimization.EstimatedBytes,
-                    categories = new[] { d3d, tempWin, tempUser, softDist, prefetch, deliveryOptimization }
+                    werQueueBytes = werQueue.EstimatedBytes,
+                    werArchiveBytes = werArchive.EstimatedBytes,
+                    categories = new[] { d3d, tempWin, tempUser, softDist, prefetch, deliveryOptimization, werQueue, werArchive }
                 });
                 return;
             }
@@ -952,6 +1015,14 @@ public class PrivilegedAgentServer : IDisposable
 
             await SendJsonAsync(res, new { error = "ROUTE_NOT_FOUND" }, 404);
         }
+        catch (RequestBodyTooLargeException)
+        {
+            await SendJsonAsync(res, new
+            {
+                error = "PAYLOAD_TOO_LARGE",
+                message = "Payload exceeds 64 KB limit."
+            }, 413);
+        }
         catch (JsonException)
         {
             await SendJsonAsync(res, new { error = "MALFORMED_JSON_PAYLOAD" }, 400);
@@ -991,7 +1062,7 @@ public class PrivilegedAgentServer : IDisposable
 
             totalRead += read;
             if (totalRead > MaxRequestBodyBytes)
-                throw new InvalidOperationException("Request body exceeds maximum allowed size of 64 KB.");
+                throw new RequestBodyTooLargeException();
 
             ms.Write(buffer, 0, read);
         }
@@ -1083,7 +1154,9 @@ public class PrivilegedAgentServer : IDisposable
         Stop();
         _disposed = true;
         _listener.Close();
-        _mutationLock.Dispose();
-        _cts?.Dispose();
+        // Request handlers may still be unwinding and releasing/waiting on these
+        // shared synchronization primitives. Do not dispose them while requests
+        // are in flight; the server and its managed primitives can be collected
+        // together after the outstanding handlers complete.
     }
 }

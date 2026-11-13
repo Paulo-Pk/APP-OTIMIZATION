@@ -381,32 +381,27 @@ class NativeBridgeService {
         headers: this.getAuthHeaders(),
         body: JSON.stringify({ processName, durationSeconds }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          // The Windows agent currently returns flat JSON fields; also accept a nested Summary
-          // for compatibility with agent builds that serialize the response DTO directly.
-          const summary = data.summary ?? data.Summary ?? {};
-          const readNumber = (...values: unknown[]) => {
-            const value = values.find((item) => item !== undefined && item !== null);
-            const parsed = Number(value);
-            return Number.isFinite(parsed) ? parsed : 0;
-          };
-          return {
-            avgFps: readNumber(summary.averageFps, summary.AverageFps, data.avgFps, data.AvgFps),
-            minFps: readNumber(summary.minFps, summary.MinFps, data.minFps, data.MinFps),
-            onePercentLow: readNumber(summary.onePercentLowFps, summary.OnePercentLowFps, data.onePercentLow, data.OnePercentLow),
-            frametimeAvgMs: readNumber(summary.averageFrametimeMs, summary.AverageFrametimeMs, data.frametimeAvgMs, data.FrametimeAvgMs),
-            frametimeStDevMs: readNumber(summary.frametimeStandardDeviationMs, summary.FrametimeStandardDeviationMs, data.frametimeStDevMs, data.FrametimeStDevMs),
-            capturedFrames: readNumber(summary.totalFramesCount, summary.TotalFramesCount, data.capturedFrames, data.CapturedFrames),
-            error: data.errorMessage ?? data.ErrorMessage ?? data.error ?? data.Error,
-          };
-        }
-      }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) return data;
+      return {
+        avgFps: 0,
+        onePercentLow: 0,
+        frametimeAvgMs: 0,
+        frametimeStDevMs: 0,
+        capturedFrames: 0,
+        error: typeof data?.error === 'string' ? data.error : `Agente respondeu HTTP ${res.status} durante a captura PresentMon.`,
+      };
     } catch (err) {
       console.warn('PresentMon capture native error:', err);
+      return {
+        avgFps: 0,
+        onePercentLow: 0,
+        frametimeAvgMs: 0,
+        frametimeStDevMs: 0,
+        capturedFrames: 0,
+        error: err instanceof Error ? err.message : 'Falha de comunicação com o agente durante a captura PresentMon.',
+      };
     }
-    return null;
   }
 
   public async installVerifiedSoftware(
@@ -445,6 +440,8 @@ class NativeBridgeService {
     softwareDistributionBytes: number;
     prefetchBytes: number;
     deliveryOptimizationBytes: number;
+    werQueueBytes: number;
+    werArchiveBytes: number;
   } | null> {
     if (!this.agentStatus.isConnected) return null;
 
@@ -462,8 +459,8 @@ class NativeBridgeService {
   public async purgeRealDebloatDirectory(
     categoryKey: string,
     confirmUpdateCache: boolean = true
-  ): Promise<{ success: boolean; partialSuccess: boolean; freedBytes: number; deletedFilesCount: number; skippedLockedCount: number; errors: string[]; status: string }> {
-    if (!this.agentStatus.isConnected) return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: ['Agente Windows desconectado.'], status: 'Unavailable' };
+  ): Promise<{ success: boolean; partialSuccess: boolean; freedBytes: number; deletedFilesCount: number; skippedLockedCount: number; skippedSymlinksCount: number; errors: string[]; status: string }> {
+    if (!this.agentStatus.isConnected) return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, skippedSymlinksCount: 0, errors: ['Agente Windows desconectado.'], status: 'Unavailable' };
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/debloat/purge`, {
         method: 'POST', headers: this.getAuthHeaders(),
@@ -471,11 +468,11 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        return { success: !!data.success, partialSuccess: !!data.partialSuccess, freedBytes: Number(data.freedBytes) || 0, deletedFilesCount: Number(data.deletedFilesCount) || 0, skippedLockedCount: Number(data.skippedLockedCount) || 0, errors: Array.isArray(data.errors) ? data.errors : [], status: String(data.status || 'Unknown') };
+        return { success: !!data.success, partialSuccess: !!data.partialSuccess, freedBytes: Number(data.freedBytes) || 0, deletedFilesCount: Number(data.deletedFilesCount) || 0, skippedLockedCount: Number(data.skippedLockedCount) || 0, skippedSymlinksCount: Number(data.skippedSymlinksCount) || 0, errors: Array.isArray(data.errors) ? data.errors : [], status: String(data.status || 'Unknown') };
       }
-      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: [`Agente respondeu HTTP ${res.status}.`], status: 'Failed' };
+      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, skippedSymlinksCount: 0, errors: [`Agente respondeu HTTP ${res.status}.`], status: 'Failed' };
     } catch (err: any) {
-      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: [err?.message || 'Falha de comunicação com o agente.'], status: 'Failed' };
+      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, skippedSymlinksCount: 0, errors: [err?.message || 'Falha de comunicação com o agente.'], status: 'Failed' };
     }
   }
 

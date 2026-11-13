@@ -212,12 +212,12 @@ export default function App() {
     nativeBridge.discoverInstalledGames().then((found) => {
       if (cancelled || !found) return;
       const mapped: GameProfile[] = found
-        .filter((game) => game.isInstalled && game.title && !/\b(dlc|season pass|expansion(?: pass)?|add[\s-]?on|content pack|soundtrack|ost|supporter pack|upgrade pack|cosmetic pack|bonus content|artbook|demo|playtest)\b/i.test(game.title))
+        .filter((game) => game.isInstalled && game.title && !/\b(dlcs?|expansions?(?:\s+pack)?|season\s+pass|add[- ]?ons?|soundtracks?|original\s+soundtrack|dedicated\s+server|server\s+tools|workshop\s+tools|test\s+server|public\s+test|test\s+application|sdk|editor|mod\s+tools|redistributables?|runtimes?)\b/i.test(game.title))
         .map((game, index) => ({
           id: `installed-${game.launcher.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${game.appId || index}`,
           title: game.title,
           platform: (["Steam", "Epic", "Epic Games", "Xbox", "GOG", "Ubisoft Connect", "EA app"].includes(game.launcher) ? game.launcher : "Manual") as GameProfile["platform"],
-          executablePath: game.executablePath || "", coverImage: game.launcher.toLowerCase().includes('steam') && /^\\d+$/.test(String(game.appId || '')) ? 'https://cdn.cloudflare.steamstatic.com/steam/apps/' + game.appId + '/header.jpg' : "",
+          executablePath: game.executablePath || "", coverImage: game.launcher === 'Steam' && /^\d+$/.test(game.appId) ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg` : '',
           processPriority: "Normal", cpuAffinity: "Todos", gpuPreference: "Alto Desempenho", powerProfile: "Equilibrado",
           monitorFps: true, monitorTemps: true, boostEnabled: false,
         }));
@@ -836,7 +836,7 @@ export default function App() {
           )}
 
           {currentTab === 'performance-lab' && (
-            <PerformanceLabView />
+            <PerformanceLabView telemetry={telemetry} />
           )}
 
           {currentTab === 'benchmarks' && (

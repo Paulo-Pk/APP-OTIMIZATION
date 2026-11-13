@@ -13,6 +13,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 {
     private readonly Computer _computer;
     private Timer? _pollingTimer;
+    private readonly SemaphoreSlim _captureLock = new(1, 1);
     private bool _disposed;
 
     public bool IsAvailable { get; private set; }
@@ -35,31 +36,55 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            IsAvailable = false;
-            CurrentStatus = SensorReadingStatus.SensorNotSupported;
-            LastCommunicationError = "Leitura física via LibreHardwareMonitor requer sistema operacional Windows nativo.";
-            return Task.CompletedTask;
-        }
-
+        cancellationToken.ThrowIfCancellationRequested();
+        _captureLock.Wait(cancellationToken);
         try
         {
-            _computer.Open();
-            IsAvailable = true;
-            CurrentStatus = SensorReadingStatus.Available;
-            LastCommunicationError = null;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_disposed) throw new ObjectDisposedException(nameof(LibreHardwareMonitorWrapper));
+            if (!OperatingSystem.IsWindows())
+            {
+                IsAvailable = false;
+                CurrentStatus = SensorReadingStatus.SensorNotSupported;
+                LastCommunicationError = "Leitura física via LibreHardwareMonitor requer sistema operacional Windows nativo.";
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                _computer.Open();
+                IsAvailable = true;
+                CurrentStatus = SensorReadingStatus.Available;
+                LastCommunicationError = null;
+            }
+            catch (Exception ex)
+            {
+                IsAvailable = false;
+                CurrentStatus = SensorReadingStatus.CommunicationFailure;
+                LastCommunicationError = $"Falha ao inicializar sensores de hardware (verifique elevação UAC): {ex.Message}";
+            }
+            return Task.CompletedTask;
         }
-        catch (Exception ex)
+        finally
         {
-            IsAvailable = false;
-            CurrentStatus = SensorReadingStatus.CommunicationFailure;
-            LastCommunicationError = $"Falha ao inicializar sensores de hardware (verifique elevação UAC): {ex.Message}";
+            _captureLock.Release();
         }
-        return Task.CompletedTask;
     }
 
-    public Task<HardwareSnapshot> CaptureSnapshotAsync()
+    public async Task<HardwareSnapshot> CaptureSnapshotAsync()
+    {
+        await _captureLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await CaptureSnapshotCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _captureLock.Release();
+        }
+    }
+
+    private Task<HardwareSnapshot> CaptureSnapshotCoreAsync()
     {
         if (_disposed)
         {
@@ -111,7 +136,9 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         try
         {
             // Order hardware so discrete GPUs are listed before integrated GPUs without favoring any specific vendor/model
-            var orderedHardware = new List<IHardware>(_computer.Hardware);
+            var orderedHardware = new List<IHardware>();
+            foreach (var rootHardware in _computer.Hardware)
+                AddHardwareTree(rootHardware, orderedHardware);
             orderedHardware.Sort((a, b) => GetHardwarePriorityScore(b).CompareTo(GetHardwarePriorityScore(a)));
 
             foreach (var hardware in orderedHardware)
@@ -379,12 +406,28 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     public void StartPolling(TimeSpan interval)
     {
         if (_disposed) return;
+        if (interval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(interval), "O intervalo de telemetria deve ser maior que zero.");
+
         _pollingTimer?.Dispose();
         _pollingTimer = new Timer(async _ =>
         {
             if (_disposed) return;
-            var snap = await CaptureSnapshotAsync();
-            TelemetryUpdated?.Invoke(this, snap);
+            try
+            {
+                var snap = await CaptureSnapshotAsync().ConfigureAwait(false);
+                if (!_disposed)
+                    TelemetryUpdated?.Invoke(this, snap);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Shutdown may race with a scheduled timer callback.
+            }
+            catch (Exception ex)
+            {
+                LastCommunicationError = $"Falha inesperada no ciclo de telemetria: {ex.Message}";
+                CurrentStatus = SensorReadingStatus.CommunicationFailure;
+            }
         }, null, TimeSpan.Zero, interval);
     }
 
@@ -455,6 +498,15 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         return 1;
     }
 
+    private static void AddHardwareTree(IHardware hardware, List<IHardware> destination)
+    {
+        destination.Add(hardware);
+        // Some CPU/GPU sensor groups are exposed as child hardware nodes by LHM.
+        // Visit them explicitly; reading only the root node silently misses valid temperatures/clocks.
+        foreach (var child in hardware.SubHardware)
+            AddHardwareTree(child, destination);
+    }
+
     private static int GetHardwarePriorityScore(IHardware hardware)
     {
         if (hardware.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel)
@@ -481,14 +533,24 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     {
         if (_disposed) return;
         _disposed = true;
+        _pollingTimer?.Change(Timeout.Infinite, 0);
+        _pollingTimer?.Dispose();
+        _pollingTimer = null;
+
+        // Wait for an in-flight hardware read before closing LibreHardwareMonitor.
+        _captureLock.Wait();
         try
         {
-            _pollingTimer?.Change(Timeout.Infinite, 0);
-            _pollingTimer?.Dispose();
-            _pollingTimer = null;
             _computer.Close();
         }
-        catch { }
+        catch
+        {
+            // Disposal must remain best-effort even if a hardware driver fails to close.
+        }
+        finally
+        {
+            _captureLock.Release();
+        }
         GC.SuppressFinalize(this);
     }
 }

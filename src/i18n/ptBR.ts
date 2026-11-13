@@ -127,7 +127,7 @@ export const ptBR: TranslationDictionary = {
   boostCenter: {
     title: 'BOOST CENTER',
     subtitle: 'Central de Otimizações do Windows',
-    description: 'Catálogo de ajustes no Registro do Windows, esquemas de energia e agendador NT. Cada ajuste registra seu valor original no banco SQLite local e pode ser restaurado imediatamente.',
+    description: 'Ajustes para deixar o Windows mais adequado ao seu uso. Cada opção explica o que muda, quais cuidados tomar e permite voltar à configuração anterior quando há histórico seguro.',
     restoreAll: 'Restaurar Padrões de Fábrica',
     applyProfile: 'Aplicar Perfil',
     profileLabel: 'Perfil:',
@@ -268,7 +268,7 @@ export const ptBR: TranslationDictionary = {
   benchmarks: {
     title: 'BENCHMARK CENTER',
     subtitle: 'Testes de Estresse & Pontuação de Hardware',
-    description: 'Execute testes aritméticos de CPU, fragment shaders em WebGL2 e throughput de memória para aferir a capacidade do seu computador.',
+    description: 'Compare o desempenho do processador, da placa de vídeo e da memória com testes rápidos. Os resultados são sintéticos e servem para comparar testes feitos nas mesmas condições.',
     runBenchmark: 'Executar Benchmark Rápido',
     runningTest: 'Executando Teste de',
     cpuTestTitle: 'Teste de cálculo do processador',
@@ -291,7 +291,7 @@ export const ptBR: TranslationDictionary = {
   diagnostics: {
     title: 'PC DIAGNOSTICS',
     subtitle: 'Auditoria Preventiva & Correção de Gargalos',
-    description: 'Varredura automática em busca de anomalias no sistema, configurações de energia incorretas e problemas de integridade.',
+    description: 'Verificação do computador em busca de alertas de temperatura, memória, armazenamento, drivers e funcionamento do Windows. Cada aviso explica o que foi encontrado e o que você pode fazer.',
     fixWithOneClick: 'Corrigir Problemas com 1 Clique',
     applyFix: 'Aplicar Correção',
     fixApplied: 'Correção Aplicada',
@@ -376,7 +376,7 @@ export const ptBR: TranslationDictionary = {
   networkLab: {
     title: 'NETWORK LAB',
     subtitle: 'Otimização de Roteamento & Diagnóstico de Ping',
-    description: 'Testes reais de latência ICMP/TCP, variação de jitter e tempo de resposta de resolução DNS contra os principais servidores de jogos.',
+    description: 'Confira a resposta da sua conexão, a estabilidade da internet, a velocidade de download e o tempo para localizar sites. Os resultados ajudam a identificar lentidão e oscilações.',
     startTest: 'Iniciar Diagnóstico de Rede',
     testing: 'Testando Rota...',
     pingLatency: 'Latência RTT (Ping)',

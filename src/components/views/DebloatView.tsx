@@ -15,7 +15,7 @@ export const DebloatView: React.FC = () => {
   const { t } = useI18n();
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(['cache-dx-shaders', 'temp-user', 'temp-prefetch']));
-  const [scan, setScan] = useState<{ d3dCacheBytes: number; tempWindowsBytes: number; tempUserBytes: number; softwareDistributionBytes: number; prefetchBytes: number; deliveryOptimizationBytes: number } | null>(null);
+  const [scan, setScan] = useState<{ d3dCacheBytes: number; tempWindowsBytes: number; tempUserBytes: number; softwareDistributionBytes: number; prefetchBytes: number; deliveryOptimizationBytes: number; werQueueBytes: number; werArchiveBytes: number } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
 
   const [isCleaning, setIsCleaning] = useState<boolean>(false);
@@ -35,6 +35,8 @@ export const DebloatView: React.FC = () => {
         softwareDistributionBytes: Number(result.softwareDistributionBytes) || 0,
         prefetchBytes: Number(result.prefetchBytes) || 0,
         deliveryOptimizationBytes: Number(result.deliveryOptimizationBytes) || 0,
+        werQueueBytes: Number(result.werQueueBytes) || 0,
+        werArchiveBytes: Number(result.werArchiveBytes) || 0,
       } : null);
       if (!result) setNoticeMessage('Conecte o agente Windows para medir o espaço real que pode ser liberado.');
 
@@ -53,6 +55,9 @@ export const DebloatView: React.FC = () => {
     { id: 'temp-prefetch', name: 'Cache Prefetch do Windows', description: 'Arquivos auxiliares que o Windows recria. A limpeza pode deixar a primeira abertura de programas mais lenta temporariamente.', estimatedBytes: scan?.prefetchBytes || 0, isSafe: true },
     { id: 'temp-delivery-optimization', name: 'Cache de Entrega do Windows', description: 'Arquivos temporários usados para distribuir atualizações entre dispositivos. O Windows pode baixá-los novamente; itens em uso serão preservados.', estimatedBytes: scan?.deliveryOptimizationBytes || 0, isSafe: true },
     { id: 'update-cache', name: t.debloat.updateCacheTitle, description: t.debloat.updateCacheDesc, estimatedBytes: scan?.softwareDistributionBytes || 0, isSafe: true },
+    { id: 'cache-delivery-optimization', name: 'Cache de otimização de entrega', description: 'Arquivos temporários usados pelo Windows para distribuir atualizações. O que estiver em uso será preservado.', estimatedBytes: scan?.deliveryOptimizationBytes || 0, isSafe: true },
+    { id: 'wer-report-queue', name: 'Relatórios de erro pendentes', description: 'Relatórios de falhas do Windows ainda não enviados. Apagar remove apenas os relatórios locais, não corrige a causa da falha.', estimatedBytes: scan?.werQueueBytes || 0, isSafe: true },
+    { id: 'wer-report-archive', name: 'Relatórios antigos de erro', description: 'Relatórios antigos já arquivados pelo Windows. Podem ser apagados para liberar espaço, mas deixam de estar disponíveis para diagnóstico.', estimatedBytes: scan?.werArchiveBytes || 0, isSafe: true },
   ];
 
   const toggleSelect = (id: string) => {
@@ -89,15 +94,17 @@ export const DebloatView: React.FC = () => {
       const failures: string[] = [];
       let deletedFiles = 0;
       let skippedLocked = 0;
+      let skippedSymlinks = 0;
       for (const id of Array.from(selectedIds)) {
         const result = await nativeBridge.purgeRealDebloatDirectory(id);
         totalFreed += result.freedBytes;
         deletedFiles += result.deletedFilesCount;
         skippedLocked += result.skippedLockedCount;
-        if (!result.success) failures.push(...result.errors);
+        skippedSymlinks += result.skippedSymlinksCount;
+        if (result.errors.length) failures.push(...result.errors);
       }
       setCleanedBytes(totalFreed);
-      setNoticeMessage(`${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s).`);
+      setNoticeMessage(`${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s); ${skippedSymlinks} link(s) simbólico(s) preservado(s).`);
       if (failures.length) setErrorMessage(`Limpeza parcial: ${failures.slice(0, 3).join(' | ')}`);
       await scanNow();
     } catch (err: any) {
