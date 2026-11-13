@@ -1901,6 +1901,32 @@ public class MainViewModel : INotifyPropertyChanged
             new Action(async () => await RefreshAllTweakStatesAsync()));
     }
 
+    private static string ResolveSoftwareIconUrl(string packageId)
+    {
+        string? slug = packageId switch
+        {
+            "Discord.Discord" => "discord/5865F2",
+            "Valve.Steam" => "steam/FFFFFF",
+            "EpicGames.EpicGamesLauncher" => "epicgames/FFFFFF",
+            "ElectronicArts.EADesktop" => "ea/FFFFFF",
+            "Ubisoft.Connect" => "ubisoft/FFFFFF",
+            "GOG.Galaxy" => "gogdotcom/FFFFFF",
+            "Microsoft.GamingApp" => "xbox/107C10",
+            "Opera.OperaGX" => "operagx/FA1E4E",
+            "Mozilla.Firefox" => "firefox/FF7139",
+            "Google.Chrome" => "googlechrome/FFFFFF",
+            "Brave.Brave" => "brave/FB542B",
+            "OBSProject.OBSStudio" => "obsstudio/FFFFFF",
+            "REALiX.HWiNFO" => "hwinfo/FFFFFF",
+            "Intel.PresentMon" => "intel/0071C5",
+            "CPUID.CPU-Z" => "cpu/FFFFFF",
+            "TechPowerUp.GPU-Z" => "nvidia/76B900",
+            _ => null
+        };
+
+        return string.IsNullOrEmpty(slug) ? string.Empty : $"https://cdn.simpleicons.org/{slug}";
+    }
+
     private void InitializeVerifiedSoftwareCatalog()
     {
         VerifiedWingetCatalog.Clear();
@@ -1912,7 +1938,8 @@ public class MainViewModel : INotifyPropertyChanged
                 pkg.PackageId,
                 pkg.Publisher,
                 $"winget install --id \"{pkg.PackageId}\" --exact --source winget --accept-package-agreements --accept-source-agreements",
-                pkg.Description
+                pkg.Description,
+                ResolveSoftwareIconUrl(pkg.PackageId)
             ));
         }
     }
