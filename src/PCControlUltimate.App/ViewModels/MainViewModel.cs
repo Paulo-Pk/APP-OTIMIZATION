@@ -2158,10 +2158,10 @@ public class MainViewModel : INotifyPropertyChanged
     private void RefreshAssistantInsights()
     {
         AssistantDiagnosticInsights.Clear();
-        AssistantDiagnosticInsights.Add($"[GPU & Térmica Universal] Modelo prioritário: {GpuModel} | Core: {GpuTemp} | Hotspot: {GpuHotspot} ({GpuThermalDiagnosisText})");
-        AssistantDiagnosticInsights.Add($"[Roteamento & Rede] {RouteVerdictText}");
-        AssistantDiagnosticInsights.Add($"[Segurança & Backups] {SecurityPostureText} | Último Snapshot: {LastBackupStatus}");
-        AssistantDiagnosticInsights.Add("[Política Operacional] Todas as otimizações exigem catálogo fechado, snapshot SHA-256 e registro prévio no Ledger DPAPI+HMAC. Nenhum driver, voltagem ou proteção do Windows é alterado automaticamente.");
+        AssistantDiagnosticInsights.Add($"Placa de vídeo: {GpuModel} | Temperatura da GPU: {GpuTemp} | Hotspot: {GpuHotspot}. {GpuThermalDiagnosisText}");
+        AssistantDiagnosticInsights.Add($"Conexão de jogos: {RouteVerdictText}");
+        AssistantDiagnosticInsights.Add($"Segurança e restauração: {SecurityPostureText} Última cópia de segurança: {LastBackupStatus}");
+        AssistantDiagnosticInsights.Add("O PC Control não altera drivers, voltagem ou proteções importantes do Windows automaticamente. As mudanças disponíveis podem ser conferidas e restauradas quando há histórico seguro.");
     }
 
     private void InitializeModuleCapabilityMatrix()
@@ -2336,9 +2336,11 @@ public class MainViewModel : INotifyPropertyChanged
             ? (IsAdmin ? Loc["AgentConnectedAdmin"] : Loc["AgentConnectedStandard"])
             : Loc["AgentDisconnected"];
 
-        SecurityPostureText =
-            $"Agente Autenticado: {IsAgentConnected} | DPAPI Aplicado: {_agentClient.IsTokenDpapiProtected} | " +
-            $"ACL NTFS Restrita ao Usuário: {_agentClient.IsTokenAclRestricted} | Assinatura HMAC-SHA256: Ativa | Administrador (UAC): {IsAdmin}";
+        SecurityPostureText = !IsAgentConnected
+            ? "O serviço local do PC Control não está conectado. Abra o agente do Windows para consultar o computador e aplicar correções."
+            : IsAdmin
+                ? "Conexão segura ativa. O Windows autorizou as tarefas que precisam de administrador."
+                : "Conexão segura ativa. Algumas tarefas podem pedir autorização do Windows.";
 
         // Update Display Settings via real Win32 P/Invoke
         var dispObj = DisplaySettingsService.GetPrimaryDisplayInfo();
