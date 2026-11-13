@@ -145,7 +145,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
               </span>
               {hasGpuSensors && (
                 <span className="text-xs text-slate-400 font-mono">
-                  (Hotspot {gpu.hotspot}°C - Core {gpu.temperature}°C)
+                  (Hotspot {gpu.hotspot}°C - Temperatura da GPU {gpu.temperature}°C)
                 </span>
               )}
             </div>
@@ -272,11 +272,11 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
               <div className="text-purple-400 font-bold">========================================================</div>
               <div>• GPU: {gpu.name} ({gpu.vendor})</div>
               <div>
-                • Core Temp:{' '}
+                • Temperatura da GPU:{' '}
                 {gpu.temperature > 0 ? `${gpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </div>
               <div>
-                • Hotspot Temp:{' '}
+                • Hotspot:{' '}
                 {gpu.hotspot > 0 ? `${gpu.hotspot.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </div>
               <div>
