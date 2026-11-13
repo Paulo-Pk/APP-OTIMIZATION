@@ -35,6 +35,8 @@ public class PrivilegedAgentServer : IDisposable
     private readonly ConcurrentQueue<DateTime> _requestTimestamps = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedNonces = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _recentAuditEvents = new();
+    private readonly object _lifecycleLock = new();
+    private readonly object _rateLimitLock = new();
     private CancellationTokenSource? _cts;
     private bool _disposed;
 
@@ -104,11 +106,17 @@ public class PrivilegedAgentServer : IDisposable
 
     public void Start()
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(PrivilegedAgentServer));
-        _cts = new CancellationTokenSource();
-        _listener.Start();
-        WriteAuditLog("SERVER_START", $"Listening exclusively on http://127.0.0.1:{Port}/");
-        Task.Run(() => ListenLoopAsync(_cts.Token));
+        lock (_lifecycleLock)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(PrivilegedAgentServer));
+            if (_listener.IsListening) return;
+
+            var cts = new CancellationTokenSource();
+            _listener.Start();
+            _cts = cts;
+            WriteAuditLog("SERVER_START", $"Listening exclusively on http://127.0.0.1:{Port}/");
+            _ = Task.Run(() => ListenLoopAsync(cts.Token));
+        }
     }
 
     private async Task ListenLoopAsync(CancellationToken token)
@@ -1036,17 +1044,20 @@ public class PrivilegedAgentServer : IDisposable
 
     private bool CheckRateLimit()
     {
-        var now = DateTime.UtcNow;
-        while (_requestTimestamps.TryPeek(out var oldest) && (now - oldest).TotalSeconds > 60)
+        lock (_rateLimitLock)
         {
-            _requestTimestamps.TryDequeue(out _);
+            var now = DateTime.UtcNow;
+            while (_requestTimestamps.TryPeek(out var oldest) && (now - oldest).TotalSeconds > 60)
+            {
+                _requestTimestamps.TryDequeue(out _);
+            }
+
+            if (_requestTimestamps.Count >= MaxRequestsPerMinute)
+                return false;
+
+            _requestTimestamps.Enqueue(now);
+            return true;
         }
-
-        if (_requestTimestamps.Count >= MaxRequestsPerMinute)
-            return false;
-
-        _requestTimestamps.Enqueue(now);
-        return true;
     }
 
     private static async Task<string> ReadBoundedBodyAsync(HttpListenerRequest req, CancellationToken token)
@@ -1135,28 +1146,41 @@ public class PrivilegedAgentServer : IDisposable
 
     public void Stop()
     {
-        if (_disposed) return;
-        try
+        lock (_lifecycleLock)
         {
-            _cts?.Cancel();
-            if (_listener.IsListening)
+            if (_disposed) return;
+            try
             {
-                _listener.Stop();
+                _cts?.Cancel();
+                if (_listener.IsListening)
+                {
+                    _listener.Stop();
+                }
+                WriteAuditLog("SERVER_STOP", "PrivilegedAgentServer stopped cleanly.");
             }
-            WriteAuditLog("SERVER_STOP", "PrivilegedAgentServer stopped cleanly.");
+            catch { }
         }
-        catch { }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
-        Stop();
-        _disposed = true;
-        _listener.Close();
-        // Request handlers may still be unwinding and releasing/waiting on these
-        // shared synchronization primitives. Do not dispose them while requests
-        // are in flight; the server and its managed primitives can be collected
-        // together after the outstanding handlers complete.
+        lock (_lifecycleLock)
+        {
+            if (_disposed) return;
+            try
+            {
+                _cts?.Cancel();
+                if (_listener.IsListening) _listener.Stop();
+            }
+            catch { }
+
+            _disposed = true;
+            _listener.Close();
+            WriteAuditLog("SERVER_DISPOSE", "PrivilegedAgentServer disposed.");
+            // Request handlers may still be unwinding and releasing/waiting on these
+            // shared synchronization primitives. Do not dispose them while requests
+            // are in flight; the server and its managed primitives can be collected
+            // together after the outstanding handlers complete.
+        }
     }
 }
