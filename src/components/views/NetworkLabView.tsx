@@ -179,6 +179,28 @@ export const NetworkLabView: React.FC = () => {
         </div>
       )}
 
+      <div className="rounded-xl border border-slate-800 bg-gradient-to-r from-[#121522] to-[#0d111a] p-4">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-cyan-300 mb-3">Prévia do teste de internet</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-lg bg-[#090c14] border border-slate-800 p-3">
+            <div className="text-xs font-semibold text-white">1. Tempo de resposta</div>
+            <div className="text-[11px] text-slate-400 mt-1">Quanto tempo os serviços levam para responder</div>
+            <div className="text-lg font-mono text-cyan-300 mt-2">— ms</div>
+          </div>
+          <div className="rounded-lg bg-[#090c14] border border-slate-800 p-3">
+            <div className="text-xs font-semibold text-white">2. Estabilidade</div>
+            <div className="text-[11px] text-slate-400 mt-1">Se a resposta varia muito entre as tentativas</div>
+            <div className="text-lg font-mono text-purple-300 mt-2">—</div>
+          </div>
+          <div className="rounded-lg bg-[#090c14] border border-slate-800 p-3">
+            <div className="text-xs font-semibold text-white">3. Velocidade e DNS</div>
+            <div className="text-[11px] text-slate-400 mt-1">Download e localização de endereços de sites</div>
+            <div className="text-lg font-mono text-emerald-300 mt-2">—</div>
+          </div>
+        </div>
+        <p className="text-[10px] text-slate-500 mt-3">Os traços são apenas uma prévia visual. Nenhum resultado aparece até você executar o teste real.</p>
+      </div>
+
       {/* Primary Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono tabular-nums">
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
