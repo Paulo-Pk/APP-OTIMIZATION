@@ -18,8 +18,10 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
   const { t } = useI18n();
 
   const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
-  const sensorTypeLabel = (type: string) => ({ Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' }[type] || type);
-  const hardwareTypeLabel = (type: string) => ({ Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' }[type] || type);
+  const sensorTypeLabels: Record<string, string> = { Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' };
+  const hardwareTypeLabels: Record<string, string> = { Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' };
+  const sensorTypeLabel = (type: string) => sensorTypeLabels[type] || type;
+  const hardwareTypeLabel = (type: string) => hardwareTypeLabels[type] || type;
 
   return (
     <div className="space-y-5 animate-fade-in">
