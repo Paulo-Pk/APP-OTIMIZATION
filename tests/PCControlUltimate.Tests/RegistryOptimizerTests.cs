@@ -1014,4 +1014,31 @@ public class RegistryOptimizerTests : IDisposable
         Assert.Empty(RegistryStateLedger.GetAllEntries());
     }
 
+    [Fact]
+    public void RegistryStateLedger_V26CanonicalEncoding_DistinguishesDelimiterContainingValues()
+    {
+        var first = new RegistryLedgerEntry
+        {
+            OperationId = "op-canonical-test",
+            TweakId = "perf-game-dvr",
+            Hive = "HKCU",
+            SubKeyPath = @"System\\GameConfigStore",
+            ValueName = "GameDVR_Enabled",
+            OriginalValueKind = RegistryValueKind.String.ToString(),
+            OriginalRawValue = "before|after",
+            AppliedValue = "target",
+            CreatedAtUtc = "2026-11-13T10:00:00.0000000Z"
+        };
+        var second = first with
+        {
+            OriginalRawValue = "before",
+            AppliedValue = "after|target"
+        };
+
+        // The old delimiter-joined representation collided for these two distinct states.
+        Assert.NotEqual(
+            RegistryStateLedger.BuildEntryCanonicalString(first),
+            RegistryStateLedger.BuildEntryCanonicalString(second));
+    }
+
 }
