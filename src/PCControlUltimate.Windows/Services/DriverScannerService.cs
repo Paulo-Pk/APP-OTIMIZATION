@@ -22,8 +22,11 @@ public static class DriverScannerService
         "Módulo de Inventário de Drivers Instalados: exibe fabricante, versão, data e estado reportados pelo Windows WMI. " +
         "Por segurança de kernel, este software nunca baixa nem instala drivers automaticamente.";
 
+    public static string? LastError { get; private set; }
+
     public static IReadOnlyList<InstalledDriverEntry> QuerySignedDrivers()
     {
+        LastError = null;
         var results = new List<InstalledDriverEntry>();
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -32,14 +35,13 @@ public static class DriverScannerService
         try
         {
             using var searcher = new ManagementObjectSearcher(
-                "SELECT DeviceName, DriverVersion, DriverDate, Manufacturer, DeviceClass, IsSigned FROM Win32_PnPSignedDriver WHERE DeviceName IS NOT NULL AND DriverVersion IS NOT NULL"
+                "SELECT DeviceName, DriverVersion, DriverDate, Manufacturer, DeviceClass, IsSigned FROM Win32_PnPSignedDriver WHERE DeviceName IS NOT NULL"
             );
 
             foreach (ManagementObject obj in searcher.Get())
             {
                 string deviceClass = obj["DeviceClass"]?.ToString() ?? string.Empty;
-                string? category = MapCategory(deviceClass);
-                if (category == null) continue;
+                string category = MapCategory(deviceClass) ?? "Outros";
 
                 string deviceName = obj["DeviceName"]?.ToString() ?? "Dispositivo Desconhecido";
                 string version = obj["DriverVersion"]?.ToString() ?? "N/D";
@@ -67,9 +69,9 @@ public static class DriverScannerService
                 ));
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // WMI query failed or permission restricted
+            LastError = $"O Windows não conseguiu concluir a consulta WMI: {ex.GetType().Name}: {ex.Message}";
         }
 
         return results;
