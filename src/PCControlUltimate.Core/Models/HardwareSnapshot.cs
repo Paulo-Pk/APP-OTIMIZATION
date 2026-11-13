@@ -56,7 +56,8 @@ public record GpuAdapterTelemetryPoint(
     float? VramUsedMb,
     float? VramTotalMb,
     string? DriverVersion = null,
-    string? PnpDeviceId = null
+    string? PnpDeviceId = null,
+    string? SensorIdentifier = null
 );
 
 public record HardwareSnapshot(
