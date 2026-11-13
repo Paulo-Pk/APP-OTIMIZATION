@@ -1015,21 +1015,26 @@
                 <Border Style="{StaticResource HeroBannerBorderStyle}">
                     <Grid>
                         <StackPanel>
-                            <TextBlock Text="MEDIÇÃO SINTÉTICA DETERMINÍSTICA LOCAL" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
-                            <TextBlock Text="Benchmark Center — Throughput Real de CPU &amp; Memória" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="Executa cálculos matemáticos determinísticos e alocação sequencial de memória sem scores fictícios." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                            <TextBlock Text="TESTE RÁPIDO DO PROCESSADOR E DA MEMÓRIA" FontSize="10" FontWeight="Bold" Foreground="#C084FC" Margin="0,0,0,4"/>
+                            <TextBlock Text="Desempenho do processador e da memória" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Compara o desempenho do processador e a velocidade de acesso à memória. Este teste ainda não mede placa de vídeo ou discos." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
                         </StackPanel>
                         <Button HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource ActionPrimaryButton}" Command="{Binding RunBenchmarkCommand}">
-                            <TextBlock Text="Executar Benchmark Determinístico"/>
+                            <TextBlock Text="Iniciar teste"/>
                         </Button>
                     </Grid>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
-                        <TextBlock Text="Resultado da Avaliação Determinística" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                        <TextBlock Text="Resultados do último teste" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                        <UniformGrid Columns="3" Margin="0,0,0,12">
+                            <Border Style="{StaticResource SubtleInnerCardStyle}" Margin="0,0,6,0"><StackPanel><TextBlock Text="PONTUAÇÃO DA CPU" FontSize="10" Foreground="#94A3B8" FontWeight="Bold"/><TextBlock Text="{Binding BenchmarkCpuScoreText}" FontSize="26" Foreground="#C084FC" FontWeight="Bold" Margin="0,5,0,0"/><TextBlock Text="{Binding BenchmarkCpuTimeText, StringFormat=Tempo: {0}}" FontSize="11" Foreground="#94A3B8"/></StackPanel></Border>
+                            <Border Style="{StaticResource SubtleInnerCardStyle}" Margin="3,0,3,0"><StackPanel><TextBlock Text="VELOCIDADE DA MEMÓRIA" FontSize="10" Foreground="#94A3B8" FontWeight="Bold"/><TextBlock Text="{Binding BenchmarkMemoryBandwidthText}" FontSize="26" Foreground="#06B6D4" FontWeight="Bold" Margin="0,5,0,0"/><TextBlock Text="Teste sequencial em memória" FontSize="11" Foreground="#94A3B8"/></StackPanel></Border>
+                            <Border Style="{StaticResource SubtleInnerCardStyle}" Margin="6,0,0,0"><StackPanel><TextBlock Text="ESCOPO" FontSize="10" Foreground="#94A3B8" FontWeight="Bold"/><TextBlock Text="CPU + RAM" FontSize="22" Foreground="#10B981" FontWeight="Bold" Margin="0,5,0,0"/><TextBlock Text="GPU e discos: não medidos" FontSize="11" Foreground="#94A3B8"/></StackPanel></Border>
+                        </UniformGrid>
                         <Border Style="{StaticResource SubtleInnerCardStyle}">
-                            <TextBlock Text="{Binding BenchmarkResultSummary}" FontSize="14" FontWeight="SemiBold" Foreground="#10B981" FontFamily="Consolas" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding BenchmarkResultSummary}" FontSize="12" FontWeight="SemiBold" Foreground="#E2E8F0" TextWrapping="Wrap"/>
                         </Border>
                     </StackPanel>
                 </Border>

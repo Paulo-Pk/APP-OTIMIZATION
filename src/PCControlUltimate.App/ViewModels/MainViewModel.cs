@@ -351,7 +351,10 @@ public class MainViewModel : INotifyPropertyChanged
     private double _ramUsagePercent;
     private string _gpuHotspotDeltaText = "N/D";
     private string _overallHealthScore = "N/D";
-    private string _benchmarkResultSummary = "Clique em Executar Benchmark Determinístico para medir throughput real de CPU e Memória.";
+    private string _benchmarkResultSummary = "Execute o teste para medir CPU e memória. GPU e armazenamento ainda não são medidos por este módulo.";
+    private string _benchmarkCpuScoreText = "—";
+    private string _benchmarkCpuTimeText = "—";
+    private string _benchmarkMemoryBandwidthText = "—";
     private string _peripheralCadenceSummary = "Clique na área de teste para conferir as teclas e os botões do mouse.";
     private int _peripheralKeyPressCount;
     private string _peripheralLastKey = "—";
@@ -483,6 +486,9 @@ public class MainViewModel : INotifyPropertyChanged
     public string GpuHotspotDeltaText { get => _gpuHotspotDeltaText; set { _gpuHotspotDeltaText = value; OnPropertyChanged(); } }
     public string OverallHealthScore { get => _overallHealthScore; set { _overallHealthScore = value; OnPropertyChanged(); } }
     public string BenchmarkResultSummary { get => _benchmarkResultSummary; set { _benchmarkResultSummary = value; OnPropertyChanged(); } }
+    public string BenchmarkCpuScoreText { get => _benchmarkCpuScoreText; set { _benchmarkCpuScoreText = value; OnPropertyChanged(); } }
+    public string BenchmarkCpuTimeText { get => _benchmarkCpuTimeText; set { _benchmarkCpuTimeText = value; OnPropertyChanged(); } }
+    public string BenchmarkMemoryBandwidthText { get => _benchmarkMemoryBandwidthText; set { _benchmarkMemoryBandwidthText = value; OnPropertyChanged(); } }
     public string PeripheralCadenceSummary { get => _peripheralCadenceSummary; set { _peripheralCadenceSummary = value; OnPropertyChanged(); } }
     public int PeripheralKeyPressCount { get => _peripheralKeyPressCount; private set { _peripheralKeyPressCount = value; OnPropertyChanged(); } }
     public string PeripheralLastKey { get => _peripheralLastKey; private set { _peripheralLastKey = value; OnPropertyChanged(); } }
@@ -1847,6 +1853,9 @@ public class MainViewModel : INotifyPropertyChanged
             BenchmarkResultSummary = Loc.CurrentCulture == "pt-BR"
                 ? $"CPU: {result.opsScore} pontos ({result.cpuMs} ms) · Memória: {result.memBandwidthGbS:F2} GB/s · Teste local concluído."
                 : $"CPU: {result.opsScore} points ({result.cpuMs} ms) · Memory: {result.memBandwidthGbS:F2} GB/s · Local test completed.";
+            BenchmarkCpuScoreText = result.opsScore.ToString("N0");
+            BenchmarkCpuTimeText = result.cpuMs.ToString("N0") + " ms";
+            BenchmarkMemoryBandwidthText = result.memBandwidthGbS.ToString("F2") + " GB/s";
         });
 
         MeasureInputCadenceCommand = new RelayCommand(_ =>
