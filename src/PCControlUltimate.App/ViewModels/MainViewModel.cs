@@ -1554,18 +1554,47 @@ public class MainViewModel : INotifyPropertyChanged
             PresentMonStatusText = $"Capturando '{ManualProcessName}' por {CaptureDurationSeconds}s...";
             try
             {
-                var response = await PresentMonSessionParser.CaptureProcessSessionAsync(
+                var telemetrySamples = new List<HardwareSnapshot>();
+                Task<PresentMonCaptureResponse> captureTask = PresentMonSessionParser.CaptureProcessSessionAsync(
                     ManualProcessName,
                     CaptureDurationSeconds,
                     _presentMonCts.Token
                 );
 
+                // Sample real hardware telemetry while PresentMon records frame times.
+                while (!captureTask.IsCompleted)
+                {
+                    if (_hardwareMonitor != null)
+                    {
+                        try { telemetrySamples.Add(await _hardwareMonitor.CaptureSnapshotAsync()); }
+                        catch { /* FPS capture remains valid even if a sensor read is temporarily unavailable. */ }
+                    }
+                    await Task.Delay(1000, _presentMonCts.Token);
+                }
+
+                var response = await captureTask;
+
                 if (response.Success && response.Summary != null)
                 {
+                    double? AverageSensorValue(IEnumerable<float?> values)
+                    {
+                        var valid = values.Where(value => value.HasValue && !float.IsNaN(value.Value) && !float.IsInfinity(value.Value))
+                            .Select(value => (double)value!.Value)
+                            .ToArray();
+                        return valid.Length > 0 ? valid.Average() : null;
+                    }
+
+                    double? avgCpuLoad = AverageSensorValue(telemetrySamples.Select(sample => sample.CpuTotalLoad));
+                    double? avgGpuLoad = AverageSensorValue(telemetrySamples.Select(sample => sample.GpuLoad));
+                    double? avgCpuTemp = AverageSensorValue(telemetrySamples.Select(sample => sample.CpuPackageTemp));
+                    double? avgGpuTemp = AverageSensorValue(telemetrySamples.Select(sample => sample.GpuTemp));
+
                     PresentMonStatusText = $"Captura concluída! CSV salvo em: {response.CsvFilePath}";
                     PresentMonMetricsSummary =
                         $"FPS Médio: {response.Summary.AverageFps:F1} | 1% Low: {response.Summary.OnePercentLowFps:F1} | " +
                         $"Frametime Médio: {response.Summary.AverageFrametimeMs:F2} ms (σ={response.Summary.FrametimeStandardDeviationMs:F2} ms) | " +
+                        $"CPU: {(avgCpuLoad.HasValue ? avgCpuLoad.Value.ToString("F0") + "%" : "N/D")} / {(avgCpuTemp.HasValue ? avgCpuTemp.Value.ToString("F1") + "°C" : "N/D")} | " +
+                        $"GPU: {(avgGpuLoad.HasValue ? avgGpuLoad.Value.ToString("F0") + "%" : "N/D")} / {(avgGpuTemp.HasValue ? avgGpuTemp.Value.ToString("F1") + "°C" : "N/D")} | " +
                         $"Quadros: {response.Summary.TotalFramesCount}";
 
                     RecentFrametimeSamples.Clear();
