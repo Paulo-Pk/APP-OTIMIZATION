@@ -2110,6 +2110,18 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private static int GetCpuTemperaturePriority(string sensorName)
+    {
+        if (sensorName.Contains("Tctl/Tdie", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (sensorName.Contains("Tdie", StringComparison.OrdinalIgnoreCase)) return 95;
+        if (sensorName.Contains("Tctl", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (sensorName.Contains("Package", StringComparison.OrdinalIgnoreCase)) return 85;
+        if (sensorName.Contains("CCD", StringComparison.OrdinalIgnoreCase)) return 80;
+        if (sensorName.Contains("Core", StringComparison.OrdinalIgnoreCase)) return 70;
+        if (sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase)) return 60;
+        return 1;
+    }
+
     public async Task RefreshTelemetryAndStatusAsync()
     {
         if (!await _telemetryRefreshGate.WaitAsync(0)) return;
@@ -2176,11 +2188,32 @@ public class MainViewModel : INotifyPropertyChanged
                 }
 
                 string notSupported = Loc["SensorStatusNotSupported"];
+                // Some motherboard/CPU combinations expose valid values only in the raw sensor inventory.
+                // Fall back to those real readings before reporting that temperature or clock is unavailable.
+                float? cpuTemperatureReading = snap.CpuPackageTemp ??
+                    snap.Sensors
+                        .Where(sensor => sensor.IsAvailable &&
+                            string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase) &&
+                            sensor.Value.HasValue)
+                        .OrderByDescending(sensor => GetCpuTemperaturePriority(sensor.SensorName))
+                        .Select(sensor => sensor.Value)
+                        .FirstOrDefault();
+
+                float? cpuClockReading = snap.CpuClockMhz ??
+                    snap.Sensors
+                        .Where(sensor => sensor.IsAvailable &&
+                            string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(sensor.SensorType, "Clock", StringComparison.OrdinalIgnoreCase) &&
+                            sensor.Value.HasValue)
+                        .Select(sensor => sensor.Value)
+                        .Max();
+
                 CpuModel = !string.IsNullOrWhiteSpace(snap.CpuModelName) ? snap.CpuModelName : unavailable;
-                CpuTemp = snap.CpuPackageTemp.HasValue ? $"{snap.CpuPackageTemp.Value:F1} °C" : notSupported;
+                CpuTemp = cpuTemperatureReading.HasValue ? $"{cpuTemperatureReading.Value:F1} °C" : notSupported;
                 CpuLoad = snap.CpuTotalLoad.HasValue ? $"{snap.CpuTotalLoad.Value:F0} %" : notSupported;
                 CpuLoadPercent = snap.CpuTotalLoad ?? 0;
-                CpuClock = snap.CpuClockMhz.HasValue ? $"{snap.CpuClockMhz.Value:F0} MHz" : notSupported;
+                CpuClock = cpuClockReading.HasValue ? $"{cpuClockReading.Value:F0} MHz" : notSupported;
                 CpuPower = snap.CpuPowerWatts.HasValue ? $"{snap.CpuPowerWatts.Value:F1} W" : notSupported;
 
                 GpuModel = !string.IsNullOrWhiteSpace(snap.GpuModelName) ? snap.GpuModelName : unavailable;
