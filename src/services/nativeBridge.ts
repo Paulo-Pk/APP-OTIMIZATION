@@ -239,6 +239,15 @@ class NativeBridgeService {
         const motherboardSystemTemp = firstAvailableReading(findSensor(motherboardSensors, 'Temperature', /^(system|motherboard|board)\b/i));
         const motherboardVrmTemp = firstAvailableReading(findSensor(motherboardSensors, 'Temperature', /\b(vrm|mos)\b/i));
         const motherboardChipsetTemp = firstAvailableReading(findSensor(motherboardSensors, 'Temperature', /chipset|pch/i));
+        const motherboardCpuFan = firstAvailableReading(findSensor(motherboardSensors, 'Fan', /cpu.*fan|fan.*cpu/i));
+        const motherboardPumpFan = firstAvailableReading(findSensor(motherboardSensors, 'Fan', /pump|aio|water/i));
+        const motherboardCaseFans = motherboardSensors
+          .filter((sensor: any) => sensor.sensorType.toLowerCase() === 'fan' && /case|cha.*fan|chassis|sys.*fan/i.test(sensor.name))
+          .map((sensor: any) => Number(sensor.value))
+          .filter((value: number) => Number.isFinite(value));
+        const motherboard12v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\\s|\\+)12(?:v|\\b)/i));
+        const motherboard5v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\\s|\\+)5(?:v|\\b)/i));
+        const motherboard33v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\\s|\\+)3[.,]3(?:v|\\b)/i));
         const cpuTemp = cpuTempReading ?? 0;
         const gpuCoreTemp = gpuCoreTempReading ?? 0;
         const gpuHotspot = gpuHotspotReading ?? 0;
@@ -302,8 +311,9 @@ class NativeBridgeService {
           }),
           motherboard: {
             model: 'Não informado', chipset: 'Não informado', biosVersion: 'Não informado',
-            temperatures: { system: motherboardSystemTemp ?? 0, vrm: motherboardVrmTemp ?? 0, chipset: motherboardChipsetTemp ?? 0, systemAvailable: motherboardSystemTemp !== null, vrmAvailable: motherboardVrmTemp !== null, chipsetAvailable: motherboardChipsetTemp !== null }, voltages: { v12: 0, v5: 0, v33: 0 },
-            fans: { cpuFanRPM: 0, pumpRPM: 0, caseFansRPM: [] },
+            temperatures: { system: motherboardSystemTemp ?? 0, vrm: motherboardVrmTemp ?? 0, chipset: motherboardChipsetTemp ?? 0, systemAvailable: motherboardSystemTemp !== null, vrmAvailable: motherboardVrmTemp !== null, chipsetAvailable: motherboardChipsetTemp !== null },
+            voltages: { v12: motherboard12v ?? 0, v5: motherboard5v ?? 0, v33: motherboard33v ?? 0 },
+            fans: { cpuFanRPM: motherboardCpuFan ?? 0, pumpRPM: motherboardPumpFan ?? 0, caseFansRPM: motherboardCaseFans },
           },
           sensors,
         } as HardwareTelemetry;
