@@ -361,6 +361,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _benchmarkGpuScoreText = "Ainda não testada";
     private string _benchmarkGpuStatusText = "Teste Direct3D do Windows disponível quando o WinSAT estiver instalado.";
     private string _softwareInstallStatusText = "Escolha um aplicativo e confirme antes de instalar.";
+    private string _driverScanStatusText = "Ainda não foi realizada uma leitura de drivers.";
     private string _peripheralCadenceSummary = "Clique na área de teste para conferir as teclas e os botões do mouse.";
     private int _peripheralKeyPressCount;
     private string _peripheralLastKey = "—";
