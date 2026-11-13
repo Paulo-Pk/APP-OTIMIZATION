@@ -4,6 +4,7 @@ import {
   Play,
   Globe,
   Server,
+  Activity,
   AlertCircle,
   ShieldCheck,
 } from 'lucide-react';

@@ -241,6 +241,8 @@ export const PeripheralTestView: React.FC = () => {
           onMouseMove={handleMouseMove}
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}
+          onMouseLeave={() => setMouseButtons({ left: false, right: false, middle: false })}
+          onWheel={() => setMouseWheelCount((count) => count + 1)}
           onContextMenu={(e) => e.preventDefault()}
           className="p-6 rounded-xl bg-[#0f121b] border border-slate-800 space-y-5 select-none"
         >

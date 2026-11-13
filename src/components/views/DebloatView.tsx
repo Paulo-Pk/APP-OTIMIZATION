@@ -39,7 +39,7 @@ export const DebloatView: React.FC = () => {
         prefetchBytes: Number(result.prefetchBytes) || 0,
       } : null);
       if (!result) setNoticeMessage('Conecte o agente Windows para medir o espaço real que pode ser liberado.');
-      else setNoticeMessage(null);
+
     } catch {
       setScan(null);
       setErrorMessage('Não foi possível verificar as pastas de limpeza.');
