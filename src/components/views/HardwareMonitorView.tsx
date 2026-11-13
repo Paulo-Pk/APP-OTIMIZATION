@@ -27,9 +27,9 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
             <Cpu className="w-4 h-4" /> {t.hardwareMonitor.subtitle}
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">HARDWARE MONITOR</h1>
+          <h1 className="text-xl font-black text-white mt-0.5">Monitoramento do PC</h1>
           <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
-            {t.hardwareMonitor.description}
+            Temperaturas, uso e espaço dos componentes. Os números são lidos do agente Windows; quando um sensor não existe, mostramos “Não disponível” em vez de inventar valores.
           </p>
         </div>
 
@@ -310,9 +310,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                       {disk.capacityGB > 0 ? `${disk.freeSpaceGB.toFixed(1)} GB ${t.hardwareMonitor.freeOf} ${disk.capacityGB.toFixed(1)} GB` : t.common.sensorNotAvailable}
                     </span>
                     <span>
-                      Temp:{' '}
-                      {disk.temperature ? `${disk.temperature}°C` : t.common.sensorNotAvailable} ·
-                      SMART: {disk.smartStatus}
+                      Temperatura: {disk.temperature > 0 ? `${disk.temperature}°C` : t.common.sensorNotAvailable} · Estado do disco: {disk.smartStatus === 'N/D' ? 'Não informado' : disk.smartStatus}
                     </span>
                   </div>
                 </div>

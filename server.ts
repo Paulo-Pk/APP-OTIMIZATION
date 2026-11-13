@@ -51,10 +51,10 @@ async function startServer() {
     }
 
     const defaultTargets: TargetConfig[] = [
-      { id: 'sp', server: 'Valve CS2 / Steam Cluster (América do Sul)', location: 'São Paulo, BR', host: 'steampowered.com', port: 443 },
-      { id: 'santiago', server: 'Riot Games Valorant Cluster (América do Sul)', location: 'Santiago, CL', host: 'riotgames.com', port: 443 },
-      { id: 'miami', server: 'Epic Games / AWS us-east-1 (América do Norte)', location: 'Miami / Virginia, EUA', host: 'epicgames.com', port: 443 },
-      { id: 'frankfurt', server: 'Europe Gaming Hub (Frankfurt)', location: 'Frankfurt, Alemanha', host: 'cloudflare.com', port: 443 },
+      { id: 'sp', server: 'Serviço Steam (endereço de referência)', location: 'Endpoint público · Brasil', host: 'steampowered.com', port: 443 },
+      { id: 'santiago', server: 'Serviço Riot Games (endereço de referência)', location: 'Endpoint público · Chile', host: 'riotgames.com', port: 443 },
+      { id: 'miami', server: 'Serviço Epic Games (endereço de referência)', location: 'Endpoint público · EUA', host: 'epicgames.com', port: 443 },
+      { id: 'frankfurt', server: 'Cloudflare (endereço de referência)', location: 'Endpoint público · Global', host: 'cloudflare.com', port: 443 },
       { id: 'cf-dns', server: 'Cloudflare Edge Anycast (TCP 443)', location: 'Anycast Global', host: '1.1.1.1', port: 443 },
       { id: 'google-dns', server: 'Google Public Edge (TCP 443)', location: 'Anycast Global', host: '8.8.8.8', port: 443 },
     ];

@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   ShieldCheck,
-  RefreshCw,
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { nativeBridge } from '../../services/nativeBridge';
