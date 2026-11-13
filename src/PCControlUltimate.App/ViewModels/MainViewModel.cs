@@ -42,7 +42,9 @@ public record VerifiedSoftwareItem(
     string WingetId,
     string Publisher,
     string CommandLine,
-    string Description
+    string Description,
+    string IconUrl = "",
+    string Source = "winget"
 );
 
 public class RelayCommand : ICommand
@@ -2028,6 +2030,34 @@ public class MainViewModel : INotifyPropertyChanged
             new Action(async () => await RefreshAllTweakStatesAsync()));
     }
 
+    private static string ResolveSoftwareIconUrl(string packageId)
+    {
+        string domain = packageId switch
+        {
+            "Discord.Discord" => "discord.com",
+            "Valve.Steam" => "store.steampowered.com",
+            "EpicGames.EpicGamesLauncher" => "epicgames.com",
+            "GOG.Galaxy" => "gog.com",
+            "Opera.OperaGX" => "opera.com",
+            "9MV0B5HZVK9Z" => "xbox.com",
+            "Mozilla.Firefox" => "mozilla.org",
+            "Google.Chrome" => "google.com",
+            "Brave.Brave" => "brave.com",
+            "Telegram.TelegramDesktop" => "telegram.org",
+            "OBSProject.OBSStudio" => "obsproject.com",
+            "VideoLAN.VLC" => "videolan.org",
+            "REALiX.HWiNFO" => "hwinfo.com",
+            "Intel.PresentMon" => "intel.com",
+            "TechPowerUp.GPU-Z" => "techpowerup.com",
+            "CPUID.CPU-Z" => "cpuid.com",
+            "Playnite.Playnite" => "playnite.link",
+            "Microsoft.PowerToys" => "learn.microsoft.com",
+            "WireGuard.WireGuard" => "wireguard.com",
+            _ => "microsoft.com"
+        };
+        return $"https://www.google.com/s2/favicons?domain={domain}&sz=64";
+    }
+
     private void InitializeVerifiedSoftwareCatalog()
     {
         VerifiedWingetCatalog.Clear();
@@ -2038,8 +2068,10 @@ public class MainViewModel : INotifyPropertyChanged
                 pkg.CategoryDisplayName,
                 pkg.PackageId,
                 pkg.Publisher,
-                $"winget install --id \"{pkg.PackageId}\" --exact --source winget --accept-package-agreements --accept-source-agreements",
-                pkg.Description
+                $"winget install --id \"{pkg.PackageId}\" --exact --source {pkg.OfficialSource} --accept-package-agreements --accept-source-agreements",
+                pkg.Description,
+                ResolveSoftwareIconUrl(pkg.PackageId),
+                pkg.OfficialSource
             ));
         }
     }
