@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import { nativeBridge } from '../../services/nativeBridge';
 
 interface TargetMeasurement {
   id: string;
@@ -47,97 +48,89 @@ export const NetworkLabView: React.FC = () => {
     setIsRunning(true);
     setHasRun(true);
     setTestError(null);
+    setTargetResults([]);
+    setDnsResults([]);
+    setLocalPingMs(null);
+    setAvgExternalPing(null);
+    setAvgExternalJitter(null);
+    setDownloadMbps(null);
 
-    // 1. Measure Local HTTP Loopback Latency (explicitly separated from external internet latency)
-    const localSamples: number[] = [];
-    for (let i = 0; i < 3; i++) {
-      const start = performance.now();
-      try {
-        const res = await fetch(`/api/network/ping?t=${Date.now()}`);
-        if (res.ok) {
-          localSamples.push(performance.now() - start);
-        }
-      } catch {
-        // failed probe
-      }
-    }
-
-    if (localSamples.length > 0) {
-      const avgLocal = localSamples.reduce((a, b) => a + b, 0) / localSamples.length;
-      setLocalPingMs(Math.round(avgLocal));
-    } else {
-      setLocalPingMs(null);
-    }
-
-    // 2. Measure External Gaming Targets via Real TCP Handshake RTT
     try {
-      const targetRes = await fetch('/api/network/measure-targets');
-      if (targetRes.ok) {
-        const data = await targetRes.json();
-        if (data.results && Array.isArray(data.results)) {
-          setTargetResults(data.results);
-
-          const successfulTargets = (data.results as TargetMeasurement[]).filter(
-            (r) => r.isSuccess && r.pingMs !== null
-          );
-          if (successfulTargets.length > 0) {
-            const avgPing =
-              successfulTargets.reduce((acc, curr) => acc + (curr.pingMs || 0), 0) /
-              successfulTargets.length;
-            const avgJitter =
-              successfulTargets.reduce((acc, curr) => acc + (curr.jitterMs || 0), 0) /
-              successfulTargets.length;
-
-            setAvgExternalPing(Math.round(avgPing));
-            setAvgExternalJitter(parseFloat(avgJitter.toFixed(1)));
-          } else {
-            setAvgExternalPing(null);
-            setAvgExternalJitter(null);
-          }
-        }
-      } else {
-        setTargetResults([]);
-        setAvgExternalPing(null);
-        setAvgExternalJitter(null);
+      // The Windows executable runs inside WebView2 and has no Node/Vite API server.
+      // Use the authenticated native agent so the same feature works in the installed app.
+      const report = await nativeBridge.runRealNetworkDiagnostics();
+      if (!report) {
+        setTestError('Não foi possível consultar o agente Windows. Verifique se ele está conectado e autenticado.');
+        return;
       }
-    } catch {
-      setTargetResults([]);
-      setAvgExternalPing(null);
-      setAvgExternalJitter(null);
-      setTestError(t.networkLab.measurementUnavailable);
-    }
 
-    // 3. Measure Real External Download Throughput via Cloudflare Speed CDN (Never localhost!)
-    try {
-      const res = await fetch(`/api/network/external-throughput?t=${Date.now()}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.available && typeof data.downloadMbps === 'number') {
-          setDownloadMbps(data.downloadMbps);
-        } else {
-          setDownloadMbps(null);
-        }
-      } else {
-        setDownloadMbps(null);
+      const read = (obj: any, key: string) => obj?.[key] ?? obj?.[key.charAt(0).toUpperCase() + key.slice(1)];
+      const rawTargets = read(report, 'targetResults');
+      const mappedTargets: TargetMeasurement[] = (Array.isArray(rawTargets) ? rawTargets : []).map((item: any, index: number) => {
+        const tcpLatency = read(item, 'tcpHandshakeMs');
+        const connected = Boolean(read(item, 'isTcpConnected'));
+        const targetName = String(read(item, 'targetName') || `Destino ${index + 1}`);
+        const host = String(read(item, 'hostOrIp') || 'N/D');
+        return {
+          id: `${index}-${host}`,
+          server: targetName,
+          location: 'Endpoint público de referência',
+          host,
+          protocol: 'TCP',
+          pingMs: typeof tcpLatency === 'number' ? tcpLatency : null,
+          jitterMs: null,
+          tcpFailurePercent: connected ? 0 : 100,
+          samples: [],
+          isSuccess: connected && typeof tcpLatency === 'number',
+        };
+      });
+      setTargetResults(mappedTargets);
+
+      const icmpLatency = read(report, 'averageIcmpLatencyMs');
+      const tcpLatency = read(report, 'averageTcpHandshakeMs');
+      const jitter = read(report, 'jitterMs');
+      setLocalPingMs(typeof icmpLatency === 'number' ? Math.round(icmpLatency) : null);
+      setAvgExternalPing(typeof tcpLatency === 'number' ? Math.round(tcpLatency) : null);
+      setAvgExternalJitter(typeof jitter === 'number' ? Number(jitter.toFixed(1)) : null);
+
+      const rawDns = read(report, 'dnsChecks');
+      const mappedDns: DnsMeasurement[] = (Array.isArray(rawDns) ? rawDns : []).map((item: any) => {
+        const resolution = read(item, 'resolutionMs');
+        return {
+          provider: 'DNS do Windows',
+          dnsIp: 'Servidor configurado no sistema',
+          resolveTimeMs: typeof resolution === 'number' && resolution >= 0 ? resolution : null,
+          status: String(read(item, 'status') || read(report, 'dnsState') || 'Não informado'),
+          isSuccess: typeof resolution === 'number' && resolution >= 0,
+        };
+      });
+      if (mappedDns.length === 0) {
+        const dnsLatency = read(report, 'dnsResolutionMs');
+        mappedDns.push({
+          provider: 'DNS do Windows',
+          dnsIp: 'Servidor configurado no sistema',
+          resolveTimeMs: typeof dnsLatency === 'number' && dnsLatency >= 0 ? dnsLatency : null,
+          status: String(read(report, 'dnsState') || 'Não informado'),
+          isSuccess: typeof dnsLatency === 'number' && dnsLatency >= 0,
+        });
       }
-    } catch {
-      setDownloadMbps(null);
-    }
+      setDnsResults(mappedDns);
 
-    // 4. Measure Real DNS Resolution (UDP 53)
-    try {
-      const dnsRes = await fetch('/api/network/dns-benchmark');
-      if (dnsRes.ok) {
-        const dnsData = await dnsRes.json();
-        if (dnsData.results) {
-          setDnsResults(dnsData.results);
-        }
+      const throughput = await nativeBridge.measureExternalThroughput();
+      if (throughput?.available && typeof throughput.downloadMbps === 'number') {
+        setDownloadMbps(throughput.downloadMbps);
+      } else if (throughput?.error) {
+        setTestError(`Diagnóstico de rede concluído, mas a medição de velocidade falhou: ${throughput.error}`);
       }
-    } catch {
-      setDnsResults([]);
-    }
 
-    setIsRunning(false);
+      if (mappedTargets.length === 0) {
+        setTestError('O agente respondeu, mas não retornou destinos de rede para exibir.');
+      }
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : t.networkLab.measurementUnavailable);
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   return (
@@ -183,7 +176,7 @@ export const NetworkLabView: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono tabular-nums">
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
           <span className="text-[10px] text-slate-500 uppercase block font-semibold font-sans">
-            Resposta do próprio aplicativo
+            Latência ICMP externa
           </span>
           <div className="text-2xl font-black text-cyan-400">
             {localPingMs !== null
@@ -192,7 +185,7 @@ export const NetworkLabView: React.FC = () => {
               ? t.networkLab.measurementUnavailable
               : '—'}
           </div>
-          <span className="text-[10px] text-slate-400 block font-sans">Mede apenas a comunicação local, não a internet</span>
+          <span className="text-[10px] text-slate-400 block font-sans">Tempo de resposta ICMP dos destinos que responderam</span>
         </div>
 
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-1">
@@ -351,18 +344,18 @@ export const NetworkLabView: React.FC = () => {
 
                   <div>
                     <span className="text-slate-500 block text-[9px] uppercase">
-                      {t.networkLab.packetLoss}
+                      Falha de conexão TCP
                     </span>
                     <span
                       className={`text-sm font-bold ${
                         target.tcpFailurePercent === 0
                           ? 'text-emerald-400'
-                          : target.packetLossPercent < 30
+                          : target.tcpFailurePercent < 30
                           ? 'text-amber-400'
                           : 'text-rose-400'
                       }`}
                     >
-                      {target.packetLossPercent}%
+                      {target.tcpFailurePercent}%
                     </span>
                   </div>
                 </div>
