@@ -1357,7 +1357,16 @@
                             <TextBlock Text="Escolha um jogo e o destino do teste" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
                             <StackPanel Margin="0,0,0,12">
                                 <TextBlock Text="Escolha o jogo" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
-                                <ComboBox ItemsSource="{Binding GameTargetPresets}" SelectedItem="{Binding SelectedGameTarget, UpdateSourceTrigger=PropertyChanged}" DisplayMemberPath="DisplayName" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#7C3AED" Padding="8,6"/>
+                                <ComboBox ItemsSource="{Binding GameTargetPresets}" SelectedItem="{Binding SelectedGameTarget, UpdateSourceTrigger=PropertyChanged}" Background="#090C14" Foreground="#FFFFFF" BorderBrush="#7C3AED" Padding="8,6">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding DisplayName}" Foreground="#F8FAFC" FontSize="11" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Host, StringFormat=Destino: {0}}" Foreground="#94A3B8" FontSize="10"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                                 <TextBlock Text="Destino público de referência do serviço do jogo — não é necessariamente o servidor da sua partida." FontSize="10.5" Foreground="#A78BFA" Margin="0,5,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                             <UniformGrid Columns="2" Margin="0,0,0,12">
