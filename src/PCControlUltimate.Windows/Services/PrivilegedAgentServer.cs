@@ -22,6 +22,7 @@ public class PrivilegedAgentServer : IDisposable
     private readonly HttpListener _listener;
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
+    private readonly WingetSoftwareCenterService _softwareCenter = new();
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
     private readonly ConcurrentQueue<DateTime> _requestTimestamps = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedNonces = new(StringComparer.Ordinal);
@@ -690,6 +691,46 @@ public class PrivilegedAgentServer : IDisposable
                     }
 
                     using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
+
+                    if (path == "/api/software/install")
+                    {
+                        string packageId = doc.RootElement.TryGetProperty("packageId", out var packageIdEl)
+                            ? (packageIdEl.GetString() ?? "").Trim()
+                            : "";
+                        bool userConfirmed = doc.RootElement.TryGetProperty("userConfirmed", out var confirmEl)
+                            && confirmEl.ValueKind == JsonValueKind.True;
+
+                        if (string.IsNullOrWhiteSpace(packageId) || !userConfirmed)
+                        {
+                            await SendJsonAsync(res, new
+                            {
+                                success = false,
+                                error = "EXPLICIT_INSTALL_CONFIRMATION_REQUIRED",
+                                message = "Selecione um aplicativo do catálogo oficial e confirme a instalação antes de continuar."
+                            }, 400);
+                            return;
+                        }
+
+                        var installResult = await _softwareCenter.InstallPackageAsync(
+                            packageId,
+                            userConfirmed: true,
+                            source: "winget",
+                            cancellationToken: cancellationToken);
+
+                        WriteAuditLog("SOFTWARE_INSTALL",
+                            $"Package={installResult.PackageId} Success={installResult.Success} ExitCode={installResult.ExitCode} Status={installResult.Status}");
+
+                        await SendJsonAsync(res, new
+                        {
+                            success = installResult.Success,
+                            packageId = installResult.PackageId,
+                            status = installResult.Status,
+                            exitCode = installResult.ExitCode,
+                            message = installResult.OutputLog,
+                            signatureState = installResult.SignatureState.ToString()
+                        }, installResult.Success ? 200 : 400);
+                        return;
+                    }
 
                     // CRITICAL SECURITY FIX: /api/tweaks/apply ONLY accepts a cataloged tweakId!
                     if (path == "/api/tweaks/apply")
