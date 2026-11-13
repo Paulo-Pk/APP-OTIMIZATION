@@ -378,9 +378,13 @@ public static class PresentMonSessionParser
 
         var sortedDescending = frametimesMs.OrderByDescending(f => f).ToList();
 
-        int onePctIndex = Math.Min(sortedDescending.Count - 1, Math.Max(0, (int)(sortedDescending.Count * 0.01)));
-        double onePctFt = sortedDescending[onePctIndex];
-        double onePctLowFps = onePctFt > 0 ? (1000.0 / onePctFt) : 0;
+        // 1% low is the average FPS represented by the slowest 1% of frames,
+        // not the frame at an arbitrary percentile index.
+        int onePctFrameCount = Math.Max(1, (int)Math.Ceiling(sortedDescending.Count * 0.01));
+        double onePctAverageFrametimeMs = sortedDescending.Take(onePctFrameCount).Average();
+        double onePctLowFps = onePctAverageFrametimeMs > 0
+            ? 1000.0 / onePctAverageFrametimeMs
+            : 0;
 
         double maxFt = sortedDescending.First();
         double minFps = maxFt > 0 ? (1000.0 / maxFt) : 0;
