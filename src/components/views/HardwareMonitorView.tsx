@@ -97,7 +97,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           </div>
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Uso da CPU</span>
-            <span className="text-lg font-mono font-bold text-cyan-300">{telemetry.cpu.load > 0 ? `${telemetry.cpu.load.toFixed(0)}%` : t.common.sensorNotAvailable}</span>
+            <span className="text-lg font-mono font-bold text-cyan-300">{telemetry.cpu.cores > 0 ? `${telemetry.cpu.load.toFixed(0)}%` : t.common.sensorNotAvailable}</span>
           </div>
         </div>
 
