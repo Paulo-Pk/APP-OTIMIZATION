@@ -1628,6 +1628,12 @@ public class MainViewModel : INotifyPropertyChanged
                     PresentMonStatusText = $"Captura não produziu métricas: {response.ErrorMessage}";
                 }
             }
+            catch (OperationCanceledException) when (_presentMonCts?.IsCancellationRequested == true)
+            {
+                // The sampling delay is cancellable too; handle it here so the
+                // WPF async command does not leak an unhandled cancellation.
+                PresentMonStatusText = "Captura cancelada pelo usuário.";
+            }
             finally
             {
                 IsCapturingPresentMon = false;
