@@ -13,6 +13,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 {
     private readonly Computer _computer;
     private Timer? _pollingTimer;
+    private readonly SemaphoreSlim _captureLock = new(1, 1);
     private bool _disposed;
 
     public bool IsAvailable { get; private set; }
@@ -35,6 +36,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_disposed) throw new ObjectDisposedException(nameof(LibreHardwareMonitorWrapper));
         if (!OperatingSystem.IsWindows())
         {
             IsAvailable = false;
@@ -59,7 +62,20 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         return Task.CompletedTask;
     }
 
-    public Task<HardwareSnapshot> CaptureSnapshotAsync()
+    public async Task<HardwareSnapshot> CaptureSnapshotAsync()
+    {
+        await _captureLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await CaptureSnapshotCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _captureLock.Release();
+        }
+    }
+
+    private Task<HardwareSnapshot> CaptureSnapshotCoreAsync()
     {
         if (_disposed)
         {
@@ -379,12 +395,28 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     public void StartPolling(TimeSpan interval)
     {
         if (_disposed) return;
+        if (interval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(interval), "O intervalo de telemetria deve ser maior que zero.");
+
         _pollingTimer?.Dispose();
         _pollingTimer = new Timer(async _ =>
         {
             if (_disposed) return;
-            var snap = await CaptureSnapshotAsync();
-            TelemetryUpdated?.Invoke(this, snap);
+            try
+            {
+                var snap = await CaptureSnapshotAsync().ConfigureAwait(false);
+                if (!_disposed)
+                    TelemetryUpdated?.Invoke(this, snap);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Shutdown may race with a scheduled timer callback.
+            }
+            catch (Exception ex)
+            {
+                LastCommunicationError = $"Falha inesperada no ciclo de telemetria: {ex.Message}";
+                CurrentStatus = SensorReadingStatus.CommunicationFailure;
+            }
         }, null, TimeSpan.Zero, interval);
     }
 
@@ -490,14 +522,24 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     {
         if (_disposed) return;
         _disposed = true;
+        _pollingTimer?.Change(Timeout.Infinite, 0);
+        _pollingTimer?.Dispose();
+        _pollingTimer = null;
+
+        // Wait for an in-flight hardware read before closing LibreHardwareMonitor.
+        _captureLock.Wait();
         try
         {
-            _pollingTimer?.Change(Timeout.Infinite, 0);
-            _pollingTimer?.Dispose();
-            _pollingTimer = null;
             _computer.Close();
         }
-        catch { }
+        catch
+        {
+            // Disposal must remain best-effort even if a hardware driver fails to close.
+        }
+        finally
+        {
+            _captureLock.Release();
+        }
         GC.SuppressFinalize(this);
     }
 }
