@@ -70,7 +70,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
         const samples = telemetrySamples.current;
         const average = (key: 'cpuLoad' | 'gpuLoad' | 'cpuTemp' | 'gpuTemp') => {
           const values = samples.map((sample) => sample[key]).filter((value) => Number.isFinite(value) && (key === 'cpuLoad' || key === 'gpuLoad' ? value >= 0 : value > 0));
-          return values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : 0;
+          return values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : null;
         };
 
         const newSession: PresentMonSession = {
@@ -211,6 +211,10 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
                   <span className="text-xl font-bold text-emerald-400">{s.onePercentLow} FPS</span>
                 </div>
                 <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">0,1% Low</span>
+                  <span className="text-xl font-bold text-emerald-300">{s.pointOnePercentLow === null ? 'N/D' : `${s.pointOnePercentLow} FPS`}</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase block font-sans">
                     {t.performanceLab.frametimeAvg}
                   </span>
@@ -224,19 +228,19 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
                 </div>
                 <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase block font-sans">Uso médio da CPU</span>
-                  <span className="text-xl font-bold text-purple-300">{s.cpuLoadAvg > 0 ? `${s.cpuLoadAvg}%` : 'N/D'}</span>
+                  <span className="text-xl font-bold text-purple-300">{s.cpuLoadAvg === null ? 'N/D' : `${s.cpuLoadAvg}%`}</span>
                 </div>
                 <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase block font-sans">Uso médio da GPU</span>
-                  <span className="text-xl font-bold text-cyan-300">{s.gpuLoadAvg > 0 ? `${s.gpuLoadAvg}%` : 'N/D'}</span>
+                  <span className="text-xl font-bold text-cyan-300">{s.gpuLoadAvg === null ? 'N/D' : `${s.gpuLoadAvg}%`}</span>
                 </div>
                 <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase block font-sans">Temperatura média da CPU</span>
-                  <span className="text-xl font-bold text-amber-300">{s.cpuTempAvg > 0 ? `${s.cpuTempAvg}°C` : 'N/D'}</span>
+                  <span className="text-xl font-bold text-amber-300">{s.cpuTempAvg === null ? 'N/D' : `${s.cpuTempAvg}°C`}</span>
                 </div>
                 <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase block font-sans">Temperatura média da GPU</span>
-                  <span className="text-xl font-bold text-rose-300">{s.gpuTempAvg > 0 ? `${s.gpuTempAvg}°C` : 'N/D'}</span>
+                  <span className="text-xl font-bold text-rose-300">{s.gpuTempAvg === null ? 'N/D' : `${s.gpuTempAvg}°C`}</span>
                 </div>
               </div>
             </div>
