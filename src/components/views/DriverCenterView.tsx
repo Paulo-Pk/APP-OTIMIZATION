@@ -7,23 +7,31 @@ import {
   ShieldCheck,
   RefreshCw,
 } from 'lucide-react';
-import { systemDrivers } from '../../data/softwareHub';
 import { useI18n } from '../../i18n';
 import { nativeBridge } from '../../services/nativeBridge';
 import { DriverInfo } from '../../types';
 
 export const DriverCenterView: React.FC = () => {
   const { t } = useI18n();
-  const [drivers, setDrivers] = useState<DriverInfo[]>(systemDrivers);
+  const [drivers, setDrivers] = useState<DriverInfo[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // If native agent is connected, query real drivers via WMI
-    nativeBridge.queryInstalledDrivers().then((realDrivers) => {
-      if (realDrivers && realDrivers.length > 0) {
-        setDrivers(realDrivers);
-      }
-    });
-  }, []);
+  const scanDrivers = async () => {
+    setIsScanning(true);
+    setScanError(null);
+    try {
+      const realDrivers = await nativeBridge.queryInstalledDrivers();
+      if (realDrivers) setDrivers(realDrivers);
+      else setScanError('Conecte o agente Windows para consultar os drivers instalados.');
+    } catch {
+      setScanError('Não foi possível consultar os drivers nesta sessão.');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  useEffect(() => { void scanDrivers(); }, []);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -39,11 +47,13 @@ export const DriverCenterView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-emerald-400 bg-[#0f1420] px-3 py-1.5 rounded-lg border border-emerald-500/30 font-semibold">
-          <ShieldCheck className="w-4 h-4" />
-          <span>{t.driverCenter.verifiedOfficial}</span>
-        </div>
+        <button onClick={() => void scanDrivers()} disabled={isScanning} className="flex items-center gap-2 text-xs text-purple-200 bg-[#141829] px-3 py-2 rounded-lg border border-purple-500/40 font-semibold disabled:opacity-50">
+          <ShieldCheck className={`w-4 h-4 ${isScanning ? 'animate-pulse' : ''}`} />
+          <span>{isScanning ? 'Lendo drivers...' : 'Escanear drivers instalados'}</span>
+        </button>
       </div>
+
+      {scanError && <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-200">{scanError}</div>}
 
       {/* Drivers List Table */}
       <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4">
@@ -52,11 +62,12 @@ export const DriverCenterView: React.FC = () => {
             {t.driverCenter.tableTitle}
           </span>
           <span className="text-slate-400 font-mono">
-            {drivers.length} {t.driverCenter.monitoredDrivers}
+            {isScanning ? 'Consultando Windows...' : `${drivers.length} drivers encontrados`}
           </span>
         </div>
 
         <div className="divide-y divide-slate-800/80">
+          {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum driver retornado pelo Windows. Clique em “Escanear drivers instalados” para tentar novamente.</div> : null}
           {drivers.map((driver, idx) => {
             const isUpToDate = driver.status === 'Atualizado';
 

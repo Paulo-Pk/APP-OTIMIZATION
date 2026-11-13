@@ -13,9 +13,10 @@ import { useI18n } from '../../i18n';
 
 interface GpuHealthLabViewProps {
   gpu: GpuTelemetry;
+  sensors?: Array<{ identifier: string; name: string; hardwareType: string; sensorType: string; value: number | null; unit: string; isAvailable: boolean; status: string }>;
 }
 
-export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
+export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors = [] }) => {
   const { t } = useI18n();
   const [vendorFilter, setVendorFilter] = useState<'NVIDIA' | 'AMD' | 'Intel'>(
     (gpu.vendor === 'NVIDIA' || gpu.vendor === 'AMD' || gpu.vendor === 'Intel'
@@ -87,6 +88,24 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
         </div>
       </div>
 
+      {/* Full sensor inventory for all GPU adapters */}
+      <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Sensores e componentes da GPU</h3>
+          <span className="text-[11px] text-slate-400">{sensors.filter((s) => /^gpu/i.test(s.hardwareType)).length} leituras detectadas</span>
+        </div>
+        {sensors.filter((s) => /^gpu/i.test(s.hardwareType)).length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {sensors.filter((s) => /^gpu/i.test(s.hardwareType)).map((sensor) => (
+              <div key={sensor.identifier} className="rounded-lg border border-slate-800 bg-[#0a0c13] px-3 py-2">
+                <div className="text-[11px] text-slate-400">{sensor.name}</div>
+                <div className="text-sm font-mono font-semibold text-slate-100">{sensor.isAvailable && sensor.value !== null ? `${Number(sensor.value).toFixed(1)} ${sensor.unit}` : 'Não disponível'}</div>
+                <div className="text-[10px] text-slate-500">{sensor.sensorType} · {sensor.hardwareType}</div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-xs text-slate-500">O agente não retornou leituras individuais da GPU nesta sessão.</p>}
+      </div>
       {/* Hotspot Delta Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4 flex flex-col justify-between">

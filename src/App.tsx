@@ -813,7 +813,7 @@ export default function App() {
           )}
 
           {currentTab === 'gpu-health' && (
-            <GpuHealthLabView gpu={telemetry.gpu} />
+            <GpuHealthLabView gpu={telemetry.gpu} sensors={telemetry.sensors || []} />
           )}
 
           {currentTab === 'performance-lab' && (

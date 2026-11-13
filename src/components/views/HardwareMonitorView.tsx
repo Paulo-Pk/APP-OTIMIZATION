@@ -302,12 +302,12 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-white truncate max-w-xs">{disk.model}</span>
                     <span className="text-emerald-400 font-mono text-[11px] font-bold">
-                      {t.hardwareMonitor.health} {disk.healthPercent}%
+                      {disk.smartStatus === 'N/D' ? 'Saúde não informada' : `${t.hardwareMonitor.health} ${disk.healthPercent}%`}
                     </span>
                   </div>
                   <div className="flex justify-between text-slate-400 text-[11px] font-mono">
                     <span>
-                      {disk.freeSpaceGB} GB {t.hardwareMonitor.freeOf} {disk.capacityGB} GB
+                      {disk.capacityGB > 0 ? `${disk.freeSpaceGB.toFixed(1)} GB ${t.hardwareMonitor.freeOf} ${disk.capacityGB.toFixed(1)} GB` : t.common.sensorNotAvailable}
                     </span>
                     <span>
                       Temp:{' '}

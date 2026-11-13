@@ -318,27 +318,26 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             ));
         }
 
-        if (storageDrives.Count == 0)
+        // Also append logical fixed volumes: physical drive sensors do not expose mount-point capacity.
+        try
         {
-            try
+            foreach (var drive in DriveInfo.GetDrives())
             {
-                foreach (var drive in DriveInfo.GetDrives())
+                if (drive.IsReady && drive.DriveType == DriveType.Fixed)
                 {
-                    if (drive.IsReady && drive.DriveType == DriveType.Fixed)
-                    {
-                        float totalGb = (float)Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 1);
-                        float freeGb = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 1);
-                        storageDrives.Add(new StorageTelemetryPoint(
-                            Model: $"Volume {drive.Name} ({drive.VolumeLabel})",
-                            CapacityGb: totalGb,
-                            FreeSpaceGb: freeGb,
-                            TemperatureC: null
-                        ));
-                    }
+                    float totalGb = (float)Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 1);
+                    float freeGb = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 1);
+                    string label = string.IsNullOrWhiteSpace(drive.VolumeLabel) ? "Sem rótulo" : drive.VolumeLabel;
+                    storageDrives.Add(new StorageTelemetryPoint(
+                        Model: $"Volume {drive.Name.TrimEnd('\\')} — {label}",
+                        CapacityGb: totalGb,
+                        FreeSpaceGb: freeGb,
+                        TemperatureC: null
+                    ));
                 }
             }
-            catch { }
         }
+        catch { }
 
         var snapshot = new HardwareSnapshot(
             DateTime.UtcNow,
