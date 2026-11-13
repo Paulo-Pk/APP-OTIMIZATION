@@ -130,6 +130,7 @@ export interface DiskDrive {
   readSpeedMBs: number;
   writeSpeedMBs: number;
   smartStatus: 'OK' | 'Atenção' | 'Crítico' | 'N/D';
+  isSystemDisk?: boolean;
 }
 
 export interface MotherboardTelemetry {
