@@ -19,31 +19,11 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
 
   const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
   const hasCpuLoadReading = (telemetry.sensors || []).some((sensor) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.sensorType === 'Load' && /total/i.test(sensor.name) && sensor.isAvailable && sensor.value !== null && Number.isFinite(sensor.value));
-  // Prefer the normalized adapter values, but fall back to the primary
-  // dedicated-memory sensor when a driver exposes it only in the sensor list.
-  // Shared D3D memory is deliberately excluded because it is system RAM.
-  const vramUsedSensor = (telemetry.sensors || []).find((sensor) =>
-    /^gpu/i.test(sensor.hardwareType) &&
-    sensor.sensorType === 'SmallData' &&
-    /^(GPU Memory Used|D3D Dedicated Memory Used)$/i.test(sensor.name) &&
-    sensor.isAvailable &&
-    sensor.value !== null &&
-    Number.isFinite(sensor.value)
-  );
-  const vramTotalSensor = (telemetry.sensors || []).find((sensor) =>
-    /^gpu/i.test(sensor.hardwareType) &&
-    sensor.sensorType === 'SmallData' &&
-    /^(GPU Memory Total|D3D Dedicated Memory Total)$/i.test(sensor.name) &&
-    sensor.isAvailable &&
-    sensor.value !== null &&
-    Number.isFinite(sensor.value)
-  );
-  const vramUsedMB = telemetry.gpu.vramUsedMB > 0
-    ? telemetry.gpu.vramUsedMB
-    : vramUsedSensor?.value != null ? Number(vramUsedSensor.value) : null;
-  const vramTotalMB = telemetry.gpu.vramTotalMB > 0
-    ? telemetry.gpu.vramTotalMB
-    : vramTotalSensor?.value != null ? Number(vramTotalSensor.value) : null;
+  // The native bridge already scopes VRAM readings to the primary GPU adapter.
+  // Do not fall back to the unfiltered sensor list here: it contains every GPU
+  // and could combine dedicated memory readings from different adapters.
+  const vramUsedMB = telemetry.gpu.vramUsedMB > 0 ? telemetry.gpu.vramUsedMB : null;
+  const vramTotalMB = telemetry.gpu.vramTotalMB > 0 ? telemetry.gpu.vramTotalMB : null;
   const sensorTypeLabels: Record<string, string> = { Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' };
   const hardwareTypeLabels: Record<string, string> = { Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' };
   const sensorTypeLabel = (type: string) => sensorTypeLabels[type] || type;
