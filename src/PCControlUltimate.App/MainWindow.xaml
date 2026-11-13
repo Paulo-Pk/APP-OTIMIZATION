@@ -1538,7 +1538,10 @@
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border Width="26" Height="26" CornerRadius="6" Background="#24163F" BorderBrush="#7C3AED" BorderThickness="1" Margin="0,0,8,0">
-                                                <TextBlock Text="▣" FontSize="15" Foreground="#C4B5FD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                <Grid>
+                                                    <TextBlock Text="▣" FontSize="15" Foreground="#C4B5FD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <Image Source="{Binding IconUrl}" Stretch="Uniform" Margin="4" ToolTip="{Binding AppName}"/>
+                                                </Grid>
                                             </Border>
                                             <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Foreground="#F8FAFC" TextTrimming="CharacterEllipsis"/>
                                         </StackPanel>
