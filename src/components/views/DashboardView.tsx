@@ -30,6 +30,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     telemetry.gpu.utilization > 0 ||
     telemetry.ram.totalGB > 0;
 
+  // A zero load can be a valid idle reading. Prefer the sensor availability
+  // metadata so an unavailable CPU/GPU load is not displayed as a measured 0%.
+  const hasCpuLoad = telemetry.sensors
+    ? telemetry.sensors.some(
+        (sensor) =>
+          sensor.hardwareType.toLowerCase() === 'cpu' &&
+          sensor.sensorType.toLowerCase() === 'load' &&
+          /total/i.test(sensor.name) &&
+          sensor.isAvailable
+      )
+    : telemetry.cpu.load > 0;
+
+  const hasGpuLoad = telemetry.sensors
+    ? telemetry.sensors.some(
+        (sensor) =>
+          /^gpu/i.test(sensor.hardwareType) &&
+          sensor.sensorType.toLowerCase() === 'load' &&
+          /core/i.test(sensor.name) &&
+          sensor.isAvailable
+      )
+    : telemetry.gpu.utilization > 0;
+
   // Live historical telemetry points recorded strictly from real incoming telemetry
   const [history, setHistory] = useState<
     { time: number; cpuLoad: number; gpuLoad: number; cpuTemp: number; gpuTemp: number }[]
@@ -144,7 +166,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <span className="text-xs font-mono font-bold text-purple-300">
-              {isTelemetryAvailable ? `${telemetry.cpu.load}%` : t.common.sensorNotAvailable}
+              {hasCpuLoad ? `${telemetry.cpu.load}%` : t.common.sensorNotAvailable}
             </span>
           </div>
 
@@ -205,7 +227,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <span className="text-xs font-mono font-bold text-rose-300">
-              {isTelemetryAvailable ? `${telemetry.gpu.utilization}%` : t.common.sensorNotAvailable}
+              {hasGpuLoad ? `${telemetry.gpu.utilization}%` : t.common.sensorNotAvailable}
             </span>
           </div>
 
