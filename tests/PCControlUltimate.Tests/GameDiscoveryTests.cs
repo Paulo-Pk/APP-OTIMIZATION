@@ -413,6 +413,8 @@ public sealed class GameDiscoveryTests : IDisposable
     [InlineData("Game Name Original Soundtrack", true)]
     [InlineData("Game Name Dedicated Server", true)]
     [InlineData("Game Name DLC", true)]
+    [InlineData("Game Name - Add-on Pack", true)]
+    [InlineData("Game Name - Expansions", true)]
     public void GameCatalogFilter_ExcludesAddonsButKeepsBaseGames(string title, bool expectedExcluded)
     {
         MethodInfo filter = typeof(GameNetworkAcceleratorService).GetMethod(
