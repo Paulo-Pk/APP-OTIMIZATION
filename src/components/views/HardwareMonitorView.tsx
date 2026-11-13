@@ -19,7 +19,10 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
 
   const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
   const hasCpuLoadReading = (telemetry.sensors || []).some((sensor) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.sensorType === 'Load' && /total/i.test(sensor.name) && sensor.isAvailable && sensor.value !== null && Number.isFinite(sensor.value));
-  const hasVramUsedReading = telemetry.gpu.vramUsedMB > 0 || (telemetry.sensors || []).some((sensor) =>
+  // Prefer the normalized adapter values, but fall back to the primary
+  // dedicated-memory sensor when a driver exposes it only in the sensor list.
+  // Shared D3D memory is deliberately excluded because it is system RAM.
+  const vramUsedSensor = (telemetry.sensors || []).find((sensor) =>
     /^gpu/i.test(sensor.hardwareType) &&
     sensor.sensorType === 'SmallData' &&
     /^(GPU Memory Used|D3D Dedicated Memory Used)$/i.test(sensor.name) &&
@@ -27,6 +30,20 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
     sensor.value !== null &&
     Number.isFinite(sensor.value)
   );
+  const vramTotalSensor = (telemetry.sensors || []).find((sensor) =>
+    /^gpu/i.test(sensor.hardwareType) &&
+    sensor.sensorType === 'SmallData' &&
+    /^(GPU Memory Total|D3D Dedicated Memory Total)$/i.test(sensor.name) &&
+    sensor.isAvailable &&
+    sensor.value !== null &&
+    Number.isFinite(sensor.value)
+  );
+  const vramUsedMB = telemetry.gpu.vramUsedMB > 0
+    ? telemetry.gpu.vramUsedMB
+    : vramUsedSensor?.value != null ? Number(vramUsedSensor.value) : null;
+  const vramTotalMB = telemetry.gpu.vramTotalMB > 0
+    ? telemetry.gpu.vramTotalMB
+    : vramTotalSensor?.value != null ? Number(vramTotalSensor.value) : null;
   const sensorTypeLabels: Record<string, string> = { Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' };
   const hardwareTypeLabels: Record<string, string> = { Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' };
   const sensorTypeLabel = (type: string) => sensorTypeLabels[type] || type;
@@ -254,13 +271,13 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               {t.hardwareMonitor.vramAllocation}
             </span>
             <span className="text-base font-mono font-bold text-cyan-300">
-              {telemetry.gpu.vramTotalMB > 0 && hasVramUsedReading
-                ? `${(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} GB`
+              {vramTotalMB !== null && vramTotalMB > 0 && vramUsedMB !== null
+                ? `${(vramUsedMB / 1024).toFixed(1)} GB`
                 : t.common.sensorNotAvailable}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">
-              {telemetry.gpu.vramTotalMB > 0
-                ? `${t.hardwareMonitor.of} ${(telemetry.gpu.vramTotalMB / 1024).toFixed(0)} GB`
+              {vramTotalMB !== null && vramTotalMB > 0
+                ? `${t.hardwareMonitor.of} ${(vramTotalMB / 1024).toFixed(0)} GB`
                 : '--'}
             </span>
           </div>
