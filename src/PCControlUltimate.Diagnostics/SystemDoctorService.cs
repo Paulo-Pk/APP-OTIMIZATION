@@ -154,7 +154,9 @@ public class SystemDoctorService
                 Category: "Temperaturas GPU",
                 Title: "A placa de vídeo está aquecendo mais do que o esperado",
                 Severity: gpuAudit.Severity == "Critical" ? DiagnosticSeverityLevel.Critico : DiagnosticSeverityLevel.Moderado,
-                Evidence: gpuAudit.Recommendation,
+                Evidence: snapshot.GpuCoreTemp.HasValue && snapshot.GpuHotspotTemp.HasValue
+                    ? $"Temperatura da GPU: {snapshot.GpuCoreTemp.Value:F1}°C; Hotspot: {snapshot.GpuHotspotTemp.Value:F1}°C."
+                    : "Não foi possível obter todas as temperaturas da placa de vídeo.",
                 ProbableCause: "A diferença entre as temperaturas da placa ou a ventilação pode estar fora do esperado.",
                 RecommendedAction: "Confira a temperatura, as ventoinhas e a ventilação da placa de vídeo.",
                 RequiresAdminForRepair: false
