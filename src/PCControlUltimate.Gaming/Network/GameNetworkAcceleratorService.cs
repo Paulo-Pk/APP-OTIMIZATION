@@ -771,10 +771,30 @@ public static class GameNetworkAcceleratorService
                     }
                     catch { }
 
-                    try { netstatProc.WaitForExit(1000); } catch { }
+                    // Do not wait on a redirected stream if the process could not be
+                    // terminated; a failed kill must not turn this timeout into a hang.
+                    try
+                    {
+                        if (!netstatProc.WaitForExit(1000))
+                            return results;
+                    }
+                    catch
+                    {
+                        return results;
+                    }
                 }
 
-                string output = outputTask.GetAwaiter().GetResult();
+                string output;
+                try
+                {
+                    // The process has exited, so its redirected stdout should be closed.
+                    // Keep a final bound in case an unexpected handle owner keeps the pipe open.
+                    output = outputTask.WaitAsync(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult();
+                }
+                catch
+                {
+                    return results;
+                }
                 var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (var line in lines)
                 {
