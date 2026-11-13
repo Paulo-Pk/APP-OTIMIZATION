@@ -2088,7 +2088,11 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 InstalledDrivers.Clear();
                 foreach (var driver in drivers) InstalledDrivers.Add(driver);
-                StatusMessage = $"Inventário concluído: {InstalledDrivers.Count} driver(s) lido(s) do Windows.";
+                StatusMessage = DriverScannerService.LastError is { Length: > 0 } error
+                    ? $"Leitura parcial do Windows: {InstalledDrivers.Count} driver(s) encontrados. {error}"
+                    : InstalledDrivers.Count > 0
+                        ? $"Inventário concluído: {InstalledDrivers.Count} driver(s) encontrados no Windows."
+                        : "O Windows não retornou drivers. Verifique se o serviço de Instrumentação de Gerenciamento do Windows (WMI) está ativo e tente novamente.";
             });
         }
         catch (Exception ex)
