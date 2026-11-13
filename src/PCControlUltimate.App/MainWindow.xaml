@@ -725,8 +725,25 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                <Border Width="28" Height="28" CornerRadius="6" Background="#24163F" BorderBrush="#7C3AED" BorderThickness="1" Margin="0,0,8,0">
-                                                    <TextBlock Text="🎮" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                <Border Width="38" Height="46" CornerRadius="6" Background="#24163F" BorderBrush="#7C3AED" BorderThickness="1" Margin="0,0,8,0" ClipToBounds="True">
+                                                    <Grid>
+                                                        <TextBlock Text="🎮" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        <Image Source="{Binding CoverImageUrl}" Stretch="UniformToFill">
+                                                            <Image.Style>
+                                                                <Style TargetType="{x:Type Image}">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding CoverImageUrl}" Value="{x:Null}">
+                                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding CoverImageUrl}" Value="">
+                                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Image.Style>
+                                                        </Image>
+                                                    </Grid>
                                                 </Border>
                                                 <TextBlock Text="{Binding Title}" VerticalAlignment="Center" Foreground="#F8FAFC" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
