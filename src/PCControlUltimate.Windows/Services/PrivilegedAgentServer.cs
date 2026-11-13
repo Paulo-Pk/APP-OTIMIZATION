@@ -500,6 +500,19 @@ public class PrivilegedAgentServer : IDisposable
                 return;
             }
 
+            if (path == "/api/network/game-targets" && req.HttpMethod == "GET")
+            {
+                // Only closed-catalog game IDs are accepted; arbitrary hostnames are never supplied by the client.
+                string rawGameIds = req.QueryString["games"] ?? string.Empty;
+                string[] gameIds = rawGameIds.Split(
+                    ',',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+                );
+                var gameMeasurements = await _networkDiagnostics.MeasureGameReferenceTargetsAsync(gameIds, cancellationToken);
+                await SendJsonAsync(res, gameMeasurements);
+                return;
+            }
+
             if (path == "/api/network/diagnostics" && req.HttpMethod == "GET")
             {
                 var netDiag = await _networkDiagnostics.RunRealDiagnosticsAsync(cancellationToken);
