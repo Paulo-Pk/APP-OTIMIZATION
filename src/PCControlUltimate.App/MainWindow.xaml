@@ -10,7 +10,6 @@
         FontFamily="Segoe UI Variable Display, Segoe UI">
     <Grid Background="#07090E">
         <wv2:WebView2 x:Name="AppWebView"
-                      DefaultBackgroundColor="#07090E"
                       ZoomFactor="1.0" />
         <Border x:Name="StartupOverlay" Background="#07090E" Panel.ZIndex="10">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="440">
