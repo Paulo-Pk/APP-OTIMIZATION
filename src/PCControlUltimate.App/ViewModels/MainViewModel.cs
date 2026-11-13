@@ -1956,7 +1956,15 @@ public class MainViewModel : INotifyPropertyChanged
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
                 Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
                 Task<string> errorTask = process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync(timeout.Token);
+                try
+                {
+                    await process.WaitForExitAsync(timeout.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+                    throw;
+                }
                 string output = await outputTask;
                 string error = await errorTask;
                 string combined = output + Environment.NewLine + error;
