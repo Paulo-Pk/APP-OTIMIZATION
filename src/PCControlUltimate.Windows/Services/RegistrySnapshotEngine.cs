@@ -471,20 +471,53 @@ public static class RegistrySnapshotEngine
     private static string? ResolveBackupFilePath(string filePathOrId)
     {
         if (string.IsNullOrWhiteSpace(filePathOrId)) return null;
+
+        // Preserve explicit file-path support, but never resolve an identifier by
+        // substring: two SnapshotIds can share a prefix and select the wrong backup.
         if (File.Exists(filePathOrId)) return filePathOrId;
 
         try
         {
             if (!Directory.Exists(BackupDirectory)) return null;
+
+            string requested = filePathOrId.Trim();
+            string? match = null;
+
             foreach (var file in Directory.EnumerateFiles(BackupDirectory, "*.json"))
             {
-                if (Path.GetFileName(file).Contains(filePathOrId, StringComparison.OrdinalIgnoreCase))
-                    return file;
-            }
-        }
-        catch { }
+                string fileName = Path.GetFileName(file);
+                bool exactFileName = string.Equals(fileName, requested, StringComparison.OrdinalIgnoreCase);
+                bool exactSnapshotId = false;
 
-        return null;
+                if (!exactFileName)
+                {
+                    try
+                    {
+                        using var stream = File.OpenRead(file);
+                        var manifest = JsonSerializer.Deserialize<RegistrySnapshotFile>(stream);
+                        exactSnapshotId = manifest != null &&
+                            string.Equals(manifest.SnapshotId, requested, StringComparison.OrdinalIgnoreCase);
+                    }
+                    catch
+                    {
+                        // Ignore malformed unrelated backup files during identifier lookup.
+                    }
+                }
+
+                if (!exactFileName && !exactSnapshotId) continue;
+
+                // Duplicate identifiers are ambiguous; fail closed instead of choosing
+                // whichever file happens to be returned first by the filesystem.
+                if (match != null) return null;
+                match = file;
+            }
+
+            return match;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public static (bool isValid, string? checksum, string? error) VerifyBackupIntegrity(string filePath)
