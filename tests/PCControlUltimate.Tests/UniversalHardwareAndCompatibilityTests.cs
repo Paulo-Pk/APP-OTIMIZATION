@@ -292,7 +292,8 @@ public class UniversalHardwareAndCompatibilityTests
                 VramUsedMb: 5120f,
                 VramTotalMb: 8192f,
                 DriverVersion: null,
-                PnpDeviceId: "PCI\\VEN_10DE&DEV_2860&SUBSYS_12341043&REV_A1\\4&112233&0&0008"
+                PnpDeviceId: "PCI\\VEN_10DE&DEV_2860&SUBSYS_12341043&REV_A1\\4&112233&0&0008",
+                SensorIdentifier: "/gpu-nvidia/0"
             )
         };
 
@@ -327,6 +328,11 @@ public class UniversalHardwareAndCompatibilityTests
                 PnpDeviceId: "PCI\\VEN_10DE&DEV_2860&SUBSYS_12341043&REV_A1\\4&112233&0&0008"
             )
         };
+
+        var mergedTelemetry = UniversalHardwareEngine.MergeGpuAdapters(lhmAdapters, wmiAdapters);
+        var mergedNvidiaTelemetry = Assert.Single(mergedTelemetry, adapter => adapter.Model.Contains("RTX 4070", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("/gpu-nvidia/0", mergedNvidiaTelemetry.SensorIdentifier);
+        Assert.StartsWith("PCI\\VEN_10DE", mergedNvidiaTelemetry.PnpDeviceId);
 
         var snapshot = CreateSnapshot(
             cpuModel: "Intel Core i7-13700H",
