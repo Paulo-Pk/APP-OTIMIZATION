@@ -129,9 +129,10 @@ export const DebloatView: React.FC = () => {
     setCleanedBytes(totalFreed);
     setCleanWasPartial(hasPartialResult);
     setNoticeMessage(
-      `${hasPartialResult ? 'Limpeza parcial' : 'Limpeza concluída'}: ${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s); ${skippedSymlinks} link(s) simbólico(s) preservado(s).`
-    );
-    if (failures.length > 0) {
+      hasPartialResult
+        ? `Limpeza parcial: ${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s); ${skippedSymlinks} link(s) simbólico(s) preservado(s).`
+        : null
+    );    if (failures.length > 0) {
       setErrorMessage(failures.slice(0, 5).join(' | '));
     }
 
@@ -266,6 +267,7 @@ export const DebloatView: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={isSelected}
+                    onClick={(event) => event.stopPropagation()}
                     onChange={() => toggleSelect(c.id)}
                     className="mt-1 w-4 h-4 rounded text-purple-600 focus:ring-0 bg-[#0a0c13] border-slate-700 cursor-pointer"
                   />
