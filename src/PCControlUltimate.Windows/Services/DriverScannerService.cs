@@ -36,7 +36,6 @@ public static class DriverScannerService
             return results;
         }
 
-        var signedByDeviceId = new Dictionary<string, ManagementObject>(StringComparer.OrdinalIgnoreCase);
         string? signedQueryError = null;
 
         // Win32_PnPSignedDriver is the authoritative source for driver package metadata.
@@ -50,11 +49,7 @@ public static class DriverScannerService
 
             foreach (ManagementObject obj in signedSearcher.Get())
             {
-                string id = obj["DeviceID"]?.ToString() ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(id))
-                    signedByDeviceId[id] = obj;
-
-                results.Add(CreateEntry(
+                                results.Add(CreateEntry(
                     obj["DeviceName"]?.ToString() ?? "Dispositivo sem nome",
                     obj["DeviceClass"]?.ToString() ?? string.Empty,
                     obj["DriverVersion"]?.ToString(),
@@ -95,8 +90,7 @@ public static class DriverScannerService
                 string deviceClass = obj["PNPClass"]?.ToString() ?? string.Empty;
                 string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante não informado";
 
-                signedByDeviceId.TryGetValue(deviceId, out var signed);
-                bool? isSigned = signed?["IsSigned"] is bool signedValue ? signedValue : null;
+                bool? isSigned = null;
                 int? problemCode = obj["ConfigManagerErrorCode"] == null
                     ? null
                     : Convert.ToInt32(obj["ConfigManagerErrorCode"]);
@@ -111,9 +105,9 @@ public static class DriverScannerService
                 results.Add(CreateEntry(
                     name,
                     deviceClass,
-                    signed?["DriverVersion"]?.ToString(),
-                    signed?["DriverDate"]?.ToString(),
-                    signed?["Manufacturer"]?.ToString() ?? manufacturer,
+                    null,
+                    null,
+                    manufacturer,
                     isSigned,
                     deviceStatus
                 ));
