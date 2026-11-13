@@ -124,7 +124,66 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        return data as HardwareTelemetry;
+        // The Windows agent returns HardwareSnapshot (C# domain model), not the
+        // presentation HardwareTelemetry shape. Normalize explicitly instead of
+        // casting incompatible objects and silently rendering zero/empty values.
+        const sensors = Array.isArray(data.sensors) ? data.sensors : [];
+        const cpuSensors = sensors.filter((s: any) => String(s.hardwareType || s.hardwareCategory || '').toLowerCase() === 'cpu' && s.isAvailable && Number.isFinite(Number(s.value)));
+        const gpuSensors = sensors.filter((s: any) => /^gpu/i.test(String(s.hardwareType || s.hardwareCategory || '')) && s.isAvailable && Number.isFinite(Number(s.value)));
+        const findSensor = (items: any[], type: string, pattern: RegExp) => items.find((s) => String(s.sensorType || '').toLowerCase() === type.toLowerCase() && pattern.test(String(s.name || '')))?.value;
+        const numeric = (value: any, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+        const gpuAdapter = Array.isArray(data.gpuAdapters) ? data.gpuAdapters[0] : null;
+        const cpuClockMhz = numeric(data.cpuClockMhz, numeric(findSensor(cpuSensors, 'Clock', /core/i)));
+        const cpuTemp = numeric(data.cpuPackageTemp, numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
+        const gpuCoreTemp = numeric(data.gpuCoreTemp, numeric(gpuAdapter?.coreTempC, numeric(findSensor(gpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
+        const gpuHotspot = numeric(data.gpuHotspotTemp, numeric(gpuAdapter?.hotspotTempC, numeric(findSensor(gpuSensors, 'Temperature', /hot.?spot|junction/i))));
+        const gpuMemoryTemp = numeric(findSensor(gpuSensors, 'Temperature', /memory|vram/i));
+        const gpuMemoryClock = numeric(findSensor(gpuSensors, 'Clock', /memory/i));
+        const gpuFanRpm = numeric(data.gpuFanRpm, numeric(gpuAdapter?.fanRpm, numeric(findSensor(gpuSensors, 'Fan', /fan/i))));
+        const ramTotal = numeric(data.ramTotalGb);
+        const ramUsed = numeric(data.ramUsedGb);
+        const storage = Array.isArray(data.storageDrives) ? data.storageDrives : [];
+        const vendorText = String(gpuAdapter?.hardwareType || '').toLowerCase();
+        const gpuVendor = vendorText.includes('nvidia') ? 'NVIDIA' : vendorText.includes('amd') ? 'AMD' : vendorText.includes('intel') ? 'Intel' : 'Outro';
+        return {
+          isSimulatedMode: false,
+          overallScore: 0,
+          fpsCaptureActive: false,
+          lastUpdated: Date.now(),
+          cpu: {
+            name: data.cpuModelName || '', socket: 'Não informado', temperature: cpuTemp,
+            load: numeric(data.cpuTotalLoad), frequencyGHz: cpuClockMhz / 1000,
+            cores: 0, threads: 0, powerWatts: numeric(data.cpuPowerWatts), voltageV: 0, coreList: [],
+          },
+          gpu: {
+            name: data.gpuModelName || gpuAdapter?.model || '', vendor: gpuVendor,
+            temperature: gpuCoreTemp, hotspot: gpuHotspot, memoryTemp: gpuMemoryTemp,
+            clockMHz: numeric(data.gpuClockMhz, numeric(gpuAdapter?.coreClockMhz)),
+            memoryClockMHz: gpuMemoryClock, utilization: numeric(data.gpuLoadPercent, numeric(gpuAdapter?.loadPercent)),
+            vramUsedMB: numeric(data.gpuVramUsedMb, numeric(gpuAdapter?.vramUsedMb)),
+            vramTotalMB: numeric(data.gpuVramTotalMb, numeric(gpuAdapter?.vramTotalMb)),
+            powerWatts: numeric(data.gpuPowerWatts, numeric(gpuAdapter?.powerWatts)),
+            fansRPM: gpuFanRpm, fanSpeedPercent: numeric(findSensor(gpuSensors, 'Load', /fan/i)),
+            thermalLimitReported: 0, isThrottling: false, pcieLane: 'Não informado',
+          },
+          ram: {
+            totalGB: ramTotal, usedGB: ramUsed, availableGB: Math.max(0, ramTotal - ramUsed),
+            percentage: ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0,
+            speedMT: 0, channels: 'Não informado', type: 'Não informado',
+          },
+          disks: storage.map((drive: any, index: number) => ({
+            id: String(index), model: String(drive.model || `Unidade ${index + 1}`),
+            interface: /nvme/i.test(String(drive.model || '')) ? 'NVMe' : /ssd/i.test(String(drive.model || '')) ? 'SATA SSD' : /hdd|hard disk/i.test(String(drive.model || '')) ? 'HDD' : 'Outro',
+            temperature: numeric(drive.temperatureC), capacityGB: numeric(drive.capacityGb),
+            freeSpaceGB: numeric(drive.freeSpaceGb), healthPercent: 0, readSpeedMBs: 0, writeSpeedMBs: 0, smartStatus: 'N/D',
+          })),
+          motherboard: {
+            model: 'Não informado', chipset: 'Não informado', biosVersion: 'Não informado',
+            temperatures: { system: 0, vrm: 0, chipset: 0 }, voltages: { v12: 0, v5: 0, v33: 0 },
+            fans: { cpuFanRPM: 0, pumpRPM: 0, caseFansRPM: [] },
+          },
+          sensors,
+        } as HardwareTelemetry;
       }
     } catch (e) {
       console.warn('Failed to fetch real telemetry from native agent:', e);

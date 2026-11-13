@@ -122,14 +122,14 @@ export interface RamTelemetry {
 export interface DiskDrive {
   id: string;
   model: string;
-  interface: 'NVMe' | 'SATA SSD' | 'HDD';
+  interface: 'NVMe' | 'SATA SSD' | 'HDD' | 'Outro';
   temperature: number;
   capacityGB: number;
   freeSpaceGB: number;
   healthPercent: number;
   readSpeedMBs: number;
   writeSpeedMBs: number;
-  smartStatus: 'OK' | 'Atenção' | 'Crítico';
+  smartStatus: 'OK' | 'Atenção' | 'Crítico' | 'N/D';
 }
 
 export interface MotherboardTelemetry {
@@ -164,6 +164,7 @@ export interface HardwareTelemetry {
   currentFps?: number;
   isSimulatedMode: boolean;
   lastUpdated: number;
+  sensors?: Array<{ identifier: string; name: string; hardwareType: string; sensorType: string; value: number | null; unit: string; isAvailable: boolean; status: string }>;
 }
 
 export interface GameProfile {
