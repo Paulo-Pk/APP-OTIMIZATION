@@ -30,6 +30,20 @@ export type TweakCategory =
   | 'gaming'
   | 'system';
 
+export interface RegistryTweakInspection {
+  tweakId: string;
+  state: string;
+  isUndeterminable: boolean;
+  currentValue: string | null;
+  actualValueKind: string | null;
+  expectedValueKind: string;
+  absenceKind: string | null;
+  diagnosticDetail: string | null;
+  recommendedValue: string;
+  canApply: boolean;
+  canRestore: boolean;
+}
+
 export interface SystemTweak {
   id: string;
   name: string;
@@ -47,6 +61,13 @@ export interface SystemTweak {
   targetRawValue?: string;
   commandScript?: string;
   reversible: boolean;
+  registryState?: string;
+  registryDiagnostic?: string;
+  actualRegistryKind?: string;
+  expectedRegistryKind?: string;
+  canApply?: boolean;
+  canRestore?: boolean;
+  isUndeterminable?: boolean;
 }
 
 export interface GpuTelemetry {
@@ -101,14 +122,14 @@ export interface RamTelemetry {
 export interface DiskDrive {
   id: string;
   model: string;
-  interface: 'NVMe' | 'SATA SSD' | 'HDD';
+  interface: 'NVMe' | 'SATA SSD' | 'HDD' | 'Outro';
   temperature: number;
   capacityGB: number;
   freeSpaceGB: number;
   healthPercent: number;
   readSpeedMBs: number;
   writeSpeedMBs: number;
-  smartStatus: 'OK' | 'Atenção' | 'Crítico';
+  smartStatus: 'OK' | 'Atenção' | 'Crítico' | 'N/D';
 }
 
 export interface MotherboardTelemetry {
@@ -143,12 +164,13 @@ export interface HardwareTelemetry {
   currentFps?: number;
   isSimulatedMode: boolean;
   lastUpdated: number;
+  sensors?: Array<{ identifier: string; name: string; hardwareType: string; sensorType: string; value: number | null; unit: string; isAvailable: boolean; status: string }>;
 }
 
 export interface GameProfile {
   id: string;
   title: string;
-  platform: 'Steam' | 'Epic' | 'Xbox' | 'Manual';
+  platform: 'Steam' | 'Epic' | 'Epic Games' | 'Xbox' | 'GOG' | 'Ubisoft Connect' | 'EA app' | 'Manual';
   executablePath: string;
   coverImage: string;
   processPriority: 'Normal' | 'Acima do Normal' | 'Alta' | 'Tempo Real';
@@ -237,18 +259,19 @@ export interface RestoreItem {
 
 export interface DriverInfo {
   device: string;
-  category: 'GPU' | 'Chipset' | 'Audio' | 'Rede' | 'Armazenamento';
+  category: 'GPU' | 'Chipset' | 'Audio' | 'Rede' | 'Armazenamento' | 'Outros';
   installedVersion: string;
   releaseDate: string;
   vendor: string;
   status: 'Atualizado' | 'Atualização Recomendada' | 'Desatualizado' | 'Verificado via WMI';
+  signatureStatus?: string;
   officialUrl: string;
 }
 
 export interface SoftwareApp {
   id: string;
   name: string;
-  category: 'Runtimes' | 'Comunicação' | 'Gravação & Streaming' | 'Diagnóstico' | 'Utilitários';
+  category: 'Runtimes' | 'Comunicação' | 'Gravação & Streaming' | 'Diagnóstico' | 'Utilitários' | 'Launchers' | 'Multimídia' | 'Navegadores' | 'Produtividade';
   description: string;
   version: string;
   isInstalled: boolean;

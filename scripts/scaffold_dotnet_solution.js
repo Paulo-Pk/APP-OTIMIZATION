@@ -1054,6 +1054,14 @@ console.log('Writing physical .NET 10 solution files to disk...');
 
 for (const f of files) {
   const fullPath = path.join(rootDir, f.path);
+
+  // This bootstrap scaffold contains compatibility placeholders. Never overwrite
+  // a real implementation that already exists in the working tree.
+  if (fs.existsSync(fullPath)) {
+    console.log('Preserved existing file:', f.path);
+    continue;
+  }
+
   const dir = path.dirname(fullPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

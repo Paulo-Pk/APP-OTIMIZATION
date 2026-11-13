@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Gauge,
   Activity,
@@ -14,41 +14,72 @@ export const PerformanceLabView: React.FC = () => {
   const { t } = useI18n();
   // Strictly empty until a real PresentMon capture is completed via the Windows Agent
   const [sessions, setSessions] = useState<PresentMonSession[]>([]);
-  const [selectedProcess, setSelectedProcess] = useState<string>('cs2.exe');
+  const [selectedProcess, setSelectedProcess] = useState<string>('');
+  const [runningProcesses, setRunningProcesses] = useState<Array<{ processId: number; processName: string; mainWindowTitle: string }>>([]);
+  const [isLoadingProcesses, setIsLoadingProcesses] = useState(false);
+
+  const refreshRunningProcesses = useCallback(async () => {
+    setIsLoadingProcesses(true);
+    try {
+      const processes = await nativeBridge.listRunningProcesses();
+      const visibleProcesses = (processes || []).filter((p) => p.processName && p.processId > 4 && (p.mainWindowTitle || '').trim().length > 0);
+      setRunningProcesses(visibleProcesses);
+      setSelectedProcess((current) => visibleProcesses.some((p) => p.processName === current) ? current : (visibleProcesses[0]?.processName || ''));
+    } finally {
+      setIsLoadingProcesses(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = nativeBridge.subscribe((status) => {
+      if (status.isConnected) void refreshRunningProcesses();
+      else { setRunningProcesses([]); setSelectedProcess(''); }
+    });
+    return unsubscribe;
+  }, [refreshRunningProcesses]);
   const [durationSec, setDurationSec] = useState<number>(10);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const handleStartCapture = async () => {
+    if (!selectedProcess) {
+      setStatusMessage('Selecione um jogo ou processo em execução antes de iniciar a captura.');
+      return;
+    }
     setIsRecording(true);
     setStatusMessage(t.performanceLab.initializingHook);
 
-    const nativeResult = await nativeBridge.runPresentMonCapture(selectedProcess, durationSec);
-    if (nativeResult && nativeResult.capturedFrames > 0) {
-      const newSession: PresentMonSession = {
-        id: `session-${Date.now()}`,
-        gameTitle: `${selectedProcess} (PresentMon Real)`,
-        date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        durationSeconds: durationSec,
-        avgFps: nativeResult.avgFps,
-        minFps: nativeResult.minFps ?? Math.round(nativeResult.avgFps * 0.72),
-        onePercentLow: nativeResult.onePercentLow,
-        pointOnePercentLow: Math.round(nativeResult.onePercentLow * 0.8),
-        frametimeAvgMs: nativeResult.frametimeAvgMs,
-        frametimeStDevMs: nativeResult.frametimeStDevMs,
-        cpuLoadAvg: 0,
-        gpuLoadAvg: 0,
-        cpuTempAvg: 0,
-        gpuTempAvg: 0,
-        isOptimized: true,
-      };
-      setSessions((prev) => [newSession, ...prev]);
-      setStatusMessage(t.performanceLab.captureSuccess);
-    } else {
-      setStatusMessage(t.performanceLab.agentRequiredPresentMon);
+    try {
+      const nativeResult = await nativeBridge.runPresentMonCapture(selectedProcess, durationSec);
+      if (nativeResult && nativeResult.capturedFrames > 0) {
+        const newSession: PresentMonSession = {
+          id: `session-${Date.now()}`,
+          gameTitle: selectedProcess,
+          date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          durationSeconds: durationSec,
+          avgFps: nativeResult.avgFps,
+          minFps: nativeResult.minFps ?? 0,
+          onePercentLow: nativeResult.onePercentLow,
+          pointOnePercentLow: 0,
+          frametimeAvgMs: nativeResult.frametimeAvgMs,
+          frametimeStDevMs: nativeResult.frametimeStDevMs,
+          cpuLoadAvg: 0,
+          gpuLoadAvg: 0,
+          cpuTempAvg: 0,
+          gpuTempAvg: 0,
+          // A successful capture measures frame pacing; it does not mean the game was optimized.
+          isOptimized: false,
+        };
+        setSessions((prev) => [newSession, ...prev]);
+        setStatusMessage(t.performanceLab.captureSuccess);
+      } else {
+        setStatusMessage(nativeResult?.error || t.performanceLab.agentRequiredPresentMon);
+      }
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'A captura falhou. Verifique se o agente Windows está conectado e tente novamente.');
+    } finally {
+      setIsRecording(false);
     }
-
-    setIsRecording(false);
   };
 
   return (
@@ -66,25 +97,34 @@ export const PerformanceLabView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
+          <select
             value={selectedProcess}
             onChange={(e) => setSelectedProcess(e.target.value)}
-            placeholder="Processo (ex: cs2.exe)"
-            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white"
-          />
+            disabled={isLoadingProcesses || runningProcesses.length === 0}
+            className="min-w-[250px] px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs text-white [color-scheme:dark] disabled:opacity-60" style={{ colorScheme: "dark" }}
+          >
+            <option className="bg-[#0a0c13] text-white" value="">{isLoadingProcesses ? 'Procurando jogos em execução...' : 'Selecione um jogo em execução'}</option>
+            {runningProcesses.map((process) => (
+              <option className="bg-[#0a0c13] text-white" key={process.processId} value={process.processName}>
+                {process.mainWindowTitle ? `${process.mainWindowTitle} — ${process.processName}.exe` : `${process.processName}.exe`}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => void refreshRunningProcesses()} disabled={isLoadingProcesses} className="px-3 py-2 rounded-lg bg-[#171b2a] border border-slate-700 text-xs text-slate-200 disabled:opacity-50">
+            {isLoadingProcesses ? 'Buscando...' : 'Atualizar jogos'}
+          </button>
           <select
             value={durationSec}
             onChange={(e) => setDurationSec(Number(e.target.value))}
-            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white"
+            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white [color-scheme:dark]" style={{ colorScheme: "dark" }}
           >
-            <option value={10}>10s</option>
-            <option value={30}>30s</option>
-            <option value={60}>60s</option>
+            <option className="bg-[#0a0c13] text-white" value={10}>10s</option>
+            <option className="bg-[#0a0c13] text-white" value={30}>30s</option>
+            <option className="bg-[#0a0c13] text-white" value={60}>60s</option>
           </select>
           <button
             onClick={handleStartCapture}
-            disabled={isRecording}
+            disabled={isRecording || !selectedProcess}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all cursor-pointer ${
               isRecording
                 ? 'bg-rose-600 text-white animate-pulse'

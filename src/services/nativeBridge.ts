@@ -1,4 +1,4 @@
-import { HardwareTelemetry, DriverInfo } from '../types';
+import { HardwareTelemetry, DriverInfo, RegistryTweakInspection } from '../types';
 
 export interface NativeAgentStatus {
   isConnected: boolean;
@@ -124,12 +124,119 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        return data as HardwareTelemetry;
+        // HardwareSnapshot is serialized by System.Text.Json with PascalCase property names.
+        // Normalize it explicitly before passing it to the React presentation model.
+        const read = (object: any, key: string) => object?.[key] ?? object?.[key.charAt(0).toUpperCase() + key.slice(1)];
+        const rawSensors = read(data, 'sensors');
+        const sensors = (Array.isArray(rawSensors) ? rawSensors : []).map((sensor: any) => ({
+          identifier: String(read(sensor, 'identifier') || ''),
+          name: String(read(sensor, 'name') || ''),
+          hardwareType: String(read(sensor, 'hardwareType') || read(sensor, 'hardwareCategory') || ''),
+          sensorType: String(read(sensor, 'sensorType') || ''),
+          value: read(sensor, 'value') ?? null,
+          unit: String(read(sensor, 'unit') || ''),
+          isAvailable: Boolean(read(sensor, 'isAvailable')),
+          status: String(read(sensor, 'status') || ''),
+        }));
+        const cpuSensors = sensors.filter((sensor: any) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.isAvailable && Number.isFinite(Number(sensor.value)));
+        const gpuSensors = sensors.filter((sensor: any) => /^gpu/i.test(sensor.hardwareType) && sensor.isAvailable && Number.isFinite(Number(sensor.value)));
+        const findSensor = (items: any[], type: string, pattern: RegExp) => items.find((sensor) => sensor.sensorType.toLowerCase() === type.toLowerCase() && pattern.test(sensor.name))?.value;
+        const numeric = (value: any, fallback = 0) => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : fallback;
+        const gpuAdaptersRaw = read(data, 'gpuAdapters');
+        const gpuAdapter = Array.isArray(gpuAdaptersRaw) ? gpuAdaptersRaw[0] : null;
+        const cpuClockCandidates = cpuSensors.filter((sensor: any) => sensor.sensorType.toLowerCase() === 'clock').map((sensor: any) => Number(sensor.value)).filter((value: number) => Number.isFinite(value));
+        const cpuClockFallback = cpuClockCandidates.length ? Math.max(...cpuClockCandidates) : 0;
+        const cpuClockMhz = numeric(read(data, 'cpuClockMhz'), cpuClockFallback);
+        const cpuTemp = numeric(read(data, 'cpuPackageTemp'), numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
+        const gpuCoreTemp = numeric(read(data, 'gpuCoreTemp'), numeric(read(gpuAdapter, 'coreTempC'), numeric(findSensor(gpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
+        const gpuHotspot = numeric(read(data, 'gpuHotspotTemp'), numeric(read(gpuAdapter, 'hotspotTempC'), numeric(findSensor(gpuSensors, 'Temperature', /hot.?spot|junction/i))));
+        const gpuMemoryTemp = numeric(findSensor(gpuSensors, 'Temperature', /memory|vram/i));
+        const gpuMemoryClock = numeric(findSensor(gpuSensors, 'Clock', /memory/i));
+        const gpuFanRpm = numeric(read(data, 'gpuFanRpm'), numeric(read(gpuAdapter, 'fanRpm'), numeric(findSensor(gpuSensors, 'Fan', /fan/i))));
+        const ramTotal = numeric(read(data, 'ramTotalGb'));
+        const ramUsed = numeric(read(data, 'ramUsedGb'));
+        const rawStorage = read(data, 'storageDrives');
+        const storage = Array.isArray(rawStorage) ? rawStorage : [];
+        const vendorText = String(read(gpuAdapter, 'hardwareType') || '').toLowerCase();
+        const gpuVendor = vendorText.includes('nvidia') ? 'NVIDIA' : vendorText.includes('amd') ? 'AMD' : vendorText.includes('intel') ? 'Intel' : 'Outro';
+        return {
+          isSimulatedMode: false,
+          overallScore: 0,
+          fpsCaptureActive: false,
+          lastUpdated: Date.now(),
+          cpu: {
+            name: String(read(data, 'cpuModelName') || ''), socket: 'Não informado', temperature: cpuTemp,
+            load: numeric(read(data, 'cpuTotalLoad')), frequencyGHz: cpuClockMhz / 1000,
+            cores: 0, threads: 0, powerWatts: numeric(read(data, 'cpuPowerWatts')), voltageV: 0, coreList: [],
+          },
+          gpu: {
+            name: String(read(data, 'gpuModelName') || read(gpuAdapter, 'model') || ''), vendor: gpuVendor,
+            temperature: gpuCoreTemp, hotspot: gpuHotspot, memoryTemp: gpuMemoryTemp,
+            clockMHz: numeric(read(data, 'gpuClockMhz'), numeric(read(gpuAdapter, 'coreClockMhz'))),
+            memoryClockMHz: gpuMemoryClock, utilization: numeric(read(data, 'gpuLoadPercent'), numeric(read(gpuAdapter, 'loadPercent'))),
+            vramUsedMB: numeric(read(data, 'gpuVramUsedMb'), numeric(read(gpuAdapter, 'vramUsedMb'))),
+            vramTotalMB: numeric(read(data, 'gpuVramTotalMb'), numeric(read(gpuAdapter, 'vramTotalMb'))),
+            powerWatts: numeric(read(data, 'gpuPowerWatts'), numeric(read(gpuAdapter, 'powerWatts'))),
+            fansRPM: gpuFanRpm, fanSpeedPercent: numeric(findSensor(gpuSensors, 'Load', /fan/i)),
+            thermalLimitReported: 0, isThrottling: false, pcieLane: 'Não informado',
+          },
+          ram: {
+            totalGB: ramTotal, usedGB: ramUsed, availableGB: Math.max(0, ramTotal - ramUsed),
+            percentage: ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0,
+            speedMT: 0, channels: 'Não informado', type: 'Não informado',
+          },
+          disks: storage.map((drive: any, index: number) => {
+            const model = String(read(drive, 'model') || 'Unidade ' + (index + 1));
+            return {
+              id: String(index), model,
+              interface: /nvme/i.test(model) ? 'NVMe' : /ssd/i.test(model) ? 'SATA SSD' : /hdd|hard disk/i.test(model) ? 'HDD' : 'Outro',
+              temperature: numeric(read(drive, 'temperatureC')), capacityGB: numeric(read(drive, 'capacityGb')),
+              freeSpaceGB: numeric(read(drive, 'freeSpaceGb')), healthPercent: 0, readSpeedMBs: 0, writeSpeedMBs: 0, smartStatus: 'N/D',
+            };
+          }),
+          motherboard: {
+            model: 'Não informado', chipset: 'Não informado', biosVersion: 'Não informado',
+            temperatures: { system: 0, vrm: 0, chipset: 0 }, voltages: { v12: 0, v5: 0, v33: 0 },
+            fans: { cpuFanRPM: 0, pumpRPM: 0, caseFansRPM: [] },
+          },
+          sensors,
+        } as HardwareTelemetry;
       }
     } catch (e) {
       console.warn('Failed to fetch real telemetry from native agent:', e);
     }
     return null;
+  }
+
+  public async inspectRegistryTweaks(): Promise<{
+    success: boolean;
+    inspections: RegistryTweakInspection[];
+    error?: string;
+  }> {
+    if (!this.agentStatus.isConnected) {
+      return { success: false, inspections: [], error: 'AGENT_DISCONNECTED' };
+    }
+
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/tweaks/inspect`, {
+        headers: this.getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success !== true || !Array.isArray(data.inspections)) {
+        return {
+          success: false,
+          inspections: [],
+          error: data.error || data.message || `HTTP ${res.status}`,
+        };
+      }
+      return { success: true, inspections: data.inspections as RegistryTweakInspection[] };
+    } catch (err: any) {
+      return {
+        success: false,
+        inspections: [],
+        error: err?.message || 'Falha ao consultar o Registro pelo agente Windows',
+      };
+    }
   }
 
   public async applyRegistryTweak(
@@ -228,6 +335,32 @@ class NativeBridgeService {
     }
   }
 
+  public async discoverInstalledGames(): Promise<Array<{ title: string; launcher: string; installLocation: string; appId: string; executablePath: string | null; isInstalled: boolean }> | null> {
+    if (!this.agentStatus.isConnected) return null;
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/games/discover`, { headers: this.getAuthHeaders() });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.games) ? data.games : [];
+    } catch (err) {
+      console.warn("Failed to discover installed games:", err);
+      return null;
+    }
+  }
+
+  public async listRunningProcesses(): Promise<Array<{ processId: number; processName: string; mainWindowTitle: string }> | null> {
+    if (!this.agentStatus.isConnected) return null;
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/presentmon/processes`, { headers: this.getAuthHeaders() });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.processes) ? data.processes : [];
+    } catch (err) {
+      console.warn('Failed to list running processes from native agent:', err);
+      return null;
+    }
+  }
+
   public async runPresentMonCapture(
     processName: string,
     durationSeconds: number
@@ -250,7 +383,25 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.success) return data;
+        if (data.success) {
+          // The Windows agent currently returns flat JSON fields; also accept a nested Summary
+          // for compatibility with agent builds that serialize the response DTO directly.
+          const summary = data.summary ?? data.Summary ?? {};
+          const readNumber = (...values: unknown[]) => {
+            const value = values.find((item) => item !== undefined && item !== null);
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          return {
+            avgFps: readNumber(summary.averageFps, summary.AverageFps, data.avgFps, data.AvgFps),
+            minFps: readNumber(summary.minFps, summary.MinFps, data.minFps, data.MinFps),
+            onePercentLow: readNumber(summary.onePercentLowFps, summary.OnePercentLowFps, data.onePercentLow, data.OnePercentLow),
+            frametimeAvgMs: readNumber(summary.averageFrametimeMs, summary.AverageFrametimeMs, data.frametimeAvgMs, data.FrametimeAvgMs),
+            frametimeStDevMs: readNumber(summary.frametimeStandardDeviationMs, summary.FrametimeStandardDeviationMs, data.frametimeStDevMs, data.FrametimeStDevMs),
+            capturedFrames: readNumber(summary.totalFramesCount, summary.TotalFramesCount, data.capturedFrames, data.CapturedFrames),
+            error: data.errorMessage ?? data.ErrorMessage ?? data.error ?? data.Error,
+          };
+        }
       }
     } catch (err) {
       console.warn('PresentMon capture native error:', err);
@@ -258,11 +409,42 @@ class NativeBridgeService {
     return null;
   }
 
+  public async installVerifiedSoftware(
+    packageId: string,
+    userConfirmed: boolean
+  ): Promise<{ success: boolean; status?: string; message?: string; error?: string; exitCode?: number } | null> {
+    if (!this.agentStatus.isConnected) return null;
+    if (!packageId.trim() || !userConfirmed) {
+      return { success: false, error: 'EXPLICIT_INSTALL_CONFIRMATION_REQUIRED' };
+    }
+
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/software/install`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ packageId: packageId.trim(), userConfirmed: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && !!data.success,
+        status: data.status ?? data.Status,
+        message: data.message ?? data.Message,
+        error: data.error ?? data.Error,
+        exitCode: data.exitCode ?? data.ExitCode,
+      };
+    } catch (err) {
+      console.warn('Verified Winget installation failed:', err);
+      return { success: false, error: 'AGENT_COMMUNICATION_FAILED' };
+    }
+  }
+
   public async scanRealDebloatDirectories(): Promise<{
     d3dCacheBytes: number;
     tempWindowsBytes: number;
     tempUserBytes: number;
     softwareDistributionBytes: number;
+    prefetchBytes: number;
+    deliveryOptimizationBytes: number;
   } | null> {
     if (!this.agentStatus.isConnected) return null;
 
@@ -280,32 +462,76 @@ class NativeBridgeService {
   public async purgeRealDebloatDirectory(
     categoryKey: string,
     confirmUpdateCache: boolean = true
-  ): Promise<number> {
-    if (!this.agentStatus.isConnected) return 0;
+  ): Promise<{ success: boolean; partialSuccess: boolean; freedBytes: number; deletedFilesCount: number; skippedLockedCount: number; errors: string[]; status: string }> {
+    if (!this.agentStatus.isConnected) return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: ['Agente Windows desconectado.'], status: 'Unavailable' };
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/debloat/purge`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
+        method: 'POST', headers: this.getAuthHeaders(),
         body: JSON.stringify({ categoryKey, confirmUpdateCache }),
       });
       if (res.ok) {
         const data = await res.json();
-        return data.freedBytes || 0;
+        return { success: !!data.success, partialSuccess: !!data.partialSuccess, freedBytes: Number(data.freedBytes) || 0, deletedFilesCount: Number(data.deletedFilesCount) || 0, skippedLockedCount: Number(data.skippedLockedCount) || 0, errors: Array.isArray(data.errors) ? data.errors : [], status: String(data.status || 'Unknown') };
       }
-    } catch {
-      // unavailable
+      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: [`Agente respondeu HTTP ${res.status}.`], status: 'Failed' };
+    } catch (err: any) {
+      return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, errors: [err?.message || 'Falha de comunicação com o agente.'], status: 'Failed' };
     }
-    return 0;
   }
 
-  public async runRealNetworkDiagnostics(): Promise<{
-    valvePing: number;
-    riotPing: number;
-    cloudflarePing: number;
-    googleDnsPing: number;
-    jitterMs: number;
-    packetLoss: number;
+  public async measureGameReferenceTargets(gameIds: string[]): Promise<{
+    measurementMethod?: string;
+    tcpReachabilityPercent?: number;
+    structuredDiagnostic?: Record<string, string>;
+    results: Array<{
+      id: string; server: string; location: string; host: string; protocol: string;
+      pingMs: number | null; jitterMs: number | null; tcpFailurePercent: number;
+      tcpHandshakeState: string; samples: number[]; isSuccess: boolean;
+    }>;
   } | null> {
+    if (!this.agentStatus.isConnected || gameIds.length === 0) return null;
+    try {
+      const query = encodeURIComponent(gameIds.join(','));
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/network/game-targets?games=${query}`, {
+        headers: this.getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) return null;
+      const read = (object: any, key: string) => object?.[key] ?? object?.[key.charAt(0).toUpperCase() + key.slice(1)];
+      const rawResults = read(data, 'results');
+      const rawDiagnostic = read(data, 'structuredDiagnostic');
+      const diagnostic = rawDiagnostic ? {
+        whatWasTested: String(read(rawDiagnostic, 'whatWasTested') || ''),
+        whatFailed: String(read(rawDiagnostic, 'whatFailed') || ''),
+        evidenceFound: String(read(rawDiagnostic, 'evidenceFound') || ''),
+        probableCause: String(read(rawDiagnostic, 'probableCause') || ''),
+        recommendedSolution: String(read(rawDiagnostic, 'recommendedSolution') || ''),
+        verificationSteps: String(read(rawDiagnostic, 'verificationSteps') || ''),
+      } : undefined;
+      return {
+        measurementMethod: String(read(data, 'measurementMethod') || ''),
+        tcpReachabilityPercent: Number(read(data, 'tcpReachabilityPercent') || 0),
+        structuredDiagnostic: diagnostic,
+        results: (Array.isArray(rawResults) ? rawResults : []).map((item: any) => ({
+          id: String(read(item, 'id') || ''),
+          server: String(read(item, 'server') || ''),
+          location: String(read(item, 'location') || ''),
+          host: String(read(item, 'host') || ''),
+          protocol: String(read(item, 'protocol') || 'TCP'),
+          pingMs: read(item, 'pingMs') == null ? null : Number(read(item, 'pingMs')),
+          jitterMs: read(item, 'jitterMs') == null ? null : Number(read(item, 'jitterMs')),
+          tcpFailurePercent: Number(read(item, 'tcpFailurePercent') || 0),
+          tcpHandshakeState: String(read(item, 'tcpHandshakeState') || 'Não informado'),
+          samples: Array.isArray(read(item, 'samples')) ? read(item, 'samples').map(Number) : [],
+          isSuccess: Boolean(read(item, 'isSuccess')),
+        })),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  public async runRealNetworkDiagnostics(): Promise<any | null> {
     if (!this.agentStatus.isConnected) return null;
 
     try {
@@ -319,7 +545,25 @@ class NativeBridgeService {
     return null;
   }
 
-  public async queryInstalledDrivers(): Promise<DriverInfo[] | null> {
+  public async measureExternalThroughput(): Promise<{ available: boolean; downloadMbps: number | null; error?: string } | null> {
+    if (!this.agentStatus.isConnected) return null;
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/network/throughput`, {
+        headers: this.getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) return { available: false, downloadMbps: null, error: data?.error || `HTTP ${res.status}` };
+      return {
+        available: Boolean(data.available ?? data.Available),
+        downloadMbps: data.downloadMbps ?? data.DownloadMbps ?? null,
+        error: data.errorReason ?? data.ErrorReason ?? undefined,
+      };
+    } catch (error) {
+      return { available: false, downloadMbps: null, error: error instanceof Error ? error.message : 'Falha de comunicação com o agente.' };
+    }
+  }
+
+  public async queryInstalledDrivers(): Promise<{ drivers: DriverInfo[]; scanError?: string } | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
       const res = await fetch(`${LOCAL_AGENT_URL}/api/drivers`, {
@@ -327,7 +571,19 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        return data.drivers as DriverInfo[];
+        const rawDrivers = Array.isArray(data.drivers) ? data.drivers : [];
+        const drivers: DriverInfo[] = rawDrivers.map((driver: any) => ({
+          device: String(driver.device ?? driver.Device ?? 'Dispositivo sem nome'),
+          category: String(driver.category ?? driver.Category ?? 'Outros') as DriverInfo['category'],
+          installedVersion: String(driver.installedVersion ?? driver.InstalledVersion ?? 'N/D'),
+          releaseDate: String(driver.releaseDate ?? driver.ReleaseDate ?? 'N/D'),
+          vendor: String(driver.vendor ?? driver.Vendor ?? 'Fabricante não informado'),
+          // WMI inventory verifies that Windows reports the driver; it does not compare the latest release.
+          status: 'Inventariado via WMI',
+          signatureStatus: String(driver.status ?? driver.Status ?? 'Assinatura não informada'),
+          officialUrl: String(driver.officialUrl ?? driver.OfficialUrl ?? 'https://support.microsoft.com/windows'),
+        }));
+        return { drivers, scanError: data.scanError ?? data.ScanError ?? undefined };
       }
     } catch {
       // unavailable

@@ -187,6 +187,63 @@ public class RegistrySnapshotTests
     }
 
     [Fact]
+    public void VerifyBackupIntegrity_WithDuplicateRegistryTargets_IsRejected()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 12, 13, 0, 0, DateTimeKind.Utc);
+            var duplicate = new RegistryValueEntry
+            {
+                TweakId = "perf-game-dvr",
+                Hive = "HKCU",
+                SubKey = @"System\GameConfigStore",
+                ValueName = "GameDVR_Enabled",
+                ValueKind = "DWord",
+                RawValue = "1",
+                WasInitiallyAbsent = false
+            };
+            var entries = new List<RegistryValueEntry> { duplicate, new RegistryValueEntry
+            {
+                TweakId = duplicate.TweakId,
+                Hive = duplicate.Hive,
+                SubKey = duplicate.SubKey,
+                ValueName = duplicate.ValueName,
+                ValueKind = duplicate.ValueKind,
+                RawValue = "0",
+                WasInitiallyAbsent = false
+            }};
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-duplicate-target",
+                "2.1",
+                createdUtc,
+                "Duplicate target test",
+                entries);
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-duplicate-target",
+                FormatVersion = "2.1",
+                CreatedUtc = createdUtc,
+                Description = "Duplicate target test",
+                TotalKeysCaptured = entries.Count,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var (isValid, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+
+            Assert.False(isValid);
+            Assert.Contains("duplicada", error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void VerifyBackupIntegrity_WithNonExistentFile_ReturnsFalse()
     {
         var (isValid, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity("invalid_non_existent_snapshot.json");
@@ -315,6 +372,66 @@ public class RegistrySnapshotTests
 
             Assert.False(report.Success);
             Assert.True(report.FailedCount > 0);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void RestoreFromBackupWithReport_RollbackRequestedOutsideWindows_IsRejectedBeforeMutation()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 12, 12, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-rollback-nonwindows",
+                "2.1",
+                createdUtc,
+                "Rollback non-Windows test",
+                entries
+            );
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-rollback-nonwindows",
+                FormatVersion = "2.1",
+                CreatedUtc = createdUtc,
+                Description = "Rollback non-Windows test",
+                TotalKeysCaptured = entries.Count,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(
+                tempFile,
+                confirmIncompleteBackup: true,
+                rollbackOnPartialFailure: true
+            );
+
+            Assert.False(report.Success);
+            Assert.False(report.RolledBack);
+            Assert.Equal(0, report.RestoredCount);
+            Assert.Contains("Windows nativo", report.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

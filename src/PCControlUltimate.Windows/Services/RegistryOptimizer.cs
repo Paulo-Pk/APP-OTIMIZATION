@@ -14,6 +14,22 @@ using Microsoft.Win32;
 
 namespace PCControlUltimate.Windows.Services;
 
+public enum TweakDefaultBehaviorKind
+{
+    KnownDocumentedValue,
+    AbsentWithKnownDefault,
+    EditionOrConfigDependent,
+    UndeterminedWhenAbsent
+}
+
+public record RegistryTweakInspectionResult(
+    string State,
+    bool IsUndeterminable,
+    string? CurrentValue = null,
+    RegistryValueKind? ActualValueKind = null,
+    string? AbsenceKind = null,
+    string? DiagnosticDetail = null);
+
 public record TweakDefinition(
     string TweakId,
     string Hive,
@@ -26,7 +42,8 @@ public record TweakDefinition(
     string Description,
     string DescriptionEn,
     string Category,
-    string RiskLevel
+    string RiskLevel,
+    TweakDefaultBehaviorKind DefaultBehavior = TweakDefaultBehaviorKind.UndeterminedWhenAbsent
 )
 {
     public string TargetRawValue => RecommendedValue;
@@ -69,6 +86,7 @@ public record RegistryOperationResult(
 public static class RegistryOptimizer
 {
     private static readonly ConcurrentQueue<RegistryAuditLogEntry> _auditHistory = new();
+    internal static IRegistryBackend RegistryBackend { get; set; } = new WindowsRegistryBackend();
 
     public static string AuditLogFilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -128,45 +146,45 @@ public static class RegistryOptimizer
             @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
             "SystemResponsiveness", RegistryValueKind.DWord,
             "10", "20", new[] { "10", "20" },
-            "Prioriza threads multimídia e reduz latência de áudio/DPC em jogos.",
-            "Prioritizes multimedia threads and lowers audio/DPC latency in games.",
-            "Performance", "Baixo"
+            "Ajusta SystemResponsiveness para 10; o efeito depende da carga e da configuração do Windows, sem garantia de redução de latência DPC.",
+            "Sets SystemResponsiveness to 10; effects depend on workload and Windows configuration, with no guaranteed DPC-latency reduction.",
+            "Performance", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-game-dvr"] = new(
             "perf-game-dvr", "HKCU",
             @"System\GameConfigStore",
             "GameDVR_Enabled", RegistryValueKind.DWord,
             "0", "1", new[] { "0", "1" },
-            "Desativa gravação contínua em segundo plano do Xbox Game DVR.",
-            "Disables continuous background recording by Xbox Game DVR.",
-            "Performance", "Baixo"
+            "Desativa a captura/gravação em segundo plano do Xbox Game DVR. Pode afetar clipes e capturas automáticas; não garante aumento de FPS.",
+            "Disables Xbox Game DVR background capture/recording. Automatic clips and captures may be affected; no FPS gain is guaranteed.",
+            "Performance", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["perf-hpet"] = new(
             "perf-hpet", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\PriorityControl",
             "Win32PrioritySeparation", RegistryValueKind.DWord,
             "38", "2", new[] { "2", "38", "26" },
-            "Otimiza o quantum de prioridade de janelas em primeiro plano (Win32PrioritySeparation=0x26).",
-            "Optimizes foreground window thread priority quantum (Win32PrioritySeparation=0x26).",
-            "Performance", "Médio"
+            "ID interno legado perf-hpet: este ajuste não altera HPET. Modifica Win32PrioritySeparation; o efeito do escalonador varia conforme a versão e a configuração do Windows.",
+            "Legacy internal ID perf-hpet: this tweak does not change HPET. It modifies Win32PrioritySeparation; scheduler effects vary by Windows version and configuration.",
+            "Performance", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-tcp-nagle"] = new(
             "perf-tcp-nagle", "HKLM",
             @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
             "NetworkThrottlingIndex", RegistryValueKind.DWord,
             "-1", "10", new[] { "-1", "10", "1" },
-            "Desativa limitação artificial de pacotes de rede multimídia (NetworkThrottlingIndex).",
-            "Disables artificial multimedia network packet throttling (NetworkThrottlingIndex).",
-            "Performance", "Baixo"
+            "ID interno legado perf-tcp-nagle: este ajuste não altera Nagle. Modifica NetworkThrottlingIndex e não garante redução de ping ou jitter.",
+            "Legacy internal ID perf-tcp-nagle: this tweak does not change Nagle. It modifies NetworkThrottlingIndex and does not guarantee lower ping or jitter.",
+            "Performance", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["start-fast-boot"] = new(
             "start-fast-boot", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\Session Manager\Power",
             "HiberbootEnabled", RegistryValueKind.DWord,
             "0", "1", new[] { "0", "1" },
-            "Realiza inicialização limpa do kernel a cada boot (HiberbootEnabled=0).",
-            "Performs a clean kernel initialization on every boot (HiberbootEnabled=0).",
-            "Startup", "Baixo"
+            "Desativa a Inicialização Rápida do Windows; pode aumentar o tempo de boot e alterar o comportamento de hibernação.",
+            "Disables Windows Fast Startup; boot time may increase and hibernation behavior may change.",
+            "Startup", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["start-edge-preload"] = new(
             "start-edge-preload", "HKLM",
@@ -175,7 +193,7 @@ public static class RegistryOptimizer
             "0", "1", new[] { "0", "1" },
             "Impede pré-carregamento em segundo plano do Microsoft Edge no boot.",
             "Prevents Microsoft Edge background preloading at startup.",
-            "Startup", "Baixo"
+            "Startup", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["bg-telemetry"] = new(
             "bg-telemetry", "HKLM",
@@ -184,7 +202,7 @@ public static class RegistryOptimizer
             "1", "3", new[] { "1", "3" },
             "Reduz coleta diagnóstica para nível básico sem afetar segurança.",
             "Reduces diagnostic telemetry collection to basic level without affecting security.",
-            "Background", "Baixo"
+            "Background", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["bg-cortana-news"] = new(
             "bg-cortana-news", "HKCU",
@@ -193,124 +211,124 @@ public static class RegistryOptimizer
             "2", "0", new[] { "0", "1", "2" },
             "Desativa carregamento contínuo do feed de notícias na barra de tarefas.",
             "Disables continuous loading of the taskbar news and interests feed.",
-            "Background", "Baixo"
+            "Background", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["power-ultimate-plan"] = new(
             "power-ultimate-plan", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\Power\PowerThrottling",
             "PowerThrottlingOff", RegistryValueKind.DWord,
             "1", "0", new[] { "0", "1" },
-            "Desativa redução automática de clock (Power Throttling) para processos em execução.",
-            "Disables automatic CPU clock throttling (Power Throttling) for active processes.",
-            "Power", "Baixo"
+            "Desativa a política Power Throttling para processos elegíveis. Não força a CPU a operar no clock máximo nem garante aumento de FPS; pode elevar consumo e temperatura, especialmente em notebooks. Requer avaliação individual.",
+            "Disables Power Throttling policy for eligible processes. It does not force maximum CPU clocks or guarantee higher FPS; power use and temperature may increase, especially on laptops. Requires individual evaluation.",
+            "Power", "Médio", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["power-pcie-link"] = new(
             "power-pcie-link", "HKLM",
             @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games",
             "Scheduling Category", RegistryValueKind.String,
             "High", "Medium", new[] { "High", "Medium", "Low" },
-            "Define a categoria de escalonamento MMCSS de Jogos para High (REG_SZ).",
-            "Sets the MMCSS Games task scheduling category to High (REG_SZ).",
-            "Power", "Baixo"
+            "ID interno legado power-pcie-link: não altera a economia de energia do link PCIe. Define a categoria de escalonamento MMCSS da tarefa Games como High (REG_SZ).",
+            "Legacy internal ID power-pcie-link: this does not change PCIe link power management. It sets the MMCSS Games task scheduling category to High (REG_SZ).",
+            "Power", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["serv-sysmain"] = new(
             "serv-sysmain", "HKLM",
             @"SYSTEM\CurrentControlSet\Services\SysMain",
             "Start", RegistryValueKind.DWord,
             "3", "2", new[] { "2", "3" },
-            "Configura serviço SysMain para inicialização manual em SSDs NVMe.",
-            "Configures the SysMain service for manual startup on NVMe SSDs.",
-            "Services", "Baixo"
+            "Altera o tipo de inicialização do SysMain para Manual; isso não interrompe o serviço que já estiver em execução nem garante que ele fique parado, pois o Windows pode iniciá-lo sob demanda. Pode afetar pré-carregamento e tempo de abertura de aplicativos; não há ganho geral de FPS comprovado.",
+            "Changes SysMain startup type to Manual; this does not stop a running service or guarantee it stays stopped, as Windows may start it on demand. App preloading and launch times may be affected; no general FPS gain is established.",
+            "Services", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["serv-spooler"] = new(
             "serv-spooler", "HKLM",
             @"SYSTEM\CurrentControlSet\Services\Spooler",
             "Start", RegistryValueKind.DWord,
             "3", "2", new[] { "2", "3" },
-            "Configura Spooler de Impressão para modo sob demanda (Manual).",
-            "Configures Print Spooler for on-demand (Manual) startup.",
-            "Services", "Baixo"
+            "Altera o tipo de inicialização do Spooler para Manual; não interrompe o serviço já em execução. Pode impedir ou atrasar a impressão se o Windows ou algum aplicativo não iniciar o serviço sob demanda. Não oferece ganho geral de desempenho comprovado.",
+            "Changes Print Spooler startup type to Manual; it does not stop a running service. Printing may fail or be delayed if Windows or an application does not start the service on demand. No general performance gain is established.",
+            "Services", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["mem-standby-clean"] = new(
             "mem-standby-clean", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
             "LargeSystemCache", RegistryValueKind.DWord,
-            "0", "1", new[] { "0", "1" },
-            "Prioriza memória RAM física para aplicativos e jogos em primeiro plano (LargeSystemCache=0).",
-            "Prioritizes physical RAM for foreground applications and games (LargeSystemCache=0).",
-            "Memory", "Baixo"
+            "0", "0", new[] { "0", "1" },
+            "Define LargeSystemCache=0, configuração comum de estação de trabalho. Não limpa a lista de espera (standby list) nem libera RAM por si só.",
+            "Sets LargeSystemCache=0, a common workstation configuration. It does not clear the standby list or free RAM by itself.",
+            "Memory", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["mem-lock-executive"] = new(
             "mem-lock-executive", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management",
             "DisablePagingExecutive", RegistryValueKind.DWord,
             "1", "0", new[] { "0", "1" },
-            "Mantém executivo do kernel e drivers na memória RAM física.",
-            "Keeps kernel executive and drivers resident in physical RAM.",
-            "Memory", "Baixo"
+            "Impede a paginação de partes do executivo do kernel. Pode aumentar o uso de memória física; não existe requisito mínimo universal de 16 GB. Avalie a RAM disponível e a carga real; não há garantia de menor latência ou melhor desempenho em jogos.",
+            "Prevents paging of parts of the kernel executive. It may increase physical memory use; there is no universal 16 GB minimum requirement. Evaluate available RAM and actual workload; lower latency or better gaming performance is not guaranteed.",
+            "Memory", "Médio", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["game-hags"] = new(
             "game-hags", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
             "HwSchMode", RegistryValueKind.DWord,
             "2", "1", new[] { "1", "2" },
-            "Habilita agendamento de GPU acelerado por hardware (HAGS).",
-            "Enables Hardware-Accelerated GPU Scheduling (HAGS).",
-            "Gaming", "Baixo"
+            "Solicita o uso do HAGS. Compatibilidade e desempenho variam conforme GPU, driver e Windows; pode exigir reinicialização e não garante mais FPS.",
+            "Requests HAGS. Compatibility and performance vary by GPU, driver, and Windows; a restart may be required and higher FPS is not guaranteed.",
+            "Gaming", "Médio", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["game-fso-override"] = new(
             "game-fso-override", "HKCU",
             @"System\GameConfigStore",
             "GameDVR_FSEBehaviorMode", RegistryValueKind.DWord,
             "2", "0", new[] { "0", "2" },
-            "Otimiza apresentação Flip Model em tela cheia para DX11/DX12.",
-            "Optimizes fullscreen Flip Model presentation for DX11/DX12.",
-            "Gaming", "Baixo"
+            "Altera GameDVR_FSEBehaviorMode, uma configuração de comportamento de tela cheia do Windows. O efeito depende do jogo e da versão do sistema; não garante menor latência ou mais FPS.",
+            "Changes GameDVR_FSEBehaviorMode, a Windows fullscreen behavior setting. Effects depend on the game and OS version; lower latency or higher FPS is not guaranteed.",
+            "Gaming", "Médio", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["perf-fso-flags"] = new(
             "perf-fso-flags", "HKCU",
             @"System\GameConfigStore",
             "GameDVR_FSEBehavior", RegistryValueKind.DWord,
             "2", "0", new[] { "0", "2" },
-            "Define flags de comportamento Fullscreen Optimizations (GameDVR_FSEBehavior).",
-            "Configures Fullscreen Optimizations behavior flags (GameDVR_FSEBehavior).",
-            "Gaming", "Baixo"
+            "Altera GameDVR_FSEBehavior, uma flag de comportamento de tela cheia cuja interpretação pode variar entre versões do Windows. Sem garantia de ganho; restaurar se houver problemas de exibição ou compatibilidade.",
+            "Changes GameDVR_FSEBehavior, a fullscreen behavior flag whose interpretation may vary across Windows versions. No performance gain is guaranteed; restore if display or compatibility issues occur.",
+            "Gaming", "Médio", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
         ),
         ["sys-delivery-p2p"] = new(
             "sys-delivery-p2p", "HKLM",
             @"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization",
             "DODownloadMode", RegistryValueKind.DWord,
             "0", "1", new[] { "0", "1" },
-            "Restringe otimização de entrega P2P em segundo plano durante jogos.",
-            "Restricts background P2P Windows Update Delivery Optimization during gaming.",
-            "System", "Baixo"
+            "Define o modo de Otimização de Entrega para HTTP sem compartilhamento P2P. A política vale para o sistema, não apenas durante jogos, e não promete aumento de FPS.",
+            "Sets Delivery Optimization to HTTP without P2P sharing. This policy applies system-wide, not only while gaming, and does not promise higher FPS.",
+            "System", "Baixo", TweakDefaultBehaviorKind.EditionOrConfigDependent
         ),
         ["sys-transparency"] = new(
             "sys-transparency", "HKCU",
             @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
             "EnableTransparency", RegistryValueKind.DWord,
             "0", "1", new[] { "0", "1" },
-            "Desativa efeito acrílico do DWM para liberar ciclos de GPU.",
-            "Disables DWM acrylic transparency blur to free GPU cycles.",
-            "Interface", "Baixo"
+            "Desativa transparências da interface do Windows. É uma alteração visual; em GPUs modernas, não há garantia de ganho perceptível de desempenho.",
+            "Disables Windows interface transparency. This is a visual change; on modern GPUs, no perceptible performance gain is guaranteed.",
+            "Interface", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["storage-ntfs-lastaccess"] = new(
             "storage-ntfs-lastaccess", "HKLM",
             @"SYSTEM\CurrentControlSet\Control\FileSystem",
             "NtfsDisableLastAccessUpdate", RegistryValueKind.DWord,
             "1", "0", new[] { "0", "1", "-2147483647" },
-            "Reduz escritas desnecessárias de metadados NTFS em SSDs NVMe e SATA.",
-            "Reduces unnecessary NTFS last-access metadata writes on NVMe and SATA SSDs.",
-            "Storage", "Baixo"
+            "Controla a atualização dos horários de último acesso do NTFS. O efeito depende da configuração do Windows e não garante aumento de desempenho ou vida útil do SSD.",
+            "Controls NTFS last-access timestamp updates. The effect depends on Windows configuration and does not guarantee better performance or SSD lifespan.",
+            "Storage", "Baixo", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
         ),
         ["net-tcp-autotuning"] = new(
             "net-tcp-autotuning", "HKLM",
             @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
             "TcpMaxDataRetransmissions", RegistryValueKind.DWord,
             "5", "5", new[] { "3", "5", "7" },
-            "Mantém limite seguro de retransmissão TCP conforme RFC sem quebrar conexões.",
-            "Maintains RFC-compliant safe TCP retransmission limit without breaking connections.",
-            "Network", "Baixo"
+            "ID interno legado net-tcp-autotuning: não altera TCP Auto-Tuning. Mantém TcpMaxDataRetransmissions em 5, valor padrão de referência; não é uma otimização de ping.",
+            "Legacy internal ID net-tcp-autotuning: this does not change TCP Auto-Tuning. It keeps TcpMaxDataRetransmissions at the reference default of 5; it is not a ping optimization.",
+            "Network", "Baixo", TweakDefaultBehaviorKind.KnownDocumentedValue
         ),
         ["priv-advertising-id"] = new(
             "priv-advertising-id", "HKCU",
@@ -319,7 +337,7 @@ public static class RegistryOptimizer
             "0", "1", new[] { "0", "1" },
             "Desativa o identificador de anúncios direcionados do perfil de usuário no Windows.",
             "Disables the targeted advertising ID for the user profile in Windows.",
-            "Privacy", "Baixo"
+            "Privacy", "Baixo", TweakDefaultBehaviorKind.AbsentWithKnownDefault
         ),
         ["maint-startup-delay"] = new(
             "maint-startup-delay", "HKCU",
@@ -328,7 +346,7 @@ public static class RegistryOptimizer
             "0", "1000", new[] { "0", "1000" },
             "Remove atraso artificial do Explorer na inicialização de aplicativos de bandeja.",
             "Removes artificial Explorer startup delay for tray applications.",
-            "Maintenance", "Baixo"
+            "Maintenance", "Baixo", TweakDefaultBehaviorKind.UndeterminedWhenAbsent
         )
     };
 
@@ -614,119 +632,144 @@ public static class RegistryOptimizer
                 "Operação de Registro requer plataforma Windows nativa.", def.TweakId);
         }
 
-        RegistryKey root = GetRootKey(def.Hive);
         string? previousSerialized = null;
         RegistryValueKind previousKind = targetKind;
         bool wasInitiallyAbsent = false;
         bool keyCreatedByApp = false;
+        string? operationId = null;
+        string operationStage = "READ_PRE_STATE";
 
         try
         {
-            // 1. Pre-read original value & type before modification
-            using (RegistryKey? readKey = root.OpenSubKey(def.SubKeyPath, false))
+            RegistryValueSnapshot before = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            wasInitiallyAbsent = !before.ValueExists;
+            keyCreatedByApp = !before.KeyExists;
+            if (before.ValueExists)
             {
-                if (readKey == null)
-                {
-                    wasInitiallyAbsent = true;
-                    keyCreatedByApp = true;
-                }
-                else
-                {
-                    object? rawPrev = readKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    if (rawPrev == null)
-                    {
-                        wasInitiallyAbsent = true;
-                    }
-                    else
-                    {
-                        previousKind = readKey.GetValueKind(def.ValueName);
-                        previousSerialized = SerializeRegistryValue(rawPrev, previousKind);
-                    }
-                }
+                previousKind = before.Kind;
+                previousSerialized = SerializeRegistryValue(before.Value, previousKind);
+            }
+
+            // Enforce the same safe-default rule in the privileged backend, not only in the UI.
+            // This closes the time-of-check/time-of-use gap if the Registry changes after inspection.
+            bool knownInactiveState;
+            if (before.ValueExists)
+            {
+                knownInactiveState = before.Kind == def.ValueKind &&
+                    string.Equals(previousSerialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(previousSerialized, serializedTargetValue, StringComparison.OrdinalIgnoreCase);
+            }
+            else
+            {
+                knownInactiveState =
+                    (def.DefaultBehavior is TweakDefaultBehaviorKind.KnownDocumentedValue or TweakDefaultBehaviorKind.AbsentWithKnownDefault) &&
+                    !string.Equals(def.DefaultOriginValue, serializedTargetValue, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!knownInactiveState)
+            {
+                string reason = before.ValueExists
+                    ? "Ajuste bloqueado: o valor atual do Registro não corresponde ao padrão conhecido/inativo. O PC Control não sobrescreverá valores ativos, personalizados ou com tipo incompatível."
+                    : "Ajuste bloqueado: a ausência do valor não possui um padrão conhecido que permita aplicar esta alteração com segurança.";
+                string code = before.ValueExists ? "REGISTRY_STATE_NOT_DEFAULT" : "REGISTRY_DEFAULT_UNDETERMINED";
+                RecordAudit("APPLY_BLOCKED_NON_DEFAULT_STATE", def.TweakId, fullKeyPath, def.ValueName,
+                    before.Kind.ToString(), previousSerialized, serializedTargetValue, null, false, reason);
+                return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
+                    wasInitiallyAbsent, keyCreatedByApp, reason, def.TweakId, null, code);
             }
 
             object typedTarget = DeserializeRegistryValue(serializedTargetValue, targetKind);
 
-            // 2. Write value with explicit RegistryValueKind
-            using (RegistryKey writeKey = root.CreateSubKey(def.SubKeyPath, true))
+            // Persist an authenticated recovery point BEFORE changing the Windows Registry.
+            // If the subsequent write or readback fails, the pending entry remains available for rollback.
+            operationStage = "RECORD_TRUSTED_LEDGER";
+            var ledgerEntry = RegistryStateLedger.RecordAppliedTweakState(
+                def,
+                previousSerialized,
+                previousKind,
+                wasInitiallyAbsent,
+                keyCreatedByApp,
+                serializedTargetValue
+            );
+            operationId = ledgerEntry.OperationId;
+
+            operationStage = "WRITE_TARGET";
+            RegistryBackend.Write(def.Hive, def.SubKeyPath, def.ValueName, typedTarget, targetKind);
+            operationStage = "VERIFY_TARGET";
+            RegistryValueSnapshot after = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            if (!after.KeyExists || !after.ValueExists)
             {
-                writeKey.SetValue(def.ValueName, typedTarget, targetKind);
-                writeKey.Flush();
+                string err = "Falha na verificação: subchave ou valor não encontrado após escrita. O estado original foi preservado no histórico para restauração.";
+                RecordAudit("APPLY_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                    previousSerialized, serializedTargetValue, null, false, err);
+                return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
+                    wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId, operationId, "REGISTRY_READBACK_MISSING");
             }
 
-            // 3. Re-read and verify both value and kind immediately after write
-            using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
+            object? readBack = after.Value;
+            RegistryValueKind verifiedKind = after.Kind;
+            string? verifiedStr = SerializeRegistryValue(readBack, verifiedKind);
+
+            if (verifiedKind == targetKind && ValuesMatch(readBack, typedTarget, targetKind))
             {
-                if (verifyKey == null)
-                {
-                    string err = "Falha na verificação: subchave não encontrada após escrita.";
-                    RecordAudit("APPLY_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                        previousSerialized, serializedTargetValue, null, false, err);
-                    return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                        wasInitiallyAbsent, keyCreatedByApp, err, def.TweakId);
-                }
-
-                object? readBack = verifyKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                RegistryValueKind verifiedKind = verifyKey.GetValueKind(def.ValueName);
-                string? verifiedStr = SerializeRegistryValue(readBack, verifiedKind);
-
-                if (verifiedKind == targetKind && ValuesMatch(readBack, typedTarget, targetKind))
-                {
-                    // Record trusted pre-modification state in the DPAPI + HMAC-SHA256 backend ledger
-                    var ledgerEntry = RegistryStateLedger.RecordAppliedTweakState(
-                        def,
-                        previousSerialized,
-                        previousKind,
-                        wasInitiallyAbsent,
-                        keyCreatedByApp,
-                        serializedTargetValue
-                    );
-
-                    RecordAudit("APPLY_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                        wasInitiallyAbsent ? "<ABSENT>" : previousSerialized, serializedTargetValue, verifiedStr, true, null);
-                    return new RegistryOperationResult(
-                        true,
-                        wasInitiallyAbsent ? null : previousSerialized,
-                        verifiedStr,
-                        previousKind.ToString(),
-                        wasInitiallyAbsent,
-                        keyCreatedByApp,
-                        null,
-                        def.TweakId,
-                        ledgerEntry.OperationId
-                    );
-                }
-
-                string mismatchErr = "Verificação falhou: valor ou tipo lido após gravação difere do esperado.";
-                RecordAudit("APPLY_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
-                    previousSerialized, serializedTargetValue, verifiedStr, false, mismatchErr);
-                return new RegistryOperationResult(false, previousSerialized, verifiedStr,
-                    previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr, def.TweakId);
+                RecordAudit("APPLY_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                    wasInitiallyAbsent ? "<ABSENT>" : previousSerialized, serializedTargetValue, verifiedStr, true, null);
+                return new RegistryOperationResult(
+                    true,
+                    wasInitiallyAbsent ? null : previousSerialized,
+                    verifiedStr,
+                    previousKind.ToString(),
+                    wasInitiallyAbsent,
+                    keyCreatedByApp,
+                    null,
+                    def.TweakId,
+                    operationId
+                );
             }
+
+            string mismatchErr = "Verificação falhou: valor ou tipo lido após gravação difere do esperado. O estado original permanece disponível no histórico para restauração.";
+            RecordAudit("APPLY_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
+                previousSerialized, serializedTargetValue, verifiedStr, false, mismatchErr);
+            return new RegistryOperationResult(false, previousSerialized, verifiedStr,
+                previousKind.ToString(), wasInitiallyAbsent, keyCreatedByApp, mismatchErr,
+                def.TweakId, operationId, "REGISTRY_READBACK_MISMATCH");
         }
         catch (SecurityException ex)
         {
-            string msg = $"Acesso de segurança negado (Elevação UAC necessária para {def.Hive}): {ex.Message}";
+            string msg = operationStage == "RECORD_TRUSTED_LEDGER"
+                ? $"Acesso negado ao gravar o histórico seguro do ajuste. Nenhuma alteração no Registro foi iniciada: {ex.Message}"
+                : $"Acesso de segurança negado (Elevação UAC necessária para {def.Hive}): {ex.Message}";
             RecordAudit("APPLY_SECURITY_DENIED", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId,
+                operationStage == "RECORD_TRUSTED_LEDGER" ? "REGISTRY_LEDGER_WRITE_FAILED" : "REGISTRY_ACCESS_DENIED");
         }
         catch (UnauthorizedAccessException ex)
         {
-            string msg = $"Privilégios insuficientes para {def.Hive}. Execute como Administrador (UAC): {ex.Message}";
+            string msg = operationStage == "RECORD_TRUSTED_LEDGER"
+                ? $"Não foi possível gravar o histórico seguro do ajuste. Nenhuma alteração no Registro foi iniciada: {ex.Message}"
+                : $"Privilégios insuficientes para {def.Hive}. Execute como Administrador (UAC): {ex.Message}";
             RecordAudit("APPLY_UAC_REQUIRED", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId,
+                operationStage == "RECORD_TRUSTED_LEDGER" ? "REGISTRY_LEDGER_WRITE_FAILED" : "REGISTRY_ACCESS_DENIED");
         }
         catch (Exception ex)
         {
-            string msg = $"Erro ao gravar no Registro: {ex.Message}";
+            string msg = operationStage == "RECORD_TRUSTED_LEDGER"
+                ? $"Não foi possível registrar o estado original no histórico seguro; a alteração do Registro foi bloqueada: {ex.Message}"
+                : $"Erro ao gravar no Registro: {ex.Message}";
             RecordAudit("APPLY_ERROR", def.TweakId, fullKeyPath, def.ValueName, previousKind.ToString(),
                 previousSerialized, serializedTargetValue, null, false, msg);
+            string errorCode = operationStage == "RECORD_TRUSTED_LEDGER"
+                ? "REGISTRY_LEDGER_WRITE_FAILED"
+                : operationStage.StartsWith("VERIFY", StringComparison.Ordinal) || operationStage == "READ_PRE_STATE"
+                    ? "REGISTRY_READ_ERROR"
+                    : "REGISTRY_OPERATION_FAILED";
             return new RegistryOperationResult(false, previousSerialized, null, previousKind.ToString(),
-                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId);
+                wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId, errorCode);
         }
     }
 
@@ -803,12 +846,30 @@ public static class RegistryOptimizer
             entry.OriginalValueKind,
             entry.WasInitiallyAbsent,
             entry.KeyCreatedByApp,
-            entry.OperationId
+            entry.OperationId,
+            entry.AppliedValue,
+            enforceExpectedCurrentState: true
         );
 
         if (restoreRes.Success)
         {
-            RegistryStateLedger.MarkOperationRestored(entry.OperationId);
+            try
+            {
+                if (!RegistryStateLedger.MarkOperationRestored(entry.OperationId))
+                    throw new InvalidOperationException("O Registro foi restaurado, mas o Ledger não confirmou a baixa da operação.");
+            }
+            catch (Exception ex)
+            {
+                string ledgerError = $"O valor original foi restaurado no Registro, porém não foi possível registrar a conclusão no Ledger. A operação permanece pendente e não deve ser repetida sem verificação manual. Detalhe: {ex.Message}";
+                RecordAudit("RESTORE_LEDGER_MARK_FAILED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
+                    entry.OriginalValueKind, null, entry.OriginalRawValue, restoreRes.VerifiedValue, false, ledgerError);
+                return restoreRes with
+                {
+                    Success = false,
+                    ErrorMessage = ledgerError,
+                    ErrorCode = "RESTORE_LEDGER_UPDATE_FAILED"
+                };
+            }
         }
 
         return restoreRes;
@@ -857,15 +918,8 @@ public static class RegistryOptimizer
                 $"Ajuste '{tweakId}' não pertence ao catálogo fechado.", tweakId);
         }
 
-        var preCheck = ValidateRestoreParametersAgainstCatalog(def, untrustedOriginalValue, untrustedValueKindStr, untrustedWasInitiallyAbsent);
-        if (!preCheck.isValid)
-        {
-            RecordAudit("RESTORE_REJECTED_RULES", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
-                untrustedValueKindStr ?? "Unknown", null, untrustedOriginalValue, null, false, preCheck.errorMessage);
-            return new RegistryOperationResult(false, null, null, untrustedValueKindStr ?? "Unknown",
-                untrustedWasInitiallyAbsent, untrustedKeyCreatedByApp, preCheck.errorMessage, def.TweakId);
-        }
-
+        // Caller-supplied original value/type/absence flags are untrusted and intentionally ignored.
+        // The backend resolves and authenticates the original state from RegistryStateLedger.
         return RestoreCatalogTweakFromTrustedSource(def.TweakId);
     }
 
@@ -875,7 +929,10 @@ public static class RegistryOptimizer
     /// </summary>
     internal static RegistryOperationResult RestoreFromVerifiedSnapshotEntry(
         TweakDefinition def,
-        RegistryValueEntry verifiedEntry)
+        RegistryValueEntry verifiedEntry,
+        bool enforceExpectedCurrentState = false,
+        string? expectedCurrentValue = null,
+        bool expectedCurrentAbsent = false)
     {
         var validation = ValidateRestoreParametersAgainstCatalog(
             def,
@@ -900,8 +957,53 @@ public static class RegistryOptimizer
             verifiedEntry.RawValue,
             verifiedEntry.ValueKind,
             verifiedEntry.WasInitiallyAbsent,
-            verifiedEntry.KeyCreatedByApp
+            verifiedEntry.KeyCreatedByApp,
+            expectedAppliedValue: expectedCurrentValue,
+            enforceExpectedCurrentState: enforceExpectedCurrentState,
+            expectedAppliedInitiallyAbsent: expectedCurrentAbsent
         );
+    }
+
+    internal static RegistryOperationResult RestoreFromCapturedRollbackState(
+        TweakDefinition def,
+        RegistryValueEntry previousState,
+        RegistryValueEntry appliedSnapshotState)
+    {
+        // This state was read directly from the Registry immediately before this transaction.
+        // It may legitimately be a custom value or an unexpected type; rollback must restore
+        // that exact state rather than applying the catalog's allowed-value policy.
+        if (!string.Equals(previousState.TweakId, def.TweakId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(FindAuthorizedCatalogEntry(previousState.KeyPath, previousState.ValueName)?.TweakId,
+                def.TweakId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(FindAuthorizedCatalogEntry(appliedSnapshotState.KeyPath, appliedSnapshotState.ValueName)?.TweakId,
+                def.TweakId, StringComparison.OrdinalIgnoreCase))
+        {
+            return new RegistryOperationResult(false, null, null, previousState.ValueKind,
+                previousState.WasInitiallyAbsent, previousState.KeyCreatedByApp,
+                "Rollback bloqueado: os estados capturados não correspondem ao ajuste autorizado.", def.TweakId,
+                ErrorCode: "ROLLBACK_TARGET_MISMATCH");
+        }
+
+        var validation = ValidateTrustedRestoreState(
+            previousState.RawValue,
+            previousState.ValueKind,
+            previousState.WasInitiallyAbsent);
+        if (!validation.isValid)
+        {
+            return new RegistryOperationResult(false, null, null, previousState.ValueKind,
+                previousState.WasInitiallyAbsent, previousState.KeyCreatedByApp,
+                validation.errorMessage, def.TweakId, ErrorCode: "ROLLBACK_STATE_INVALID");
+        }
+
+        return ValidateAndExecuteRestore(
+            def,
+            previousState.RawValue,
+            previousState.ValueKind,
+            previousState.WasInitiallyAbsent,
+            previousState.KeyCreatedByApp,
+            expectedAppliedValue: appliedSnapshotState.RawValue,
+            enforceExpectedCurrentState: true,
+            expectedAppliedInitiallyAbsent: appliedSnapshotState.WasInitiallyAbsent);
     }
 
     public static (bool isValid, string errorReason) ValidateRestoreParametersAgainstCatalog(
@@ -1017,15 +1119,53 @@ public static class RegistryOptimizer
         return RestoreCatalogTweak(def.TweakId, originalSerializedValue, originalValueKindStr, wasInitiallyAbsent, keyCreatedByApp);
     }
 
+    private static (bool isValid, RegistryValueKind parsedKind, string? errorMessage) ValidateTrustedRestoreState(
+        string? originalSerializedValue,
+        string? originalValueKindStr,
+        bool wasInitiallyAbsent)
+    {
+        if (wasInitiallyAbsent)
+        {
+            if (originalSerializedValue != null)
+                return (false, RegistryValueKind.Unknown, "LEDGER_STATE_INVALID: valor original deveria estar ausente.");
+            return (true, RegistryValueKind.Unknown, null);
+        }
+
+        if (originalSerializedValue == null)
+            return (false, RegistryValueKind.Unknown, "LEDGER_STATE_INVALID: valor original autenticado está ausente.");
+
+        if (!Enum.TryParse<RegistryValueKind>(originalValueKindStr, true, out var kind) ||
+            !Enum.IsDefined(typeof(RegistryValueKind), kind) ||
+            kind == RegistryValueKind.Unknown)
+            return (false, RegistryValueKind.Unknown, "LEDGER_KIND_INVALID: tipo original do Registro inválido.");
+
+        try
+        {
+            if (DeserializeValue(originalSerializedValue, kind) == null)
+                return (false, RegistryValueKind.Unknown, "LEDGER_VALUE_INVALID: desserialização do valor original retornou nulo.");
+        }
+        catch (Exception ex)
+        {
+            return (false, RegistryValueKind.Unknown, $"LEDGER_VALUE_INVALID: valor original não pode ser desserializado: {ex.Message}");
+        }
+
+        return (true, kind, null);
+    }
+
     private static RegistryOperationResult ValidateAndExecuteRestore(
         TweakDefinition def,
         string? originalSerializedValue,
         string? originalValueKindStr,
         bool wasInitiallyAbsent,
         bool keyCreatedByApp,
-        string? operationId = null)
+        string? operationId = null,
+        string? expectedAppliedValue = null,
+        bool enforceExpectedCurrentState = false,
+        bool expectedAppliedInitiallyAbsent = false)
     {
-        var check = ValidateRestoreParametersAgainstCatalog(def, originalSerializedValue, originalValueKindStr, wasInitiallyAbsent);
+        // This method is reached only with state resolved from the authenticated backend ledger.
+        // Restore the exact original value/type; AllowedValues applies to new writes, not recovery.
+        var check = ValidateTrustedRestoreState(originalSerializedValue, originalValueKindStr, wasInitiallyAbsent);
         if (!check.isValid)
         {
             RecordAudit("RESTORE_VALIDATION_FAILED", def.TweakId, $"{def.Hive}\\{def.SubKeyPath}", def.ValueName,
@@ -1056,51 +1196,83 @@ public static class RegistryOptimizer
             );
         }
 
-        RegistryKey root = GetRootKey(def.Hive);
-
+        string operationStage = "READ_CURRENT_STATE";
         try
         {
-            string? currentBeforeRestore = null;
-            using (RegistryKey? preKey = root.OpenSubKey(def.SubKeyPath, false))
+            RegistryValueSnapshot before = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            string? currentBeforeRestore = before.ValueExists
+                ? SerializeRegistryValue(before.Value, before.Kind)
+                : null;
+
+            // Trusted ledger restores and transactional snapshot rollbacks must not overwrite
+            // values changed externally after the expected applied state was recorded. Ordinary
+            // user-selected snapshot restores intentionally omit this guard.
+            bool stillHasAppliedValue = false;
+            bool alreadyHasOriginalValue = false;
+            if (enforceExpectedCurrentState)
             {
-                if (preKey != null)
+                if (!expectedAppliedInitiallyAbsent && string.IsNullOrWhiteSpace(expectedAppliedValue))
                 {
-                    object? rawCurr = preKey.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    if (rawCurr != null)
-                    {
-                        currentBeforeRestore = SerializeRegistryValue(rawCurr, preKey.GetValueKind(def.ValueName));
-                    }
+                    const string missingAppliedValue = "O histórico confiável não contém o valor aplicado necessário para verificar a restauração.";
+                    RecordAudit("RESTORE_BLOCKED_INVALID_APPLIED_VALUE", def.TweakId, fullKeyPath, def.ValueName,
+                        def.ValueKind.ToString(), currentBeforeRestore, expectedAppliedValue, null, false, missingAppliedValue);
+                    return new RegistryOperationResult(false, currentBeforeRestore, null, def.ValueKind.ToString(),
+                        wasInitiallyAbsent, keyCreatedByApp, missingAppliedValue, def.TweakId, operationId, "LEDGER_APPLIED_VALUE_MISSING");
                 }
+
+                stillHasAppliedValue = expectedAppliedInitiallyAbsent
+                    ? !before.ValueExists
+                    : before.ValueExists &&
+                      before.Kind == def.ValueKind &&
+                      ValuesMatch(before.Value, DeserializeRegistryValue(expectedAppliedValue!, def.ValueKind), def.ValueKind);
+                alreadyHasOriginalValue = wasInitiallyAbsent
+                    ? !before.ValueExists
+                    : before.ValueExists &&
+                      before.Kind == check.parsedKind &&
+                      ValuesMatch(before.Value, DeserializeValue(originalSerializedValue, check.parsedKind)!, check.parsedKind);
+
+                // If a write failed before changing the Registry, the original state is already
+                // present. Accept that as a safe no-op restore; otherwise block external changes.
+                if (!stillHasAppliedValue && !alreadyHasOriginalValue)
+                {
+                    const string changedStateMessage = "A restauração foi bloqueada porque o valor atual do Registro não corresponde mais ao valor aplicado pelo PC Control nem ao estado original registrado. A configuração pode ter sido alterada depois; verifique-a antes de restaurar.";
+                    RecordAudit("RESTORE_BLOCKED_EXTERNAL_CHANGE", def.TweakId, fullKeyPath, def.ValueName,
+                        before.Kind.ToString(), currentBeforeRestore, expectedAppliedValue, null, false, changedStateMessage);
+                    return new RegistryOperationResult(false, currentBeforeRestore, null, before.Kind.ToString(),
+                        wasInitiallyAbsent, keyCreatedByApp, changedStateMessage, def.TweakId, operationId, "REGISTRY_STATE_CHANGED");
+                }
+            }
+
+            // When the exact original value is already present, do not write it again.
+            // For an originally absent value, keep the deletion/key-cleanup path below.
+            if (enforceExpectedCurrentState && alreadyHasOriginalValue && !wasInitiallyAbsent)
+            {
+                string originalValue = originalSerializedValue ?? string.Empty;
+                RecordAudit("RESTORE_ALREADY_ORIGINAL", def.TweakId, fullKeyPath, def.ValueName,
+                    check.parsedKind.ToString(), currentBeforeRestore, originalValue, currentBeforeRestore, true, null);
+                return new RegistryOperationResult(true, currentBeforeRestore, currentBeforeRestore,
+                    check.parsedKind.ToString(), false, keyCreatedByApp, null, def.TweakId, operationId);
             }
 
             if (wasInitiallyAbsent || originalSerializedValue == null)
             {
-                using (RegistryKey? writeKey = root.OpenSubKey(def.SubKeyPath, true))
+                operationStage = "DELETE_VALUE";
+                RegistryBackend.DeleteValue(def.Hive, def.SubKeyPath, def.ValueName);
+                operationStage = "VERIFY_DELETE";
+                RegistryValueSnapshot afterDelete = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+                if (afterDelete.ValueExists)
                 {
-                    if (writeKey != null && writeKey.GetValue(def.ValueName) != null)
-                    {
-                        writeKey.DeleteValue(def.ValueName, false);
-                        writeKey.Flush();
-                    }
+                    string err = "Falha na verificação: o valor originalmente ausente permaneceu no Registro.";
+                    RecordAudit("RESTORE_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
+                        currentBeforeRestore, "<DELETE>", null, false, err);
+                    return new RegistryOperationResult(false, originalSerializedValue, null, "Deleted",
+                        true, keyCreatedByApp, err, def.TweakId, operationId, "REGISTRY_READBACK_MISSING");
                 }
 
-                // Verify that the value no longer exists
-                using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
+                if (keyCreatedByApp)
                 {
-                    if (verifyKey != null && verifyKey.GetValue(def.ValueName) != null)
-                    {
-                        string err = "Falha na verificação: o valor originalmente ausente permaneceu no Registro.";
-                        RecordAudit("RESTORE_VERIFY_FAIL", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
-                            currentBeforeRestore, "<DELETE>", null, false, err);
-                        return new RegistryOperationResult(false, originalSerializedValue, null, "Deleted",
-                            true, keyCreatedByApp, err, def.TweakId, operationId);
-                    }
-
-                    if (keyCreatedByApp && verifyKey != null && verifyKey.ValueCount == 0 && verifyKey.SubKeyCount == 0)
-                    {
-                        verifyKey.Close();
-                        root.DeleteSubKey(def.SubKeyPath, false);
-                    }
+                    operationStage = "DELETE_CREATED_KEY";
+                    RegistryBackend.DeleteKeyIfEmpty(def.Hive, def.SubKeyPath);
                 }
 
                 RecordAudit("RESTORE_DELETED_ABSENT", def.TweakId, fullKeyPath, def.ValueName, "Deleted",
@@ -1108,55 +1280,61 @@ public static class RegistryOptimizer
                 return new RegistryOperationResult(true, currentBeforeRestore, "REMOVED_ABSENT_VALUE", "Deleted",
                     true, keyCreatedByApp, null, def.TweakId, operationId);
             }
-            else
+
+            RegistryValueKind originalKind = check.parsedKind;
+            object typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
+            operationStage = "WRITE_RESTORE_VALUE";
+            RegistryBackend.Write(def.Hive, def.SubKeyPath, def.ValueName, typedOriginal, originalKind);
+            operationStage = "VERIFY_RESTORE_VALUE";
+            RegistryValueSnapshot after = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
+            object? verified = after.Value;
+            RegistryValueKind verifiedKind = after.ValueExists ? after.Kind : RegistryValueKind.Unknown;
+            string? verifiedStr = after.ValueExists ? SerializeRegistryValue(verified, verifiedKind) : null;
+
+            if (after.ValueExists && verifiedKind == originalKind && ValuesMatch(verified, typedOriginal, originalKind))
             {
-                RegistryValueKind originalKind = check.parsedKind;
-                object typedOriginal = DeserializeRegistryValue(originalSerializedValue, originalKind);
-
-                using (RegistryKey writeKey = root.CreateSubKey(def.SubKeyPath, true))
-                {
-                    writeKey.SetValue(def.ValueName, typedOriginal, originalKind);
-                    writeKey.Flush();
-                }
-
-                using (RegistryKey? verifyKey = root.OpenSubKey(def.SubKeyPath, false))
-                {
-                    object? verified = verifyKey?.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    RegistryValueKind verifiedKind = verifyKey?.GetValueKind(def.ValueName) ?? RegistryValueKind.Unknown;
-                    string? verifiedStr = SerializeRegistryValue(verified, verifiedKind);
-
-                    if (verifiedKind == originalKind && ValuesMatch(verified, typedOriginal, originalKind))
-                    {
-                        RecordAudit("RESTORE_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
-                            currentBeforeRestore, originalSerializedValue, verifiedStr, true, null);
-                        return new RegistryOperationResult(
-                            true,
-                            currentBeforeRestore,
-                            verifiedStr,
-                            originalKind.ToString(),
-                            false,
-                            false,
-                            null,
-                            def.TweakId,
-                            operationId
-                        );
-                    }
-
-                    string err = "Verificação pós-restauração falhou: valor ou tipo não corresponde ao original.";
-                    RecordAudit("RESTORE_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
-                        currentBeforeRestore, originalSerializedValue, verifiedStr, false, err);
-                    return new RegistryOperationResult(false, currentBeforeRestore,
-                        verifiedStr, originalKind.ToString(), false, false, err, def.TweakId, operationId);
-                }
+                RecordAudit("RESTORE_SUCCESS", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
+                    currentBeforeRestore, originalSerializedValue, verifiedStr, true, null);
+                return new RegistryOperationResult(true, currentBeforeRestore, verifiedStr,
+                    originalKind.ToString(), false, false, null, def.TweakId, operationId);
             }
+
+            string mismatchErr = "Verificação pós-restauração falhou: valor ou tipo não corresponde ao original.";
+            RecordAudit("RESTORE_VERIFY_MISMATCH", def.TweakId, fullKeyPath, def.ValueName, originalKind.ToString(),
+                currentBeforeRestore, originalSerializedValue, verifiedStr, false, mismatchErr);
+            return new RegistryOperationResult(false, currentBeforeRestore, verifiedStr,
+                originalKind.ToString(), false, false, mismatchErr, def.TweakId, operationId, "REGISTRY_READBACK_MISMATCH");
+        }
+        catch (SecurityException ex)
+        {
+            string msg = $"Acesso de segurança negado ao restaurar o Registro: {ex.Message}";
+            RecordAudit("RESTORE_ACCESS_DENIED", def.TweakId, fullKeyPath, def.ValueName,
+                originalValueKindStr ?? def.ValueKind.ToString(), null, originalSerializedValue, null, false, msg);
+            return new RegistryOperationResult(false, originalSerializedValue, null,
+                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg,
+                def.TweakId, operationId, "REGISTRY_ACCESS_DENIED");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            string msg = $"Permissão insuficiente ao restaurar o Registro: {ex.Message}";
+            RecordAudit("RESTORE_ACCESS_DENIED", def.TweakId, fullKeyPath, def.ValueName,
+                originalValueKindStr ?? def.ValueKind.ToString(), null, originalSerializedValue, null, false, msg);
+            return new RegistryOperationResult(false, originalSerializedValue, null,
+                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg,
+                def.TweakId, operationId, "REGISTRY_ACCESS_DENIED");
         }
         catch (Exception ex)
         {
-            string msg = $"Falha ao restaurar valor no Registro: {ex.Message}";
+            string msg = $"Falha ao restaurar valor no Registro durante {operationStage}: {ex.Message}";
+            string errorCode = operationStage.StartsWith("READ", StringComparison.Ordinal) ||
+                               operationStage.StartsWith("VERIFY", StringComparison.Ordinal)
+                ? "REGISTRY_READ_ERROR"
+                : "REGISTRY_RESTORE_FAILED";
             RecordAudit("RESTORE_ERROR", def.TweakId, fullKeyPath, def.ValueName,
                 originalValueKindStr ?? def.ValueKind.ToString(), null, originalSerializedValue, null, false, msg);
             return new RegistryOperationResult(false, originalSerializedValue, null,
-                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg, def.TweakId, operationId);
+                originalValueKindStr ?? "Unknown", wasInitiallyAbsent, keyCreatedByApp, msg,
+                def.TweakId, operationId, errorCode);
         }
     }
 
@@ -1165,35 +1343,88 @@ public static class RegistryOptimizer
     public static IReadOnlyList<RegistryAuditLogEntry> GetRecentAuditLogs(int maxCount = 50) =>
         _auditHistory.Reverse().Take(maxCount).ToList();
 
-    public static string InspectCatalogTweakCurrentState(string tweakId)
+    public static RegistryTweakInspectionResult InspectCatalogTweak(string tweakId)
     {
         if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
-            return "Não Suportado";
+            return new RegistryTweakInspectionResult("Não Suportado", true);
 
         if (!OperatingSystem.IsWindows())
-            return "Inativo";
+            return new RegistryTweakInspectionResult("Não Disponível Neste Sistema", true);
 
         try
         {
-            RegistryKey root = GetRootKey(def.Hive);
-            using var key = root.OpenSubKey(def.SubKeyPath, false);
-            if (key == null) return "Inativo";
+            RegistryValueSnapshot snapshot = RegistryBackend.Read(def.Hive, def.SubKeyPath, def.ValueName);
 
-            object? raw = key.GetValue(def.ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-            if (raw == null) return "Inativo";
+            if (!snapshot.KeyExists || !snapshot.ValueExists)
+            {
+                // Preserve the three materially different absence cases. A missing key,
+                // an empty existing key, and a key containing other values must not look identical.
+                string absenceKind = !snapshot.KeyExists
+                    ? "ChaveAusente"
+                    : snapshot.ValueCount == 0 && snapshot.SubKeyCount == 0
+                        ? "ValorAusenteChaveVazia"
+                        : "ValorAusenteChaveComConteudo";
+                string absenceDetail = absenceKind switch
+                {
+                    "ChaveAusente" => $"A chave do Registro não existe: {def.Hive}\\{def.SubKeyPath}.",
+                    "ValorAusenteChaveVazia" => $"A chave existe, mas está vazia; o valor '{def.ValueName}' não foi encontrado.",
+                    _ => $"A chave existe e contém {snapshot.ValueCount} outro(s) valor(es) e {snapshot.SubKeyCount} subchave(s), mas '{def.ValueName}' está ausente."
+                };
 
-            string? serialized = SerializeRegistryValue(raw, key.GetValueKind(def.ValueName));
+                if (string.Equals(def.RecommendedValue, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
+                    return new RegistryTweakInspectionResult(
+                        "Sem Alteração Necessária", false, AbsenceKind: absenceKind, DiagnosticDetail: absenceDetail);
+
+                string absentState = def.DefaultBehavior switch
+                {
+                    TweakDefaultBehaviorKind.KnownDocumentedValue or TweakDefaultBehaviorKind.AbsentWithKnownDefault =>
+                        string.Equals(def.DefaultOriginValue, def.RecommendedValue, StringComparison.OrdinalIgnoreCase) ? "Ativo" : "Inativo",
+                    TweakDefaultBehaviorKind.EditionOrConfigDependent => "Padrão Dependente",
+                    _ => "Estado Não Determinável"
+                };
+                bool absentIsUndeterminable = absentState is "Padrão Dependente" or "Estado Não Determinável";
+                return new RegistryTweakInspectionResult(
+                    absentState, absentIsUndeterminable, AbsenceKind: absenceKind, DiagnosticDetail: absenceDetail);
+            }
+
+            // A value with a different Registry type is incompatible, not a custom value.
+            // Inspection is read-only: never rewrite or coerce an unexpected value.
+            if (snapshot.Kind != def.ValueKind)
+                return new RegistryTweakInspectionResult(
+                    "Tipo Incorreto",
+                    true,
+                    SerializeRegistryValue(snapshot.Value, snapshot.Kind),
+                    snapshot.Kind,
+                    DiagnosticDetail: $"Tipo esperado: {def.ValueKind}; tipo encontrado: {snapshot.Kind}. O valor não foi alterado.");
+
+            string? serialized = SerializeRegistryValue(snapshot.Value, snapshot.Kind);
+            if (string.Equals(def.RecommendedValue, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
+                return new RegistryTweakInspectionResult("Sem Alteração Necessária", false, serialized, snapshot.Kind);
+
             if (string.Equals(serialized, def.RecommendedValue, StringComparison.OrdinalIgnoreCase))
-                return "Ativo";
+                return new RegistryTweakInspectionResult("Ativo", false, serialized, snapshot.Kind);
             if (string.Equals(serialized, def.DefaultOriginValue, StringComparison.OrdinalIgnoreCase))
-                return "Inativo";
-            return "Parcial";
+                return new RegistryTweakInspectionResult("Inativo", false, serialized, snapshot.Kind);
+
+            return new RegistryTweakInspectionResult("Personalizado", false, serialized, snapshot.Kind);
         }
-        catch
+        catch (UnauthorizedAccessException ex)
         {
-            return "Não Suportado";
+            return new RegistryTweakInspectionResult("Acesso Negado", true, DiagnosticDetail: ex.Message);
+        }
+        catch (SecurityException ex)
+        {
+            return new RegistryTweakInspectionResult("Acesso Negado", true, DiagnosticDetail: ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return new RegistryTweakInspectionResult("Erro de Leitura", true, DiagnosticDetail: ex.Message);
         }
     }
+
+    public static string InspectCatalogTweakCurrentState(string tweakId) =>
+        InspectCatalogTweak(tweakId).State;
 
 
     private static string GetCurrentWindowsUser()

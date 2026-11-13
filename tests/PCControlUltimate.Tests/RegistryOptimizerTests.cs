@@ -1,4 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.IO;
+using System.Reflection;
+using System.Text.Json;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using PCControlUltimate.Windows.Services;
@@ -9,8 +14,489 @@ using Xunit;
 namespace PCControlUltimate.Tests;
 
 [SupportedOSPlatform("windows")]
-public class RegistryOptimizerTests
+public class RegistryOptimizerTests : IDisposable
 {
+    private readonly string _testLedgerDirectory;
+    private readonly FakeRegistryBackend _fakeRegistry = new();
+
+    public RegistryOptimizerTests()
+    {
+        _testLedgerDirectory = Path.Combine(Path.GetTempPath(), $"pccontrol-registry-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_testLedgerDirectory);
+        RegistryStateLedger.LedgerFilePath = Path.Combine(_testLedgerDirectory, "test-ledger.dpapi");
+        RegistryStateLedger.ProtectedTokenWriter = PCControlUltimate.Security.IntegrityVerifier.SaveProtectedSessionTokenWithReport;
+        RegistryStateLedger.ProtectedTokenReader = PCControlUltimate.Security.IntegrityVerifier.ReadProtectedSessionToken;
+        RegistryOptimizer.RegistryBackend = _fakeRegistry;
+        RegistryStateLedger.ClearLedgerForTesting();
+    }
+
+    public void Dispose()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        RegistryOptimizer.RegistryBackend = new WindowsRegistryBackend();
+        RegistryStateLedger.ProtectedTokenWriter = PCControlUltimate.Security.IntegrityVerifier.SaveProtectedSessionTokenWithReport;
+        RegistryStateLedger.ProtectedTokenReader = PCControlUltimate.Security.IntegrityVerifier.ReadProtectedSessionToken;
+        try
+        {
+            if (Directory.Exists(_testLedgerDirectory))
+                Directory.Delete(_testLedgerDirectory, recursive: true);
+        }
+        catch
+        {
+            // Test cleanup must not mask the actual assertion result.
+        }
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_AccessDeniedOnRead_ReturnsFailureWithoutWriting()
+    {
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated access denied");
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.False(result.Success);
+        Assert.Contains("simulated access denied", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("REGISTRY_ACCESS_DENIED", result.ErrorCode);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_WriteFailure_LeavesTrustedRecoveryEntryBeforeMutation()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        _fakeRegistry.WriteException = new UnauthorizedAccessException("simulated write denied");
+
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+
+        Assert.False(result.Success);
+        Assert.Contains("simulated write denied", result.ErrorMessage ?? string.Empty);
+        Assert.Equal("REGISTRY_ACCESS_DENIED", result.ErrorCode);
+        Assert.False(string.IsNullOrWhiteSpace(result.OperationId));
+        var ledgerEntry = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.Equal(result.OperationId, ledgerEntry.OperationId);
+        Assert.Equal("1", ledgerEntry.OriginalRawValue);
+        Assert.Equal("0", ledgerEntry.AppliedValue);
+
+        _fakeRegistry.WriteException = null;
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", result.OperationId);
+        Assert.True(restored.Success, restored.ErrorMessage);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.Equal(1, snapshot.Value);
+        Assert.Equal(RegistryValueKind.DWord, snapshot.Kind);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_OriginalValueAlreadyPresent_DoesNotWriteAgain()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var entry = RegistryStateLedger.RecordAppliedTweakState(
+            def,
+            originalRawValue: "1",
+            originalKind: RegistryValueKind.DWord,
+            wasInitiallyAbsent: false,
+            keyCreatedByApp: false,
+            appliedValue: "0");
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, 1, RegistryValueKind.DWord);
+
+        var result = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource(def.TweakId, entry.OperationId);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal("1", result.VerifiedValue);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+        var persisted = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.True(persisted.IsRestored);
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_AbsentUndeterminedState_IsNotModified()
+    {
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+
+        Assert.False(result.Success);
+        Assert.Equal("REGISTRY_DEFAULT_UNDETERMINED", result.ErrorCode);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+        Assert.Empty(RegistryStateLedger.GetAllEntries());
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_CustomRegistryState_IsNotOverwritten()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 7, RegistryValueKind.DWord);
+
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+
+        Assert.False(result.Success);
+        Assert.Equal("REGISTRY_STATE_NOT_DEFAULT", result.ErrorCode);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.Equal(7, snapshot.Value);
+    }
+
+    [Fact]
+    public void ApplyCatalogTweak_ReadbackMismatch_IsNotReportedAsSuccess()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        _fakeRegistry.CorruptReadback = true;
+        var result = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.False(result.Success);
+        Assert.Contains("Verificação falhou", result.ErrorMessage ?? string.Empty);
+        Assert.Equal("REGISTRY_READBACK_MISMATCH", result.ErrorCode);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_RestoresCustomOriginalValueAndKind_UsingFakeBackend()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, 0, RegistryValueKind.DWord);
+        var ledgerEntry = RegistryStateLedger.RecordBeforeModification(
+            def,
+            originalKind: RegistryValueKind.String,
+            originalRawValue: "custom-original",
+            wasInitiallyAbsent: false,
+            keyCreatedByApp: false,
+            appliedValue: "0"
+        );
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", ledgerEntry.OperationId);
+        Assert.True(restored.Success, restored.ErrorMessage);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.True(snapshot.ValueExists);
+        Assert.Equal(RegistryValueKind.String, snapshot.Kind);
+        Assert.Equal("custom-original", snapshot.Value);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_InitiallyAbsentValue_PreservesOtherValuesInExistingKey()
+    {
+        _fakeRegistry.Seed("HKLM", @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "UnrelatedValue", 123, RegistryValueKind.DWord);
+
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-mmcss", "10");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-mmcss", applied.OperationId);
+
+        Assert.True(restored.Success, restored.ErrorMessage);
+        var targetSnapshot = _fakeRegistry.Read("HKLM", @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "SystemResponsiveness");
+        var unrelatedSnapshot = _fakeRegistry.Read("HKLM", @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "UnrelatedValue");
+        Assert.True(targetSnapshot.KeyExists);
+        Assert.False(targetSnapshot.ValueExists);
+        Assert.True(unrelatedSnapshot.KeyExists);
+        Assert.True(unrelatedSnapshot.ValueExists);
+        Assert.Equal(RegistryValueKind.DWord, unrelatedSnapshot.Kind);
+        Assert.Equal(123, unrelatedSnapshot.Value);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_InitiallyAbsentValue_RemovesValueAndCreatedKey()
+    {
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-mmcss", "10");
+        Assert.True(applied.Success, applied.ErrorMessage);
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-mmcss", applied.OperationId);
+        Assert.True(restored.Success, restored.ErrorMessage);
+        var snapshot = _fakeRegistry.Read("HKLM", @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "SystemResponsiveness");
+        Assert.False(snapshot.ValueExists);
+        Assert.False(snapshot.KeyExists);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_ReadbackMismatch_ReturnsFailure()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        // Corrupt only the post-write read-back; the pre-restore guard must see the genuine applied value.
+        _fakeRegistry.CorruptReadbackAtReadCall = _fakeRegistry.ReadCalls + 2;
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+
+        Assert.False(restored.Success);
+        Assert.Contains("Verificação pós-restauração falhou", restored.ErrorMessage ?? string.Empty);
+        Assert.Equal("REGISTRY_READBACK_MISMATCH", restored.ErrorCode);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_ExternalRegistryChange_IsNotOverwritten()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        // Simulate the user or another application changing the value after our tweak.
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 7, RegistryValueKind.DWord);
+        int writesBeforeRestore = _fakeRegistry.WriteCalls;
+
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+
+        Assert.False(restored.Success);
+        Assert.Equal("REGISTRY_STATE_CHANGED", restored.ErrorCode);
+        Assert.Equal(writesBeforeRestore, _fakeRegistry.WriteCalls);
+        var snapshot = _fakeRegistry.Read("HKCU", @"System\GameConfigStore", "GameDVR_Enabled");
+        Assert.Equal(7, snapshot.Value);
+        Assert.Equal(RegistryValueKind.DWord, snapshot.Kind);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_AccessDeniedOnRead_ReturnsSpecificErrorCode()
+    {
+        _fakeRegistry.Seed("HKCU", @"System\GameConfigStore", "GameDVR_Enabled", 1, RegistryValueKind.DWord);
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated restore read denied");
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-game-dvr", applied.OperationId);
+
+        Assert.False(restored.Success);
+        Assert.Equal("REGISTRY_ACCESS_DENIED", restored.ErrorCode);
+        Assert.Contains("simulated restore read denied", restored.ErrorMessage ?? string.Empty);
+    }
+
+    [Fact]
+    public void RestoreCatalogTweak_DeleteAccessDenied_ReturnsFailure()
+    {
+        var applied = RegistryOptimizer.ApplyCatalogTweak("perf-mmcss", "10");
+        Assert.True(applied.Success, applied.ErrorMessage);
+
+        _fakeRegistry.DeleteException = new UnauthorizedAccessException("simulated delete denied");
+        var restored = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-mmcss", applied.OperationId);
+
+        Assert.False(restored.Success);
+        Assert.Contains("simulated delete denied", restored.ErrorMessage ?? string.Empty);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_DistinguishesMissingKeyEmptyKeyAndPopulatedKeyWithoutWriting()
+    {
+        var def = RegistryOptimizer.Catalog["perf-mmcss"];
+
+        var missingKey = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+        Assert.Equal("ChaveAusente", missingKey.AbsenceKind);
+
+        _fakeRegistry.SeedKey(def.Hive, def.SubKeyPath);
+        var emptyKey = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+        Assert.Equal("ValorAusenteChaveVazia", emptyKey.AbsenceKind);
+
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, "UnrelatedValue", 123, RegistryValueKind.DWord);
+        var populatedKey = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+        Assert.Equal("ValorAusenteChaveComConteudo", populatedKey.AbsenceKind);
+        Assert.Contains("outro(s) valor(es)", populatedKey.DiagnosticDetail ?? string.Empty);
+
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_KnownDocumentedAbsentValue_UsesDocumentedDefault()
+    {
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-mmcss");
+        Assert.Equal("Inativo", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_AbsentWithKnownDefault_UsesKnownDefault()
+    {
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("mem-lock-executive");
+        Assert.Equal("Inativo", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_EditionDependentAbsentValue_IsNotAssumedInactive()
+    {
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-game-dvr");
+        Assert.Equal("Padrão Dependente", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_WrongRegistryType_ReturnsWrongTypeWithoutWriting()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, "0", RegistryValueKind.String);
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState(def.TweakId);
+        Assert.Equal("Tipo Incorreto", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_AbsentUndocumentedValue_ReturnsUndeterminedWithoutWriting()
+    {
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("maint-startup-delay");
+        Assert.Equal("Estado Não Determinável", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_AccessDenied_PreservesAccessDeniedStateWithoutWriting()
+    {
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated inspection denial");
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-game-dvr");
+        Assert.Equal("Acesso Negado", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweakCurrentState_ReadError_PreservesReadErrorStateWithoutWriting()
+    {
+        _fakeRegistry.ReadException = new IOException("simulated inspection read error");
+        string state = RegistryOptimizer.InspectCatalogTweakCurrentState("perf-game-dvr");
+        Assert.Equal("Erro de Leitura", state);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_WrongRegistryType_MarksInspectionUndeterminable()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, "custom-string", RegistryValueKind.String);
+        var result = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+        Assert.Equal("Tipo Incorreto", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Equal(RegistryValueKind.String, result.ActualValueKind);
+        Assert.Equal("custom-string", result.CurrentValue);
+        Assert.Contains("Tipo esperado: DWord; tipo encontrado: String", result.DiagnosticDetail ?? string.Empty);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_AccessDeniedRetainsDiagnosticDetails()
+    {
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated access denied detail");
+        var result = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal("Acesso Negado", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Contains("simulated access denied detail", result.DiagnosticDetail ?? string.Empty);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_ReadErrorRetainsDiagnosticDetails()
+    {
+        _fakeRegistry.ReadException = new IOException("simulated registry read failure");
+        var result = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal("Erro de Leitura", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Contains("simulated registry read failure", result.DiagnosticDetail ?? string.Empty);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_LargeSystemCacheAbsent_ReportsNoChangeNeeded()
+    {
+        var result = RegistryOptimizer.InspectCatalogTweak("mem-standby-clean");
+        Assert.Equal("Sem Alteração Necessária", result.State);
+        Assert.False(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+
+    [Theory]
+    [InlineData("mem-standby-clean")]
+    [InlineData("net-tcp-autotuning")]
+    public void InspectCatalogTweak_NoOpCatalogEntry_AbsentValueReportsNoChangeNeeded(string tweakId)
+    {
+        var result = RegistryOptimizer.InspectCatalogTweak(tweakId);
+
+        Assert.Equal("Sem Alteração Necessária", result.State);
+        Assert.False(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Theory]
+    [InlineData("mem-standby-clean")]
+    [InlineData("net-tcp-autotuning")]
+    public void InspectCatalogTweak_NoOpCatalogEntry_DefaultValueReportsNoChangeNeeded(string tweakId)
+    {
+        var def = RegistryOptimizer.Catalog[tweakId];
+        object value = RegistryOptimizer.DeserializeValue(def.RecommendedValue, def.ValueKind)!;
+        _fakeRegistry.Seed(def.Hive, def.SubKeyPath, def.ValueName, value, def.ValueKind);
+
+        var result = RegistryOptimizer.InspectCatalogTweak(tweakId);
+
+        Assert.Equal("Sem Alteração Necessária", result.State);
+        Assert.Equal(def.RecommendedValue, result.CurrentValue);
+        Assert.False(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_AccessDenied_MarksInspectionUndeterminable()
+    {
+        _fakeRegistry.ReadException = new UnauthorizedAccessException("simulated inspection denial");
+        var result = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal("Acesso Negado", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    [Fact]
+    public void InspectCatalogTweak_ReadError_MarksInspectionUndeterminable()
+    {
+        _fakeRegistry.ReadException = new IOException("simulated inspection read error");
+        var result = RegistryOptimizer.InspectCatalogTweak("perf-game-dvr");
+        Assert.Equal("Erro de Leitura", result.State);
+        Assert.True(result.IsUndeterminable);
+        Assert.Equal(0, _fakeRegistry.WriteCalls);
+    }
+
+    private sealed class FakeRegistryBackend : IRegistryBackend
+    {
+        private readonly Dictionary<string, (object Value, RegistryValueKind Kind)> _values = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _keys = new(StringComparer.OrdinalIgnoreCase);
+        public Exception? ReadException { get; set; }
+        public Exception? WriteException { get; set; }
+        public Exception? DeleteException { get; set; }
+        public bool CorruptReadback { get; set; }
+        public int CorruptReadbackAtReadCall { get; set; }
+        public int ReadCalls { get; private set; }
+        public int WriteCalls { get; private set; }
+
+        private static string Key(string hive, string path) => $"{hive}|{path}";
+        private static string ValueKey(string hive, string path, string name) => $"{Key(hive, path)}|{name}";
+
+        public void SeedKey(string hive, string path) => _keys.Add(Key(hive, path));
+
+        public void Seed(string hive, string path, string name, object value, RegistryValueKind kind)
+        {
+            _keys.Add(Key(hive, path));
+            _values[ValueKey(hive, path, name)] = (value, kind);
+        }
+
+        public RegistryValueSnapshot Read(string hive, string subKeyPath, string valueName)
+        {
+            ReadCalls++;
+            if (ReadException != null) throw ReadException;
+            string key = Key(hive, subKeyPath);
+            if (!_keys.Contains(key))
+                return new RegistryValueSnapshot(false, false, null, RegistryValueKind.Unknown, 0, 0);
+            if (_values.TryGetValue(ValueKey(hive, subKeyPath, valueName), out var item))
+            {
+                if ((CorruptReadback && ReadCalls >= 2) || ReadCalls == CorruptReadbackAtReadCall)
+                    return new RegistryValueSnapshot(true, true, "unexpected-value", RegistryValueKind.String, 1, 0);
+                return new RegistryValueSnapshot(true, true, item.Value, item.Kind, 1, 0);
+            }
+            int count = _values.Keys.Count(k => k.StartsWith(key + "|", StringComparison.OrdinalIgnoreCase));
+            return new RegistryValueSnapshot(true, false, null, RegistryValueKind.Unknown, count, 0);
+        }
+
+        public void Write(string hive, string subKeyPath, string valueName, object value, RegistryValueKind kind)
+        {
+            WriteCalls++;
+            if (WriteException != null) throw WriteException;
+            _keys.Add(Key(hive, subKeyPath));
+            _values[ValueKey(hive, subKeyPath, valueName)] = (value, kind);
+        }
+
+        public void DeleteValue(string hive, string subKeyPath, string valueName)
+        {
+            if (DeleteException != null) throw DeleteException;
+            _values.Remove(ValueKey(hive, subKeyPath, valueName));
+        }
+
+        public void DeleteKeyIfEmpty(string hive, string subKeyPath)
+        {
+            string key = Key(hive, subKeyPath);
+            if (!_values.Keys.Any(k => k.StartsWith(key + "|", StringComparison.OrdinalIgnoreCase)))
+                _keys.Remove(key);
+        }
+    }
+
     [Theory]
     [InlineData(@"SYSTEM\CurrentControlSet\Control\PriorityControl")]
     [InlineData(@"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces")]
@@ -56,6 +542,19 @@ public class RegistryOptimizerTests
         Assert.Equal(RegistryValueKind.String, stringTweak.ValueKind);
         Assert.Equal("High", stringTweak.TargetRawValue);
         Assert.Contains("High", stringTweak.AllowedRawValues);
+    }
+
+    [Theory]
+    [InlineData("power-ultimate-plan")]
+    [InlineData("serv-sysmain")]
+    [InlineData("serv-spooler")]
+    public void Catalog_ChangesWithPowerOrServiceSideEffects_RequireIndividualReview(string tweakId)
+    {
+        var tweak = RegistryOptimizer.Catalog[tweakId];
+
+        Assert.Equal("Médio", tweak.RiskLevel);
+        Assert.False(string.IsNullOrWhiteSpace(tweak.Description));
+        Assert.False(string.IsNullOrWhiteSpace(tweak.DescriptionEn));
     }
 
     [Fact]
@@ -233,6 +732,89 @@ public class RegistryOptimizerTests
     }
 
     [Fact]
+    public void RegistryStateLedger_UnreadableExistingKey_FailsClosedWithoutReplacingIt()
+    {
+        string keyPath = Path.Combine(_testLedgerDirectory, "ledger_hmac_key.dpapi");
+        const string corruptPayload = "unreadable-existing-ledger-key";
+        File.WriteAllText(keyPath, corruptPayload);
+
+        var method = typeof(RegistryStateLedger).GetMethod(
+            "InitializeProcessLedgerKey",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        string? result = method!.Invoke(null, null) as string;
+
+        Assert.Equal(string.Empty, result);
+        Assert.Equal(corruptPayload, File.ReadAllText(keyPath));
+    }
+
+    [Fact]
+    public void RegistryStateLedger_ValidLegacyV25Ledger_IsMigratedToCurrentCanonicalHmac()
+    {
+        var keyField = typeof(RegistryStateLedger).GetField(
+            "_ledgerSecretKey",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        string? secret = keyField?.GetValue(null) as string;
+        Assert.False(string.IsNullOrWhiteSpace(secret));
+
+        var entry = new RegistryLedgerEntry
+        {
+            OperationId = "op-legacy-v25-migration",
+            TweakId = "perf-game-dvr",
+            Hive = "HKCU",
+            SubKeyPath = @"System\GameConfigStore",
+            ValueName = "GameDVR_Enabled",
+            OriginalValueKind = RegistryValueKind.DWord.ToString(),
+            OriginalRawValue = "1",
+            WasInitiallyAbsent = false,
+            KeyCreatedByApp = false,
+            AppliedValue = "0",
+            CreatedAtUtc = "2026-11-10T12:00:00.0000000Z",
+            IsRestored = false,
+            RestoredAtUtc = null
+        };
+
+        string legacyEntryCanonical = string.Join("|",
+            entry.OperationId,
+            entry.TweakId.ToLowerInvariant(),
+            entry.Hive.ToUpperInvariant(),
+            RegistryOptimizer.NormalizeSubKeyPath(entry.SubKeyPath).ToLowerInvariant(),
+            entry.ValueName.ToLowerInvariant(),
+            entry.OriginalValueKind,
+            "0",
+            "0",
+            entry.OriginalRawValue,
+            entry.AppliedValue,
+            entry.CreatedAtUtc,
+            "0");
+        entry.EntryHmacSha256 = PCControlUltimate.Security.IntegrityVerifier.ComputeHmacSha256(secret!, legacyEntryCanonical);
+
+        string legacyLedgerCanonical = legacyEntryCanonical + "|" + entry.EntryHmacSha256 + "\n";
+        var ledger = new RegistryLedgerFile { FormatVersion = "2.5", Entries = new List<RegistryLedgerEntry> { entry } };
+        ledger.LedgerHmacSha256 = PCControlUltimate.Security.IntegrityVerifier.ComputeHmacSha256(secret!, legacyLedgerCanonical);
+
+        string json = JsonSerializer.Serialize(ledger, new JsonSerializerOptions { WriteIndented = true });
+        var save = RegistryStateLedger.ProtectedTokenWriter(RegistryStateLedger.LedgerFilePath, json);
+        Assert.True(save.Success, save.ErrorMessage);
+
+        var resolved = RegistryStateLedger.ResolveTrustedRestoreEntry("perf-game-dvr", entry.OperationId);
+        Assert.True(resolved.IsValid, resolved.ErrorReason);
+
+        string? migratedJson = RegistryStateLedger.ProtectedTokenReader(RegistryStateLedger.LedgerFilePath);
+        Assert.False(string.IsNullOrWhiteSpace(migratedJson));
+        var migrated = JsonSerializer.Deserialize<RegistryLedgerFile>(migratedJson!);
+        Assert.NotNull(migrated);
+        var migratedEntry = Assert.Single(migrated!.Entries);
+        Assert.Null(migratedEntry.RestoredAtUtc);
+        Assert.True(RegistryStateLedger.VerifyEntryHmac(migratedEntry));
+        Assert.True(PCControlUltimate.Security.IntegrityVerifier.VerifyHmacSha256(
+            secret!,
+            RegistryStateLedger.BuildLedgerCanonicalString(migrated.Entries),
+            migrated.LedgerHmacSha256));
+    }
+
+    [Fact]
     public void RegistryStateLedger_CrossTweakOperationIdMismatch_MustBeRejected()
     {
         RegistryStateLedger.ClearLedgerForTesting();
@@ -272,18 +854,10 @@ public class RegistryOptimizerTests
     }
 
     [Fact]
-    public void RestoreCatalogTweak_ClientCannotChooseArbitraryOriginalValue_BackendUsesLedgerInstead()
+    public void RestoreCatalogTweak_LegacyCallerSuppliedState_IsIgnoredWithoutTrustedHistory()
     {
         RegistryStateLedger.ClearLedgerForTesting();
-
-        // Apply tweak to HKCU\System\GameConfigStore\GameDVR_Enabled
-        var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-game-dvr", "0");
-        Assert.True(applyResult.Success);
-        Assert.NotNull(applyResult.OperationId);
-
-        // Even if caller passes a malicious/arbitrary originalRawValue ("999999") to the legacy method,
-        // the backend ignores the caller-supplied value and restores strictly from the DPAPI+HMAC ledger!
-        var restoreResult = RegistryOptimizer.RestoreCatalogTweak(
+        var result = RegistryOptimizer.RestoreCatalogTweak(
             "perf-game-dvr",
             wasInitiallyAbsent: false,
             originalRawValue: "999999",
@@ -291,29 +865,121 @@ public class RegistryOptimizerTests
             keyCreatedByApp: false
         );
 
-        Assert.True(restoreResult.Success);
-        Assert.NotEqual("999999", restoreResult.VerifiedCurrentValue);
+        Assert.False(result.Success);
+        Assert.Equal("NO_TRUSTED_BACKEND_HISTORY", result.ErrorCode);
     }
 
     [Fact]
-    public void RestoreCatalogTweakFromTrustedSource_WhenValueWasInitiallyAbsent_RemovesValueAndVerifiesAbsence()
+    public void RestoreCatalogTweakFromTrustedSource_DoesNotTouchRealRegistryWithoutTrustedHistory()
     {
         RegistryStateLedger.ClearLedgerForTesting();
-        var def = RegistryOptimizer.Catalog["perf-fso-flags"];
-
-        // Ensure value is absent before recording
-        using (var baseKey = RegistryKey.OpenBaseKey(RegistryOptimizer.ParseRegistryHive(def.Hive), RegistryView.Registry64))
-        using (var subKey = baseKey.OpenSubKey(def.SubKeyPath, writable: true))
-        {
-            subKey?.DeleteValue(def.ValueName, throwOnMissingValue: false);
-        }
-
-        var applyResult = RegistryOptimizer.ApplyCatalogTweak("perf-fso-flags", "2");
-        Assert.True(applyResult.Success);
-        Assert.True(applyResult.WasInitiallyAbsent);
-
-        var restoreResult = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-fso-flags", applyResult.OperationId);
-        Assert.True(restoreResult.Success);
-        Assert.Equal("REMOVED_ABSENT_VALUE", restoreResult.VerifiedCurrentValue);
+        var result = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource("perf-fso-flags");
+        Assert.False(result.Success);
+        Assert.Equal("NO_TRUSTED_BACKEND_HISTORY", result.ErrorCode);
     }
+
+    [Fact]
+    public void RegistryStateLedger_AuthenticatedCustomOriginalValueAndKind_AreRestorable()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+
+        var recorded = RegistryStateLedger.RecordBeforeModification(
+            def,
+            originalKind: RegistryValueKind.String,
+            originalRawValue: "custom-original-value",
+            wasInitiallyAbsent: false,
+            keyCreatedByApp: false,
+            appliedValue: "0"
+        );
+
+        var resolved = RegistryStateLedger.ResolveTrustedRestoreEntry(def.TweakId, recorded.OperationId);
+
+        Assert.True(resolved.IsValid, resolved.ErrorReason);
+        Assert.NotNull(resolved.Entry);
+        Assert.Equal("custom-original-value", resolved.Entry!.OriginalRawValue);
+        Assert.Equal(nameof(RegistryValueKind.String), resolved.Entry.OriginalValueKind);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_FailedAtomicSave_PreservesPreviousVerifiedLedger()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var first = RegistryStateLedger.RecordAppliedTweakState(def, "1", RegistryValueKind.DWord, false, false, "0");
+        RegistryStateLedger.ProtectedTokenWriter = (path, json) =>
+            new PCControlUltimate.Security.TokenProtectionResult(false, false, false, "simulated protected-write failure");
+
+        var ex = Assert.Throws<IOException>(() =>
+            RegistryStateLedger.RecordAppliedTweakState(def, "0", RegistryValueKind.DWord, false, false, "1"));
+
+        Assert.Contains("simulated protected-write failure", ex.Message);
+        var preserved = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.Equal(first.OperationId, preserved.OperationId);
+        Assert.Equal("1", preserved.OriginalRawValue);
+        Assert.False(preserved.IsRestored);
+        Assert.Empty(Directory.GetFiles(_testLedgerDirectory, "*.tmp"));
+        Assert.Empty(Directory.GetFiles(_testLedgerDirectory, "*.bak"));
+    }
+
+    [Fact]
+    public void RegistryStateLedger_FailedRestoredMarkerSave_DoesNotMarkOperationRestored()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var entry = RegistryStateLedger.RecordAppliedTweakState(def, "1", RegistryValueKind.DWord, false, false, "0");
+        RegistryStateLedger.ProtectedTokenWriter = (path, json) =>
+            new PCControlUltimate.Security.TokenProtectionResult(false, false, false, "simulated marker save failure");
+
+        Assert.Throws<IOException>(() => RegistryStateLedger.MarkOperationRestored(entry.OperationId));
+
+        RegistryStateLedger.ProtectedTokenWriter = PCControlUltimate.Security.IntegrityVerifier.SaveProtectedSessionTokenWithReport;
+        var persisted = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.False(persisted.IsRestored);
+        Assert.Null(persisted.RestoredAtUtc);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_MarkOperationRestored_RejectsDuplicateCompletion()
+    {
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var entry = RegistryStateLedger.RecordAppliedTweakState(
+            def, "1", RegistryValueKind.DWord, false, false, "0");
+
+        Assert.True(RegistryStateLedger.MarkOperationRestored(entry.OperationId));
+        var firstPersisted = Assert.Single(RegistryStateLedger.GetAllEntries());
+        string? firstRestoredAt = firstPersisted.RestoredAtUtc;
+
+        Assert.False(RegistryStateLedger.MarkOperationRestored(entry.OperationId));
+
+        var afterDuplicate = Assert.Single(RegistryStateLedger.GetAllEntries());
+        Assert.True(afterDuplicate.IsRestored);
+        Assert.Equal(firstRestoredAt, afterDuplicate.RestoredAtUtc);
+    }
+
+    [Fact]
+    public void RegistryStateLedger_RestoredAtUtc_IsCoveredByEntryHmac()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        var entry = new RegistryLedgerEntry
+        {
+            OperationId = "op-test-restored-at",
+            TweakId = "perf-game-dvr",
+            Hive = "HKCU",
+            SubKeyPath = @"System\GameConfigStore",
+            ValueName = "GameDVR_Enabled",
+            OriginalValueKind = nameof(RegistryValueKind.DWord),
+            OriginalRawValue = "1",
+            WasInitiallyAbsent = false,
+            KeyCreatedByApp = false,
+            AppliedValue = "0",
+            CreatedAtUtc = DateTime.UtcNow.ToString("O"),
+            IsRestored = true,
+            RestoredAtUtc = "2026-11-12T10:00:00.0000000Z"
+        };
+        entry.EntryHmacSha256 = RegistryStateLedger.ComputeEntryHmac(entry);
+
+        Assert.True(RegistryStateLedger.VerifyEntryHmac(entry));
+        entry.RestoredAtUtc = "2026-11-12T10:01:00.0000000Z";
+        Assert.False(RegistryStateLedger.VerifyEntryHmac(entry));
+    }
+
 }

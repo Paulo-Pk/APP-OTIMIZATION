@@ -18,6 +18,10 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
   const { t } = useI18n();
 
   const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
+  const sensorTypeLabels: Record<string, string> = { Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' };
+  const hardwareTypeLabels: Record<string, string> = { Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' };
+  const sensorTypeLabel = (type: string) => sensorTypeLabels[type] || type;
+  const hardwareTypeLabel = (type: string) => type.toLowerCase().startsWith('gpu') ? 'Placa de vídeo' : type.toLowerCase().startsWith('cpu') ? 'Processador' : hardwareTypeLabels[type] || type;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -27,9 +31,9 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-purple-400 font-bold">
             <Cpu className="w-4 h-4" /> {t.hardwareMonitor.subtitle}
           </div>
-          <h1 className="text-xl font-black text-white mt-0.5">HARDWARE MONITOR</h1>
+          <h1 className="text-xl font-black text-white mt-0.5">Monitoramento do PC</h1>
           <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
-            {t.hardwareMonitor.description}
+            Temperaturas, uso e espaço dos componentes. Os números são lidos do agente Windows; quando um sensor não existe, mostramos “Não disponível” em vez de inventar valores.
           </p>
         </div>
 
@@ -81,6 +85,22 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           </div>
         </div>
 
+        {/* CPU summary: real values supplied by the Windows hardware agent */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
+            <span className="text-[10px] text-slate-500 uppercase block">Temperatura da CPU</span>
+            <span className="text-lg font-mono font-bold text-white">{telemetry.cpu.temperature > 0 ? `${telemetry.cpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}</span>
+          </div>
+          <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
+            <span className="text-[10px] text-slate-500 uppercase block">Frequência da CPU</span>
+            <span className="text-lg font-mono font-bold text-purple-300">{telemetry.cpu.frequencyGHz > 0 ? `${Math.round(telemetry.cpu.frequencyGHz * 1000).toLocaleString('pt-BR')} MHz` : t.common.sensorNotAvailable}</span>
+          </div>
+          <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
+            <span className="text-[10px] text-slate-500 uppercase block">Uso da CPU</span>
+            <span className="text-lg font-mono font-bold text-cyan-300">{telemetry.cpu.cores > 0 ? `${telemetry.cpu.load.toFixed(0)}%` : t.common.sensorNotAvailable}</span>
+          </div>
+        </div>
+
         {/* Per-Core Load Grid */}
         <div>
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">
@@ -107,7 +127,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
                     <span>
-                      {core.frequencyGHz > 0 ? `${core.frequencyGHz.toFixed(2)}GHz` : '--'}
+                      {core.frequencyGHz > 0 ? `${Math.round(core.frequencyGHz * 1000).toLocaleString('pt-BR')} MHz` : '--'}
                     </span>
                     <span>{core.temp ? `${core.temp.toFixed(0)}°C` : '--'}</span>
                   </div>
@@ -151,7 +171,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">
-              {t.hardwareMonitor.gpuCoreTemp}
+              Temperatura da GPU
             </span>
             <span className="text-base font-mono font-bold text-white">
               {telemetry.gpu.temperature > 0
@@ -165,7 +185,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
 
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">
-              {t.hardwareMonitor.gpuHotspotTemp}
+              Hotspot
             </span>
             <span className="text-base font-mono font-bold text-amber-400">
               {telemetry.gpu.hotspot > 0
@@ -280,6 +300,21 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
         </div>
 
         <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between"><h3 className="text-xs font-bold text-white uppercase tracking-wider">Leituras dos componentes</h3><span className="text-[11px] text-slate-500">{(telemetry.sensors || []).filter((sensor) => sensor.isAvailable && sensor.value !== null).length} sensores disponíveis</span></div>
+          {(telemetry.sensors || []).filter((sensor) => sensor.isAvailable && sensor.value !== null).length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {(telemetry.sensors || []).filter((sensor) => sensor.isAvailable && sensor.value !== null).map((sensor) => (
+                <div key={sensor.identifier} className="rounded-lg bg-[#0a0c13] border border-slate-800 px-3 py-2">
+                  <div className="text-[10px] text-slate-500">{hardwareTypeLabel(sensor.hardwareType)} · {sensorTypeLabel(sensor.sensorType)}</div>
+                  <div className="text-xs text-slate-300 truncate">{sensor.name}</div>
+                  <div className="text-sm font-mono font-bold text-white">{Number(sensor.value).toFixed(1)} {sensor.unit}</div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-xs text-slate-500">O agente não disponibilizou leituras individuais nesta sessão.</p>}
+        </div>
+
+        <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
             <div className="flex items-center gap-2">
               <HardDrive className="w-4 h-4 text-emerald-400" />
@@ -302,17 +337,15 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-white truncate max-w-xs">{disk.model}</span>
                     <span className="text-emerald-400 font-mono text-[11px] font-bold">
-                      {t.hardwareMonitor.health} {disk.healthPercent}%
+                      {disk.smartStatus === 'N/D' ? 'Saúde não informada' : `${t.hardwareMonitor.health} ${disk.healthPercent}%`}
                     </span>
                   </div>
                   <div className="flex justify-between text-slate-400 text-[11px] font-mono">
                     <span>
-                      {disk.freeSpaceGB} GB {t.hardwareMonitor.freeOf} {disk.capacityGB} GB
+                      {disk.capacityGB > 0 ? `${disk.freeSpaceGB.toFixed(1)} GB ${t.hardwareMonitor.freeOf} ${disk.capacityGB.toFixed(1)} GB` : t.common.sensorNotAvailable}
                     </span>
                     <span>
-                      Temp:{' '}
-                      {disk.temperature ? `${disk.temperature}°C` : t.common.sensorNotAvailable} ·
-                      SMART: {disk.smartStatus}
+                      Temperatura: {disk.temperature > 0 ? `${disk.temperature}°C` : t.common.sensorNotAvailable} · Estado do disco: {disk.smartStatus === 'N/D' ? 'Não informado' : disk.smartStatus}
                     </span>
                   </div>
                 </div>

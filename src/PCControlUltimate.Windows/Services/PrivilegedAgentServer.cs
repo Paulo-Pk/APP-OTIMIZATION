@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using PCControlUltimate.Core.Interfaces;
 using PCControlUltimate.Gaming.PresentMon;
+using PCControlUltimate.Gaming.Network;
 using PCControlUltimate.Security;
 
 namespace PCControlUltimate.Windows.Services;
@@ -21,6 +22,7 @@ public class PrivilegedAgentServer : IDisposable
     private readonly HttpListener _listener;
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
+    private readonly WingetSoftwareCenterService _softwareCenter = new();
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
     private readonly ConcurrentQueue<DateTime> _requestTimestamps = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedNonces = new(StringComparer.Ordinal);
@@ -55,7 +57,8 @@ public class PrivilegedAgentServer : IDisposable
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:52194",
-        "http://127.0.0.1:52194"
+        "http://127.0.0.1:52194",
+        "https://app.pccontrol.local"
     };
 
     public PrivilegedAgentServer(int port = DefaultPort) : this(null, port, null)
@@ -491,8 +494,22 @@ public class PrivilegedAgentServer : IDisposable
                 await SendJsonAsync(res, new
                 {
                     policyNotice = DriverScannerService.ModulePolicyNotice,
+                    scanError = DriverScannerService.LastError,
                     drivers
                 });
+                return;
+            }
+
+            if (path == "/api/network/game-targets" && req.HttpMethod == "GET")
+            {
+                // Only closed-catalog game IDs are accepted; arbitrary hostnames are never supplied by the client.
+                string rawGameIds = req.QueryString["games"] ?? string.Empty;
+                string[] gameIds = rawGameIds.Split(
+                    ',',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+                );
+                var gameMeasurements = await _networkDiagnostics.MeasureGameReferenceTargetsAsync(gameIds, cancellationToken);
+                await SendJsonAsync(res, gameMeasurements);
                 return;
             }
 
@@ -516,6 +533,8 @@ public class PrivilegedAgentServer : IDisposable
                 var tempWin = DiskCleanerEngine.SimulateCategoryDryRun("temp-windows");
                 var tempUser = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
                 var softDist = DiskCleanerEngine.SimulateCategoryDryRun("update-cache");
+                var prefetch = DiskCleanerEngine.SimulateCategoryDryRun("temp-prefetch");
+                var deliveryOptimization = DiskCleanerEngine.SimulateCategoryDryRun("temp-delivery-optimization");
 
                 await SendJsonAsync(res, new
                 {
@@ -524,7 +543,9 @@ public class PrivilegedAgentServer : IDisposable
                     tempWindowsBytes = tempWin.EstimatedBytes,
                     tempUserBytes = tempUser.EstimatedBytes,
                     softwareDistributionBytes = softDist.EstimatedBytes,
-                    categories = new[] { d3d, tempWin, tempUser, softDist }
+                    prefetchBytes = prefetch.EstimatedBytes,
+                    deliveryOptimizationBytes = deliveryOptimization.EstimatedBytes,
+                    categories = new[] { d3d, tempWin, tempUser, softDist, prefetch, deliveryOptimization }
                 });
                 return;
             }
@@ -578,6 +599,13 @@ public class PrivilegedAgentServer : IDisposable
                 return;
             }
 
+            if (path == "/api/games/discover" && req.HttpMethod == "GET")
+            {
+                var games = GameNetworkAcceleratorService.DiscoverInstalledGames();
+                await SendJsonAsync(res, new { games, scannedAtUtc = DateTime.UtcNow.ToString("O"), scope = "Supported launcher manifests and registered game catalogs; no full-disk scan." });
+                return;
+            }
+
             if (path == "/api/presentmon/processes" && req.HttpMethod == "GET")
             {
                 var processes = PresentMonSessionParser.ListAvailableProcesses();
@@ -607,6 +635,39 @@ public class PrivilegedAgentServer : IDisposable
                     registryAuditLogs = RegistryOptimizer.GetAuditLogs(),
                     stateLedgerEntries = RegistryStateLedger.GetAllEntries()
                 });
+                return;
+            }
+
+            // Read-only Registry inspection is authenticated but does not enter the mutation lock
+            // or accept any client-supplied path/value. Only the closed backend catalog is inspected.
+            if (path == "/api/tweaks/inspect" && req.HttpMethod == "GET")
+            {
+                var inspections = RegistryOptimizer.Catalog.Values
+                    .OrderBy(def => def.TweakId, StringComparer.OrdinalIgnoreCase)
+                    .Select(def =>
+                    {
+                        RegistryTweakInspectionResult inspection = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+                        LedgerValidationResult restore = RegistryStateLedger.ResolveTrustedRestoreEntry(def.TweakId);
+                        return new
+                        {
+                            tweakId = def.TweakId,
+                            state = inspection.State,
+                            isUndeterminable = inspection.IsUndeterminable,
+                            currentValue = inspection.CurrentValue,
+                            actualValueKind = inspection.ActualValueKind?.ToString(),
+                            expectedValueKind = def.ValueKind.ToString(),
+                            absenceKind = inspection.AbsenceKind,
+                            diagnosticDetail = inspection.DiagnosticDetail,
+                            recommendedValue = def.RecommendedValue,
+                            canApply = string.Equals(inspection.State, "Inativo", StringComparison.OrdinalIgnoreCase)
+                                && !inspection.IsUndeterminable,
+                            canRestore = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase)
+                                && restore.IsValid
+                        };
+                    })
+                    .ToArray();
+
+                await SendJsonAsync(res, new { success = true, count = inspections.Length, inspections });
                 return;
             }
 
@@ -644,6 +705,46 @@ public class PrivilegedAgentServer : IDisposable
                     }
 
                     using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
+
+                    if (path == "/api/software/install")
+                    {
+                        string packageId = doc.RootElement.TryGetProperty("packageId", out var packageIdEl)
+                            ? (packageIdEl.GetString() ?? "").Trim()
+                            : "";
+                        bool userConfirmed = doc.RootElement.TryGetProperty("userConfirmed", out var confirmEl)
+                            && confirmEl.ValueKind == JsonValueKind.True;
+
+                        if (string.IsNullOrWhiteSpace(packageId) || !userConfirmed)
+                        {
+                            await SendJsonAsync(res, new
+                            {
+                                success = false,
+                                error = "EXPLICIT_INSTALL_CONFIRMATION_REQUIRED",
+                                message = "Selecione um aplicativo do catálogo oficial e confirme a instalação antes de continuar."
+                            }, 400);
+                            return;
+                        }
+
+                        var installResult = await _softwareCenter.InstallPackageAsync(
+                            packageId,
+                            userConfirmed: true,
+                            source: "winget",
+                            cancellationToken: cancellationToken);
+
+                        WriteAuditLog("SOFTWARE_INSTALL",
+                            $"Package={installResult.PackageId} Success={installResult.Success} ExitCode={installResult.ExitCode} Status={installResult.Status}");
+
+                        await SendJsonAsync(res, new
+                        {
+                            success = installResult.Success,
+                            packageId = installResult.PackageId,
+                            status = installResult.Status,
+                            exitCode = installResult.ExitCode,
+                            message = installResult.OutputLog,
+                            signatureState = installResult.SignatureState.ToString()
+                        }, installResult.Success ? 200 : 400);
+                        return;
+                    }
 
                     // CRITICAL SECURITY FIX: /api/tweaks/apply ONLY accepts a cataloged tweakId!
                     if (path == "/api/tweaks/apply")
@@ -800,7 +901,10 @@ public class PrivilegedAgentServer : IDisposable
                             skippedLockedCount = purgeReport.SkippedLockedCount,
                             skippedSymlinksCount = purgeReport.SkippedSymlinksCount,
                             affectedItemsLog = purgeReport.AffectedItemsLog,
-                            errors = purgeReport.Errors
+                            errors = purgeReport.Errors,
+                            status = purgeReport.Status,
+                            directoryExisted = purgeReport.DirectoryExisted,
+                            warnings = purgeReport.Warnings
                         });
                         return;
                     }

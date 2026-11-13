@@ -4,10 +4,6 @@ import {
   Mouse,
   Monitor,
   RotateCcw,
-  Sparkles,
-  Maximize2,
-  CheckCircle2,
-  AlertCircle,
   Info,
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
@@ -21,17 +17,12 @@ export const PeripheralTestView: React.FC = () => {
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
   const [historyKeys, setHistoryKeys] = useState<string[]>([]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault();
-      const code = e.code;
-      setPressedKeys((prev) => new Set(prev).add(code));
-      setHistoryKeys((prev) => [code, ...prev.slice(0, 19)]);
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  const handleKeyboardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const code = e.code;
+    setPressedKeys((prev) => new Set(prev).add(code));
+    setHistoryKeys((prev) => [code, ...prev.slice(0, 19)]);
+  };
 
   const resetKeyboard = () => {
     setPressedKeys(new Set());
@@ -45,7 +36,9 @@ export const PeripheralTestView: React.FC = () => {
     middle: false,
   });
   const [mouseClicksCount, setMouseClicksCount] = useState<number>(0);
-  const [mousePollingRate, setMousePollingRate] = useState<number>(1000);
+  const [mousePollingRate, setMousePollingRate] = useState<number>(0);
+  const [mouseMoveCount, setMouseMoveCount] = useState<number>(0);
+  const [mouseWheelCount, setMouseWheelCount] = useState<number>(0);
   const [clickDurationMs, setClickDurationMs] = useState<number | null>(null);
 
   const lastMouseTimeRef = useRef<number>(performance.now());
@@ -54,6 +47,7 @@ export const PeripheralTestView: React.FC = () => {
 
   const handleMouseMove = () => {
     const now = performance.now();
+    setMouseMoveCount((count) => count + 1);
     const dt = now - lastMouseTimeRef.current;
     lastMouseTimeRef.current = now;
     if (dt > 0.5 && dt < 100) {
@@ -62,7 +56,7 @@ export const PeripheralTestView: React.FC = () => {
         mouseIntervalsRef.current.shift();
         const avgDt = mouseIntervalsRef.current.reduce((a, b) => a + b, 0) / mouseIntervalsRef.current.length;
         const hz = Math.round(1000 / avgDt);
-        setMousePollingRate(Math.min(8000, Math.max(125, hz)));
+        setMousePollingRate(hz);
       }
     }
   };
@@ -185,15 +179,13 @@ export const PeripheralTestView: React.FC = () => {
 
       {/* 1. KEYBOARD TAB */}
       {activeTab === 'keyboard' && (
-        <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4">
+        <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4" tabIndex={0} onKeyDown={handleKeyboardKeyDown}>
           <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
             <div>
               <span className="font-bold text-white uppercase tracking-wider">
                 {t.peripherals.keyboardTitle}
               </span>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {t.peripherals.keyboardDesc}
-              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Clique nesta área e pressione as teclas para vê-las acender. O teste não captura teclas fora deste painel.</p>
             </div>
             <button
               onClick={resetKeyboard}
@@ -203,7 +195,7 @@ export const PeripheralTestView: React.FC = () => {
             </button>
           </div>
 
-          <div className="space-y-2 p-3 bg-[#0a0c13] rounded-xl border border-slate-900 overflow-x-auto">
+          <div className="space-y-2 p-3 bg-[#0a0c13] rounded-xl border border-slate-900 overflow-x-auto outline-none focus:border-purple-500/60">
             {keyboardRows.map((row, rIdx) => (
               <div key={rIdx} className="flex gap-1.5 justify-center min-w-[700px]">
                 {row.map((code) => {
@@ -245,6 +237,8 @@ export const PeripheralTestView: React.FC = () => {
           onMouseMove={handleMouseMove}
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}
+          onMouseLeave={() => setMouseButtons({ left: false, right: false, middle: false })}
+          onWheel={() => setMouseWheelCount((count) => count + 1)}
           onContextMenu={(e) => e.preventDefault()}
           className="p-6 rounded-xl bg-[#0f121b] border border-slate-800 space-y-5 select-none"
         >
@@ -255,15 +249,21 @@ export const PeripheralTestView: React.FC = () => {
             <span className="text-slate-400 font-mono">{t.peripherals.mouseClicks} {mouseClicksCount}</span>
           </div>
 
+          <div className="min-h-[150px] rounded-xl border border-dashed border-purple-500/50 bg-gradient-to-br from-[#151329] to-[#0a0c13] flex flex-col items-center justify-center gap-2 text-center px-4">
+            <Mouse className="w-8 h-8 text-purple-300" />
+            <strong className="text-sm text-white">Área de teste do mouse</strong>
+            <span className="text-xs text-slate-400">Mova o cursor, clique com os três botões e use a roda do mouse aqui</span>
+            <span className="text-[11px] font-mono text-purple-300">{mouseMoveCount} movimentos · {mouseWheelCount} giros da roda</span>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
             {/* Polling rate */}
             <div className="p-5 rounded-xl bg-[#0a0c13] border border-slate-800 space-y-2">
               <span className="text-xs text-slate-500 uppercase font-bold">{t.peripherals.pollingRateTitle}</span>
               <div className="text-3xl font-black font-mono text-purple-400">
-                ~{mousePollingRate} Hz
+                {mousePollingRate > 0 ? `~${mousePollingRate} Hz` : 'Aguardando'}
               </div>
               <span className="text-[11px] text-slate-400 block">
-                {mousePollingRate >= 1000 ? t.peripherals.sensorGamerOk : t.peripherals.sensorStandard}
+                {mousePollingRate > 0 ? 'Estimativa da frequência dos eventos recebidos pelo navegador; não é a taxa USB real.' : 'Mova o mouse na área de teste.'}
               </span>
             </div>
 

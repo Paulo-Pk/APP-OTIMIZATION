@@ -25,6 +25,8 @@ using PCControlUltimate.Windows.Services;
 
 namespace PCControlUltimate.App.ViewModels;
 
+public record GameTargetPreset(string DisplayName, string GameName, string Host, int Port);
+
 public record ModuleCapabilityMatrixItem(
     int Index,
     string ModuleName,
@@ -40,7 +42,8 @@ public record VerifiedSoftwareItem(
     string WingetId,
     string Publisher,
     string CommandLine,
-    string Description
+    string Description,
+    string IconUrl = ""
 );
 
 public class RelayCommand : ICommand
@@ -69,6 +72,11 @@ public class TweakItemViewModel : INotifyPropertyChanged
     private bool _isApplied;
     private string _verificationState = "Não verificado";
     private string? _lastOperationId;
+    private string _inspectionState = "Não Verificado";
+    private string _currentValueText = "N/D";
+    private string _registryTypeText = "N/D";
+    private string _diagnosticDetailText = "Aguardando leitura do Registro.";
+    private bool _canRestore;
 
     public string TweakId { get; init; } = string.Empty;
     public string NamePt { get; init; } = string.Empty;
@@ -90,13 +98,61 @@ public class TweakItemViewModel : INotifyPropertyChanged
     public bool IsApplied
     {
         get => _isApplied;
-        set { _isApplied = value; OnPropertyChanged(); }
+        set
+        {
+            _isApplied = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanApply));
+        }
     }
 
     public string VerificationState
     {
         get => _verificationState;
-        set { _verificationState = value; OnPropertyChanged(); }
+        set
+        {
+            _verificationState = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanApply));
+        }
+    }
+
+    // Applying over a custom, unknown, unreadable, or edition-dependent value could
+    // overwrite a user's configuration. Only allow application after a confirmed
+    // read that the current value is the known inactive/default value.
+    public bool CanApply =>
+        !IsApplied &&
+        (VerificationState.StartsWith("Padrão/inativo — leitura confirmada", StringComparison.OrdinalIgnoreCase) ||
+         VerificationState.StartsWith("Default/inactive — read-back confirmed", StringComparison.OrdinalIgnoreCase));
+
+    public string InspectionState
+    {
+        get => _inspectionState;
+        set { _inspectionState = value; OnPropertyChanged(); }
+    }
+
+    public bool CanRestore
+    {
+        get => _canRestore;
+        set { _canRestore = value; OnPropertyChanged(); }
+    }
+
+    public string CurrentValueText
+    {
+        get => _currentValueText;
+        set { _currentValueText = value; OnPropertyChanged(); }
+    }
+
+    public string RegistryTypeText
+    {
+        get => _registryTypeText;
+        set { _registryTypeText = value; OnPropertyChanged(); }
+    }
+
+    public string DiagnosticDetailText
+    {
+        get => _diagnosticDetailText;
+        set { _diagnosticDetailText = value; OnPropertyChanged(); }
     }
 
     public string? LastOperationId
@@ -113,7 +169,10 @@ public class TweakItemViewModel : INotifyPropertyChanged
 public class CleanerCategoryViewModel : INotifyPropertyChanged
 {
     private string _dryRunEstimateText = "Execute Dry-Run para estimar";
-    private string _realFreedText = "Nenhum arquivo removido nesta sessão";
+    private string _realFreedText = "Nenhuma limpeza executada nesta sessão";
+    private int _scannedFilesCount;
+    private string _estimatedBytesFormatted = "Não simulado";
+    private string _lastOperationStatus = "Aguardando simulação";
 
     public string CategoryKey { get; init; } = string.Empty;
     public string NamePt { get; init; } = string.Empty;
@@ -126,6 +185,24 @@ public class CleanerCategoryViewModel : INotifyPropertyChanged
     {
         get => _displayName;
         set { _displayName = value; OnPropertyChanged(); }
+    }
+
+    public int ScannedFilesCount
+    {
+        get => _scannedFilesCount;
+        set { _scannedFilesCount = value; OnPropertyChanged(); }
+    }
+
+    public string EstimatedBytesFormatted
+    {
+        get => _estimatedBytesFormatted;
+        set { _estimatedBytesFormatted = value; OnPropertyChanged(); }
+    }
+
+    public string LastOperationStatus
+    {
+        get => _lastOperationStatus;
+        set { _lastOperationStatus = value; OnPropertyChanged(); }
     }
 
     public string DryRunEstimateText
@@ -151,6 +228,8 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly DatabaseService _databaseService;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
+    private readonly WingetSoftwareCenterService _softwareCenter = new();
+    private readonly SystemDoctorService _systemDoctor = new();
     private CancellationTokenSource? _presentMonCts;
     private readonly SemaphoreSlim _telemetryRefreshGate = new(1, 1);
     private readonly DispatcherTimer _telemetryRefreshTimer;
@@ -163,6 +242,11 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isAgentConnected;
     private bool _isAdmin;
     private string _statusMessage = "Verificando comunicação com o Agente...";
+    private bool _isRefreshingTweakStates;
+    private bool _isApplyingSafeBoostProfile;
+    private string _tweakStatesSummaryText = "Estados do Registro ainda não atualizados nesta sessão.";
+    private bool _isRefreshingGameConnections;
+    private string _gameConnectionsStatusText = "A biblioteca ainda não foi atualizada nesta sessão.";
 
     // Hardware & GPU Health properties
     private string _hardwareSubsystemStatusText = "Sensor indisponível (N/D)";
@@ -197,15 +281,17 @@ public class MainViewModel : INotifyPropertyChanged
     // Debloat properties
     private bool _confirmCleanerDeletion;
     private string _debloatSummaryText = "Simule (Dry-Run) antes de executar qualquer exclusão.";
+    private bool _isCleanerBusy;
 
     // Network Lab properties
-    private string _networkSummaryText = "Clique em Executar Diagnóstico para medir ICMP, TCP e DNS.";
-    private string _externalThroughputText = "Clique para medir throughput real contra Cloudflare CDN.";
+    private string _networkSummaryText = "Clique em Testar conexão para verificar a resposta de serviços na internet e a resolução de endereços.";
+    private string _externalThroughputText = "Faça o teste de download para medir a velocidade da sua conexão.";
 
     // Game Network Accelerator properties
-    private string _acceleratorGameName = "Counter-Strike 2 (Valve)";
-    private string _acceleratorTargetHost = "155.133.248.34";
-    private int _acceleratorTargetPort = 27015;
+    private string _acceleratorGameName = "Counter-Strike 2";
+    private string _acceleratorTargetHost = "steampowered.com";
+    private int _acceleratorTargetPort = 443;
+    private GameTargetPreset? _selectedGameTarget = new("Counter-Strike 2 — Steam", "Counter-Strike 2", "steampowered.com", 443);
     private string _routeVerdictText = "Execute a avaliação multi-amostra para comparar a Rota Direta com nós intermediários.";
     private string _wfpSelectiveRoutingNoticeText = GameNetworkAcceleratorService.GetSelectiveRoutingCapabilityReport().WfpLimitationExplanationPt;
     private string _wireGuardStatusText = "Verifique a instalação do WireGuard for Windows e audite a configuração AllowedIPs.";
@@ -214,7 +300,7 @@ public class MainViewModel : INotifyPropertyChanged
     // PresentMon properties
     private string _presentMonStatusText = "Verifique a instalação do PresentMon e selecione um processo.";
     private RunningProcessInfo? _selectedProcess;
-    private string _manualProcessName = "cs2.exe";
+    private string _manualProcessName = string.Empty;
     private int _captureDurationSeconds = 10;
     private bool _isCapturingPresentMon;
     private string _presentMonMetricsSummary = "Nenhuma sessão capturada.";
@@ -226,6 +312,8 @@ public class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<TweakItemViewModel> CatalogTweaks { get; } = new();
     public ObservableCollection<SensorDataPoint> AllHardwareSensors { get; } = new();
+    public ObservableCollection<SensorDataPoint> GpuHardwareSensors { get; } = new();
+    public ObservableCollection<StorageTelemetryPoint> StorageDrives { get; } = new();
     public ObservableCollection<SnapshotSummaryItem> ExistingBackups { get; } = new();
     public ObservableCollection<RegistryValueEntry> SelectedBackupEntries { get; } = new();
     public ObservableCollection<RegistryReadFailure> SelectedBackupFailures { get; } = new();
@@ -236,9 +324,22 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<DnsQueryResult> DnsResults { get; } = new();
     public ObservableCollection<string> NetworkHistory { get; } = new();
     public ObservableCollection<DetectedGameConnection> DetectedGameSockets { get; } = new();
+    public ObservableCollection<InstalledGameEntry> InstalledGames { get; } = new();
+    public ObservableCollection<GameTargetPreset> GameTargetPresets { get; } = new()
+    {
+        new("Counter-Strike 2 — Steam", "Counter-Strike 2", "steampowered.com", 443),
+        new("VALORANT — Riot Games", "VALORANT", "riotgames.com", 443),
+        new("Fortnite — Epic Games", "Fortnite", "epicgames.com", 443),
+        new("Apex Legends — EA", "Apex Legends", "ea.com", 443),
+        new("League of Legends — Riot Games", "League of Legends", "leagueoflegends.com", 443),
+        new("Rainbow Six Siege — Ubisoft", "Rainbow Six Siege", "ubisoft.com", 443),
+        new("Rocket League — Epic Games", "Rocket League", "rocketleague.com", 443),
+        new("Minecraft — Mojang/Microsoft", "Minecraft", "minecraft.net", 443)
+    };
     public ObservableCollection<TracerouteHopResult> TracerouteHops { get; } = new();
     public ObservableCollection<RelayNodeCandidate> RelayNodes { get; } = new();
     public ObservableCollection<ModuleCapabilityMatrixItem> ModuleCapabilityMatrix { get; } = new();
+    public ObservableCollection<SystemDoctorFinding> SystemDoctorFindings { get; } = new();
     public ObservableCollection<RunningProcessInfo> AvailableProcesses { get; } = new();
     public ObservableCollection<double> RecentFrametimeSamples { get; } = new();
     public ObservableCollection<PresentMonCaptureResponse> PresentMonHistory { get; } = new();
@@ -251,9 +352,20 @@ public class MainViewModel : INotifyPropertyChanged
     private double _gpuLoadPercent;
     private double _ramUsagePercent;
     private string _gpuHotspotDeltaText = "N/D";
-    private string _overallHealthScore = "--";
-    private string _benchmarkResultSummary = "Clique em Executar Benchmark Determinístico para medir throughput real de CPU e Memória.";
-    private string _peripheralCadenceSummary = "Inspecione a taxa nativa Win32 do monitor e meça a estabilidade de eventos de input.";
+    private string _overallHealthScore = "N/D";
+    private string _benchmarkResultSummary = "Execute o teste para medir CPU e memória. GPU e armazenamento ainda não são medidos por este módulo.";
+    private string _softwareInstallStatusText = "Escolha um aplicativo do catálogo para instalar.";
+    private string _benchmarkCpuScoreText = "—";
+    private string _benchmarkCpuTimeText = "—";
+    private string _benchmarkMemoryBandwidthText = "—";
+    private string _peripheralCadenceSummary = "Clique na área de teste para conferir as teclas e os botões do mouse.";
+    private int _peripheralKeyPressCount;
+    private string _peripheralLastKey = "—";
+    private int _peripheralMouseClickCount;
+    private int _peripheralMouseMoveCount;
+    private int _peripheralMouseWheelCount;
+    private string _peripheralLastMouseButton = "—";
+    private DateTime _lastPeripheralMouseMoveUtc = DateTime.MinValue;
 
     // Preview Visual Parity & Extended Real Hardware Properties
     private string _detectedProfileDisplay = "Desktop";
@@ -377,7 +489,40 @@ public class MainViewModel : INotifyPropertyChanged
     public string GpuHotspotDeltaText { get => _gpuHotspotDeltaText; set { _gpuHotspotDeltaText = value; OnPropertyChanged(); } }
     public string OverallHealthScore { get => _overallHealthScore; set { _overallHealthScore = value; OnPropertyChanged(); } }
     public string BenchmarkResultSummary { get => _benchmarkResultSummary; set { _benchmarkResultSummary = value; OnPropertyChanged(); } }
+    public string SoftwareInstallStatusText { get => _softwareInstallStatusText; set { _softwareInstallStatusText = value; OnPropertyChanged(); } }
+    public string BenchmarkCpuScoreText { get => _benchmarkCpuScoreText; set { _benchmarkCpuScoreText = value; OnPropertyChanged(); } }
+    public string BenchmarkCpuTimeText { get => _benchmarkCpuTimeText; set { _benchmarkCpuTimeText = value; OnPropertyChanged(); } }
+    public string BenchmarkMemoryBandwidthText { get => _benchmarkMemoryBandwidthText; set { _benchmarkMemoryBandwidthText = value; OnPropertyChanged(); } }
     public string PeripheralCadenceSummary { get => _peripheralCadenceSummary; set { _peripheralCadenceSummary = value; OnPropertyChanged(); } }
+    public int PeripheralKeyPressCount { get => _peripheralKeyPressCount; private set { _peripheralKeyPressCount = value; OnPropertyChanged(); } }
+    public string PeripheralLastKey { get => _peripheralLastKey; private set { _peripheralLastKey = value; OnPropertyChanged(); } }
+    public int PeripheralMouseClickCount { get => _peripheralMouseClickCount; private set { _peripheralMouseClickCount = value; OnPropertyChanged(); } }
+    public int PeripheralMouseMoveCount { get => _peripheralMouseMoveCount; private set { _peripheralMouseMoveCount = value; OnPropertyChanged(); } }
+    public int PeripheralMouseWheelCount { get => _peripheralMouseWheelCount; private set { _peripheralMouseWheelCount = value; OnPropertyChanged(); } }
+    public string PeripheralLastMouseButton { get => _peripheralLastMouseButton; private set { _peripheralLastMouseButton = value; OnPropertyChanged(); } }
+
+    public void RecordPeripheralKey(string key)
+    {
+        PeripheralKeyPressCount++;
+        PeripheralLastKey = key;
+        PeripheralCadenceSummary = $"Teclado respondendo: {PeripheralKeyPressCount} tecla(s) detectada(s). Última tecla: {key}.";
+    }
+
+    public void RecordPeripheralMouseButton(string button)
+    {
+        PeripheralMouseClickCount++;
+        PeripheralLastMouseButton = button;
+    }
+
+    public void RecordPeripheralMouseMove()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastPeripheralMouseMoveUtc).TotalMilliseconds < 80) return;
+        _lastPeripheralMouseMoveUtc = now;
+        PeripheralMouseMoveCount++;
+    }
+
+    public void RecordPeripheralMouseWheel() => PeripheralMouseWheelCount++;
 
     public bool IsAgentConnected
     {
@@ -395,6 +540,24 @@ public class MainViewModel : INotifyPropertyChanged
     {
         get => _statusMessage;
         set { _statusMessage = value; OnPropertyChanged(); }
+    }
+
+    public bool CanRefreshTweakStates => !_isRefreshingTweakStates;
+    public string RefreshTweakStatesButtonText => _isRefreshingTweakStates ? "CONSULTANDO REGISTRO..." : "ATUALIZAR ESTADOS";
+    public string TweakStatesSummaryText
+    {
+        get => _tweakStatesSummaryText;
+        set { _tweakStatesSummaryText = value; OnPropertyChanged(); }
+    }
+
+    public bool CanRefreshGameConnections => !_isRefreshingGameConnections;
+    public string RefreshGameConnectionsButtonText =>
+        _isRefreshingGameConnections ? "ESCANEANDO JOGOS..." : "ESCANEAR JOGOS E SOCKETS";
+
+    public string GameConnectionsStatusText
+    {
+        get => _gameConnectionsStatusText;
+        set { _gameConnectionsStatusText = value; OnPropertyChanged(); }
     }
 
     public string HardwareSubsystemStatusText
@@ -482,6 +645,8 @@ public class MainViewModel : INotifyPropertyChanged
         set { _confirmCleanerDeletion = value; OnPropertyChanged(); }
     }
 
+    public bool CanRunCleanerOperation => !_isCleanerBusy;
+
     public string DebloatSummaryText
     {
         get => _debloatSummaryText;
@@ -544,10 +709,33 @@ public class MainViewModel : INotifyPropertyChanged
         set { _presentMonMetricsSummary = value; OnPropertyChanged(); }
     }
 
+    private string _systemDoctorSummaryText = "Clique em Executar Diagnóstico para verificar temperaturas, memória, armazenamento e eventos recentes do Windows.";
+    public string SystemDoctorSummaryText
+    {
+        get => _systemDoctorSummaryText;
+        set { _systemDoctorSummaryText = value; OnPropertyChanged(); }
+    }
+
     public string SecurityPostureText
     {
         get => _securityPostureText;
         set { _securityPostureText = value; OnPropertyChanged(); }
+    }
+
+    public GameTargetPreset? SelectedGameTarget
+    {
+        get => _selectedGameTarget;
+        set
+        {
+            _selectedGameTarget = value;
+            if (value is not null)
+            {
+                AcceleratorGameName = value.GameName;
+                AcceleratorTargetHost = value.Host;
+                AcceleratorTargetPort = value.Port;
+            }
+            OnPropertyChanged();
+        }
     }
 
     public string AcceleratorGameName
@@ -599,6 +787,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand SetLanguageEnCommand { get; }
     public ICommand CreateSnapshotCommand { get; }
     public ICommand RefreshStatusCommand { get; }
+    public ICommand RefreshTweakStatesCommand { get; }
     public ICommand ApplyTweakCommand { get; }
     public ICommand RestoreSingleTweakCommand { get; }
     public ICommand RefreshBackupsCommand { get; }
@@ -624,8 +813,146 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RegisterSampleVpsNodeCommand { get; }
     public ICommand ApplySafeBoostProfileCommand { get; }
     public ICommand RunBenchmarkCommand { get; }
+    public ICommand InstallSoftwareCommand { get; }
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
+
+    private async Task RefreshAllTweakStatesAsync()
+    {
+        if (_isRefreshingTweakStates)
+            return;
+
+        _isRefreshingTweakStates = true;
+        OnPropertyChanged(nameof(CanRefreshTweakStates));
+        OnPropertyChanged(nameof(RefreshTweakStatesButtonText));
+        TweakStatesSummaryText = "Consultando o Registro em modo somente leitura...";
+        StatusMessage = "CONSULTANDO REGISTRO... Nenhuma alteração será gravada.";
+
+        try
+        {
+            var states = await Task.Run(() =>
+                RegistryOptimizer.Catalog.Keys
+                    .Select(id =>
+                    {
+                        RegistryTweakInspectionResult inspection = RegistryOptimizer.InspectCatalogTweak(id);
+                        bool canRestore = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase) &&
+                            RegistryStateLedger.ResolveTrustedRestoreEntry(id).IsValid;
+                        return (TweakId: id, Inspection: inspection, CanRestore: canRestore);
+                    })
+                    .ToArray());
+
+            var byId = states.ToDictionary(x => x.TweakId, x => x, StringComparer.OrdinalIgnoreCase);
+            foreach (var tweak in CatalogTweaks)
+            {
+                if (!byId.TryGetValue(tweak.TweakId, out var stateResult))
+                    continue;
+
+                RegistryTweakInspectionResult inspection = stateResult.Inspection;
+                tweak.CanRestore = stateResult.CanRestore;
+                tweak.IsApplied = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase);
+                tweak.InspectionState = inspection.State;
+                tweak.VerificationState = GetTweakStateDisplay(inspection.State, Loc.CurrentCulture == "pt-BR");
+                tweak.CurrentValueText = inspection.CurrentValue ?? "—";
+                tweak.RegistryTypeText = inspection.ActualValueKind?.ToString() ?? "N/D";
+                tweak.DiagnosticDetailText = inspection.DiagnosticDetail ??
+                    (inspection.AbsenceKind ?? (inspection.IsUndeterminable ? "Estado não determinável." : "Leitura confirmada."));
+            }
+
+            int active = states.Count(x => x.Inspection.State == "Ativo");
+            int inactive = states.Count(x => x.Inspection.State == "Inativo");
+            int noChange = states.Count(x => x.Inspection.State == "Sem Alteração Necessária");
+            int custom = states.Count(x => x.Inspection.State == "Personalizado");
+            int denied = states.Count(x => x.Inspection.State == "Acesso Negado");
+            int readErrors = states.Count(x => x.Inspection.State == "Erro de Leitura");
+            int wrongType = states.Count(x => x.Inspection.State == "Tipo Incorreto");
+            int undetermined = states.Count(x => x.Inspection.State == "Estado Não Determinável" || x.Inspection.State == "Padrão Dependente");
+            int missingKeys = states.Count(x => x.Inspection.AbsenceKind == "ChaveAusente");
+            int missingValuesInEmptyKeys = states.Count(x => x.Inspection.AbsenceKind == "ValorAusenteChaveVazia");
+            int missingValuesInPopulatedKeys = states.Count(x => x.Inspection.AbsenceKind == "ValorAusenteChaveComConteudo");
+
+            TweakStatesSummaryText = Loc.CurrentCulture == "pt-BR"
+                ? $"Leitura concluída: {states.Length} ajustes — {active} ativos, {inactive} inativos, {noChange} sem alteração necessária, {custom} personalizados, {wrongType} com tipo incorreto, {denied} sem acesso, {readErrors} erros de leitura e {undetermined} não determináveis. Ausências: {missingKeys} chaves inexistentes, {missingValuesInEmptyKeys} valores ausentes em chaves vazias e {missingValuesInPopulatedKeys} valores ausentes em chaves com outros dados."
+                : $"Read complete: {states.Length} tweaks — {active} active, {inactive} inactive, {noChange} no change needed, {custom} custom, {wrongType} wrong type, {denied} access denied, {readErrors} read errors and {undetermined} undetermined. Missing entries: {missingKeys} keys, {missingValuesInEmptyKeys} values in empty keys and {missingValuesInPopulatedKeys} values in populated keys.";
+            OnPropertyChanged(nameof(AppliedTweaksCount));
+            OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+        }
+        catch (Exception ex)
+        {
+            TweakStatesSummaryText = $"Não foi possível atualizar os estados: {ex.Message}";
+            StatusMessage = TweakStatesSummaryText;
+        }
+        finally
+        {
+            _isRefreshingTweakStates = false;
+            OnPropertyChanged(nameof(CanRefreshTweakStates));
+            OnPropertyChanged(nameof(RefreshTweakStatesButtonText));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    private static string BuildGpuThermalUserMessage(GpuThermalEvaluationResult evaluation, bool isPortuguese)
+    {
+        if (!isPortuguese)
+            return evaluation.Message;
+
+        string status = evaluation.Status switch
+        {
+            GpuThermalHealth.SensorUnavailable => "Temperatura não disponível",
+            GpuThermalHealth.Excellent => "Temperatura muito boa",
+            GpuThermalHealth.Normal => "Temperatura dentro do esperado",
+            GpuThermalHealth.Warning => "Atenção: a placa está aquecendo bastante",
+            GpuThermalHealth.Critical => "Alerta: temperatura muito alta",
+            _ => "Não foi possível avaliar a temperatura"
+        };
+
+        string readings = evaluation.HotspotTemp > 0
+            ? $"Temperatura principal: {evaluation.CoreTemp:F1} °C. Ponto mais quente: {evaluation.HotspotTemp:F1} °C. Diferença: {evaluation.Delta:F1} °C."
+            : $"Temperatura principal: {evaluation.CoreTemp:F1} °C.";
+
+        string limitation = evaluation.IsEvaluationLimited
+            ? " O Windows/driver não disponibilizou todos os sensores; a avaliação está incompleta."
+            : string.Empty;
+
+        return $"{status}. {readings}{limitation}";
+    }
+
+    private static void UpdateTweakInspection(
+        TweakItemViewModel tweak,
+        RegistryTweakInspectionResult inspection,
+        bool isPortuguese)
+    {
+        tweak.InspectionState = inspection.State;
+        tweak.IsApplied = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase);
+        tweak.CanRestore = tweak.IsApplied && RegistryStateLedger.ResolveTrustedRestoreEntry(tweak.TweakId).IsValid;
+        tweak.VerificationState = GetTweakStateDisplay(inspection.State, isPortuguese);
+        tweak.CurrentValueText = inspection.CurrentValue ?? "—";
+        tweak.RegistryTypeText = inspection.ActualValueKind?.ToString() ?? "N/D";
+        tweak.DiagnosticDetailText = inspection.DiagnosticDetail ??
+            (inspection.AbsenceKind ?? (inspection.IsUndeterminable ? "Estado não determinável." : "Leitura confirmada."));
+    }
+
+    private static string GetTweakStateDisplay(string state, bool isPortuguese)
+    {
+        return state switch
+        {
+            "Ativo" => isPortuguese ? "Ativo — leitura confirmada" : "Active — read-back confirmed",
+            "Sem Alteração Necessária" => isPortuguese ? "Sem alteração necessária — valor recomendado igual ao padrão" : "No change needed — recommended value matches the default",
+            "Inativo" => isPortuguese ? "Padrão/inativo — leitura confirmada" : "Default/inactive — read-back confirmed",
+            "Personalizado" or "Parcial" => isPortuguese ? "Personalizado — diferente do recomendado" : "Custom — differs from recommendation",
+            "Chave Ausente" or "Valor Ausente" => isPortuguese ? "Valor ausente no Registro" : "Registry value is missing",
+            "Acesso Negado" => isPortuguese ? "Acesso negado — requer permissão" : "Access denied — permission required",
+            "Tipo Incorreto" => isPortuguese ? "Tipo incorreto — esperado diferente do encontrado" : "Wrong Registry type — expected type mismatch",
+            "Estado Não Determinável" => isPortuguese ? "Estado não determinável — valor ausente sem padrão confirmado" : "Undetermined — absent value has no confirmed default",
+            "Não Suportado" => isPortuguese ? "Ajuste não reconhecido pelo catálogo" : "Tweak is not in the supported catalog",
+            "Não Verificado" => isPortuguese ? "Aguardando primeira leitura do Registro..." : "Waiting for initial Registry inspection...",
+            "Erro de Aplicação" => isPortuguese ? "Falha ao aplicar — confira o diagnóstico" : "Apply failed — inspect the diagnostic",
+            "Erro de Restauração" => isPortuguese ? "Falha ao restaurar — confira o diagnóstico" : "Restore failed — inspect the diagnostic",
+            "Padrão Dependente" => isPortuguese ? "Padrão depende da edição/configuração do Windows" : "Default depends on Windows edition/configuration",
+            "Erro de Leitura" => isPortuguese ? "Erro de leitura — estado não determinável" : "Read error — state undetermined",
+            "Não Disponível Neste Sistema" => isPortuguese ? "Consulta disponível somente no Windows" : "Inspection is available on Windows only",
+            _ => isPortuguese ? "Não foi possível consultar" : "Unable to inspect"
+        };
+    }
 
     public MainViewModel() : this(new AgentClientService(), null, new LocalizationService(), new DatabaseService(), new NetworkDiagnosticsService())
     {
@@ -649,6 +976,8 @@ public class MainViewModel : INotifyPropertyChanged
 
         foreach (var def in RegistryOptimizer.Catalog.Values)
         {
+            // Keep startup responsive: create the rows first and perform one read-only
+            // catalog inspection asynchronously after the view model is fully initialized.
             CatalogTweaks.Add(new TweakItemViewModel
             {
                 TweakId = def.TweakId,
@@ -662,7 +991,14 @@ public class MainViewModel : INotifyPropertyChanged
                 RecommendedValue = def.RecommendedValue,
                 RiskLevel = def.RiskLevel,
                 IsApplied = false,
-                VerificationState = Loc.CurrentCulture == "pt-BR" ? "Não verificado" : "Not verified"
+                CanRestore = false,
+                InspectionState = "Não Verificado",
+                VerificationState = GetTweakStateDisplay("Não Verificado", Loc.CurrentCulture == "pt-BR"),
+                CurrentValueText = "N/D",
+                RegistryTypeText = "N/D",
+                DiagnosticDetailText = Loc.CurrentCulture == "pt-BR"
+                    ? "A consulta inicial será executada em segundo plano. Nenhuma alteração será gravada."
+                    : "Initial inspection will run in the background. No changes will be written."
             });
         }
 
@@ -678,6 +1014,8 @@ public class MainViewModel : INotifyPropertyChanged
                 RequiresAdminUac = cat.RequiresAdminUac
             });
         }
+
+        RefreshTweakStatesCommand = new RelayCommand(async _ => await RefreshAllTweakStatesAsync(), _ => CanRefreshTweakStates);
 
         SelectTabCommand = new RelayCommand(tab =>
         {
@@ -738,12 +1076,14 @@ public class MainViewModel : INotifyPropertyChanged
 
         RefreshStatusCommand = new RelayCommand(async _ =>
         {
+            await RunSystemDoctorAuditAsync();
             await RefreshTelemetryAndStatusAsync();
         });
 
         ApplyTweakCommand = new RelayCommand(async param =>
         {
-            if (param is TweakItemViewModel tweak)
+            // Do not create another ledger entry when the recommended value is already active.
+            if (param is TweakItemViewModel tweak && !tweak.IsApplied)
             {
                 var (ok, details) = await _agentClient.ApplyCatalogTweakAsync(tweak.TweakId, tweak.RecommendedValue);
                 RefreshAuditLogs();
@@ -759,10 +1099,11 @@ public class MainViewModel : INotifyPropertyChanged
                     }
                     catch { }
 
-                    tweak.IsApplied = true;
-                    tweak.VerificationState = $"Verificado ({tweak.RecommendedValue})";
+                    var readBack = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
+                    UpdateTweakInspection(tweak, readBack, Loc.CurrentCulture == "pt-BR");
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+                    CommandManager.InvalidateRequerySuggested();
                     await _databaseService.UpsertOptimizationActionAsync(
                         tweak.TweakId,
                         tweak.Name,
@@ -771,34 +1112,40 @@ public class MainViewModel : INotifyPropertyChanged
                         tweak.ValueName,
                         "Ledger-DPAPI",
                         tweak.RecommendedValue,
-                        isApplied: true,
+                        isApplied: tweak.IsApplied,
                         backupId: tweak.LastOperationId
                     );
-                    StatusMessage = $"Ajuste '{tweak.TweakId}' aplicado, gravado no Ledger DPAPI + SQLite e confirmado por releitura.";
+                    StatusMessage = tweak.IsApplied
+                        ? $"Ajuste '{tweak.TweakId}' aplicado e confirmado por nova leitura do Registro."
+                        : $"O agente informou que aplicou '{tweak.TweakId}', mas a releitura não confirmou o valor recomendado. Estado: {tweak.VerificationState}.";
                 }
                 else
                 {
-                    tweak.VerificationState = "Falha / Requer UAC";
+                    tweak.InspectionState = "Erro de Aplicação";
+                    tweak.VerificationState = GetTweakStateDisplay(tweak.InspectionState, Loc.CurrentCulture == "pt-BR");
+                    tweak.DiagnosticDetailText = details;
                     StatusMessage = $"Não foi possível aplicar '{tweak.TweakId}': {details}";
                 }
             }
-        });
+        }, param => param is TweakItemViewModel item && item.CanApply);
 
         RestoreSingleTweakCommand = new RelayCommand(async param =>
         {
             if (param is TweakItemViewModel tweak)
             {
                 // Secure backend-only restoration via DPAPI+HMAC ledger or verified snapshot
+                // Individual reversal must use the trusted operation ledger for this tweak.
+                // A previously selected snapshot is unrelated and must never silently override that history.
                 var (ok, details) = await _agentClient.RestoreCatalogTweakAsync(
                     tweak.TweakId,
                     tweak.LastOperationId,
-                    SelectedBackup?.SnapshotId
+                    snapshotId: null
                 );
                 RefreshAuditLogs();
                 if (ok)
                 {
-                    tweak.IsApplied = false;
-                    tweak.VerificationState = "Restaurado (Ledger Seguro)";
+                    var restoredInspection = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
+                    UpdateTweakInspection(tweak, restoredInspection, Loc.CurrentCulture == "pt-BR");
                     OnPropertyChanged(nameof(AppliedTweaksCount));
                     OnPropertyChanged(nameof(AppliedTweaksBadgeText));
                     await _databaseService.UpsertOptimizationActionAsync(
@@ -809,17 +1156,23 @@ public class MainViewModel : INotifyPropertyChanged
                         tweak.ValueName,
                         "Ledger-DPAPI",
                         tweak.RecommendedValue,
-                        isApplied: false,
+                        isApplied: tweak.IsApplied,
                         backupId: tweak.LastOperationId
                     );
-                    StatusMessage = $"Ajuste '{tweak.TweakId}' revertido ao estado original autêntico do backend e atualizado no SQLite.";
+                    StatusMessage = tweak.IsApplied
+                        ? $"A restauração de '{tweak.TweakId}' foi executada, mas o valor recomendado ainda aparece no Registro. Verifique o estado original e as permissões."
+                        : $"Restauração de '{tweak.TweakId}' executada; releitura do Registro indica que o valor recomendado não está ativo.";
                 }
                 else
                 {
+                    tweak.CanRestore = false;
+                    tweak.InspectionState = "Erro de Restauração";
+                    tweak.VerificationState = GetTweakStateDisplay(tweak.InspectionState, Loc.CurrentCulture == "pt-BR");
+                    tweak.DiagnosticDetailText = details;
                     StatusMessage = $"Falha ao reverter '{tweak.TweakId}': {details}";
                 }
             }
-        });
+        }, param => param is TweakItemViewModel item && item.CanRestore);
 
         RefreshBackupsCommand = new RelayCommand(_ => RefreshBackupsList());
 
@@ -928,53 +1281,170 @@ public class MainViewModel : INotifyPropertyChanged
                 : $"Falha ao restaurar item '{targetId}': {report.ErrorMessage}";
         });
 
-        SimulateDryRunCommand = new RelayCommand(param =>
+        SimulateDryRunCommand = new RelayCommand(async param =>
         {
+            if (_isCleanerBusy) return;
+
             var targets = param is CleanerCategoryViewModel single
                 ? new[] { single }
                 : CleanerCategories.ToArray();
 
-            long totalEstimated = 0;
-            int totalFiles = 0;
-            foreach (var cat in targets)
+            _isCleanerBusy = true;
+            OnPropertyChanged(nameof(CanRunCleanerOperation));
+            CommandManager.InvalidateRequerySuggested();
+            DebloatSummaryText = "Consultando o agente privilegiado e analisando os diretórios autorizados...";
+
+            try
             {
-                var dryRun = DiskCleanerEngine.SimulateCategoryDryRun(cat.CategoryKey);
-                totalEstimated += dryRun.EstimatedBytes;
-                totalFiles += dryRun.CandidateFilesCount;
-                double mb = dryRun.EstimatedBytes / (1024.0 * 1024.0);
-                cat.DryRunEstimateText = $"Estimativa (Dry-Run): {mb:F2} MB ({dryRun.CandidateFilesCount} arquivos, {dryRun.SkippedSymlinksCount} symlinks ignorados)";
+                var (scanOk, scanDetails) = await _agentClient.ScanCleanerCategoriesAsync();
+                if (!scanOk)
+                    throw new InvalidOperationException(scanDetails);
+
+                using var scanDocument = JsonDocument.Parse(scanDetails);
+                if (!scanDocument.RootElement.TryGetProperty("categories", out var categoriesElement) ||
+                    categoriesElement.ValueKind != JsonValueKind.Array)
+                    throw new InvalidOperationException("O agente não retornou a lista de categorias da simulação.");
+
+                long totalEstimated = 0;
+                int totalFiles = 0;
+                int failedCategories = 0;
+                foreach (var cat in targets)
+                {
+                    var report = categoriesElement.EnumerateArray().FirstOrDefault(item =>
+                        item.TryGetProperty("categoryKey", out var key) &&
+                        string.Equals(key.GetString(), cat.CategoryKey, StringComparison.OrdinalIgnoreCase));
+
+                    if (report.ValueKind != JsonValueKind.Object)
+                    {
+                        cat.LastOperationStatus = "Sem resultado do agente";
+                        failedCategories++;
+                        continue;
+                    }
+
+                    long estimatedBytes = report.TryGetProperty("estimatedBytes", out var bytesEl) && bytesEl.TryGetInt64(out var bytes)
+                        ? bytes : 0;
+                    int candidateFiles = report.TryGetProperty("candidateFilesCount", out var filesEl) && filesEl.TryGetInt32(out var files)
+                        ? files : 0;
+                    int skippedLinks = report.TryGetProperty("skippedSymlinksCount", out var linksEl) && linksEl.TryGetInt32(out var links)
+                        ? links : 0;
+                    bool success = report.TryGetProperty("success", out var successEl) && successEl.ValueKind == JsonValueKind.True;
+                    totalEstimated += estimatedBytes;
+                    totalFiles += candidateFiles;
+
+                    double mb = estimatedBytes / (1024.0 * 1024.0);
+                    cat.ScannedFilesCount = candidateFiles;
+                    cat.EstimatedBytesFormatted = $"{mb:F2} MB";
+                    cat.DryRunEstimateText = $"Estimativa: {mb:F2} MB ({candidateFiles} arquivos; {skippedLinks} links ignorados)";
+                    cat.LastOperationStatus = success ? "Simulação concluída pelo agente" : "Leitura parcial / falha";
+                    if (!success)
+                    {
+                        failedCategories++;
+                        if (report.TryGetProperty("errors", out var errorsEl) && errorsEl.ValueKind == JsonValueKind.Array &&
+                            errorsEl.GetArrayLength() > 0)
+                            cat.LastOperationStatus += $": {errorsEl[0].GetString()}";
+                    }
+                }
+
+                DebloatSummaryText = $"Simulação concluída pelo agente — SOMENTE ESTIMATIVA: {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos. " +
+                    $"{failedCategories} categoria(s) com leitura parcial/falha. Nenhum arquivo foi excluído.";
             }
+            catch (Exception ex)
+            {
+                DebloatSummaryText = $"Falha ao analisar pelo agente privilegiado: {ex.Message}";
+            }
+            finally
+            {
+                _isCleanerBusy = false;
+                OnPropertyChanged(nameof(CanRunCleanerOperation));
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }, _ => CanRunCleanerOperation);
 
-            DebloatSummaryText = $"Simulação concluída (SOMENTE ESTIMATIVA): {(totalEstimated / (1024.0 * 1024.0)):F2} MB em {totalFiles} arquivos candidatos.";
-        });
-
-        PurgeCategoryCommand = new RelayCommand(param =>
+        PurgeCategoryCommand = new RelayCommand(async param =>
         {
+            if (_isCleanerBusy) return;
+
             if (!ConfirmCleanerDeletion)
             {
-                DebloatSummaryText = Loc.CurrentCulture == "pt-BR"
-                    ? "Ação bloqueada: marque a caixa de confirmação explícita antes de excluir arquivos."
-                    : "Action blocked: check the explicit confirmation box before deleting files.";
+                DebloatSummaryText = "Ação bloqueada: marque a confirmação explícita antes de excluir arquivos.";
                 return;
             }
 
-            if (param is CleanerCategoryViewModel cat)
+            if (param is not CleanerCategoryViewModel cat) return;
+
+            _isCleanerBusy = true;
+            OnPropertyChanged(nameof(CanRunCleanerOperation));
+            CommandManager.InvalidateRequerySuggested();
+            DebloatSummaryText = $"Solicitando ao agente privilegiado a limpeza autorizada de '{cat.CategoryKey}'...";
+
+            try
             {
-                var report = DiskCleanerEngine.PurgeCategoryWithReport(cat.CategoryKey, confirmServiceStop: ConfirmCleanerDeletion);
-                double freedMb = report.FreedBytes / (1024.0 * 1024.0);
-                cat.RealFreedText = $"Liberado real: {freedMb:F2} MB ({report.DeletedFilesCount} removidos, {report.SkippedLockedCount} em uso, {report.SkippedSymlinksCount} symlinks bloqueados)";
+                var (requestOk, responseText) = await _agentClient.PurgeCleanerCategoryAsync(
+                    cat.CategoryKey,
+                    confirmUpdateCache: string.Equals(cat.CategoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) &&
+                        ConfirmCleanerDeletion);
+                if (!requestOk)
+                    throw new InvalidOperationException(responseText);
+
+                using var report = JsonDocument.Parse(responseText);
+                var root = report.RootElement;
+                bool success = root.TryGetProperty("success", out var successEl) && successEl.ValueKind == JsonValueKind.True;
+                bool partial = root.TryGetProperty("partialSuccess", out var partialEl) && partialEl.ValueKind == JsonValueKind.True;
+                long freedBytes = root.TryGetProperty("freedBytes", out var bytesEl) && bytesEl.TryGetInt64(out var bytes) ? bytes : 0;
+                int deletedFiles = root.TryGetProperty("deletedFilesCount", out var deletedEl) && deletedEl.TryGetInt32(out var deleted) ? deleted : 0;
+                int skippedLocked = root.TryGetProperty("skippedLockedCount", out var lockedEl) && lockedEl.TryGetInt32(out var locked) ? locked : 0;
+                int skippedLinks = root.TryGetProperty("skippedSymlinksCount", out var linksEl) && linksEl.TryGetInt32(out var links) ? links : 0;
+                string status = root.TryGetProperty("status", out var statusEl) ? statusEl.GetString() ?? "Failed" : "Failed";
+                double freedMb = freedBytes / (1024.0 * 1024.0);
+
+                cat.RealFreedText = $"Liberado real: {freedMb:F2} MB ({deletedFiles} arquivos removidos; {skippedLocked} em uso; {skippedLinks} links preservados)";
+                cat.LastOperationStatus = status switch
+                {
+                    "Completed" => "Limpeza concluída pelo agente",
+                    "NothingToClean" => "Nada para limpar",
+                    "Partial" => "Limpeza parcial pelo agente",
+                    "DirectoryMissing" => "Diretório inexistente",
+                    _ => "Falha na limpeza pelo agente"
+                };
 
                 CleanerAffectedFilesLog.Clear();
-                foreach (var logLine in report.AffectedItemsLog)
-                {
-                    CleanerAffectedFilesLog.Add(logLine);
-                }
+                if (root.TryGetProperty("affectedItemsLog", out var affectedEl) && affectedEl.ValueKind == JsonValueKind.Array)
+                    foreach (var item in affectedEl.EnumerateArray())
+                        CleanerAffectedFilesLog.Add(item.GetString() ?? item.ToString());
+                if (root.TryGetProperty("errors", out var errorsEl) && errorsEl.ValueKind == JsonValueKind.Array)
+                    foreach (var error in errorsEl.EnumerateArray())
+                        CleanerAffectedFilesLog.Add($"[ERRO] {error.GetString() ?? error.ToString()}");
+                if (root.TryGetProperty("warnings", out var warningsEl) && warningsEl.ValueKind == JsonValueKind.Array)
+                    foreach (var warning in warningsEl.EnumerateArray())
+                        CleanerAffectedFilesLog.Add($"[AVISO] {warning.GetString() ?? warning.ToString()}");
 
-                DebloatSummaryText = report.PartialSuccess
-                    ? $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados ({report.SkippedLockedCount} arquivos bloqueados por processos em execução)."
-                    : $"Limpeza concluída em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados.";
+                DebloatSummaryText = status switch
+                {
+                    "Completed" => $"Limpeza concluída pelo agente em '{cat.CategoryKey}': {freedMb:F2} MB efetivamente liberados em {deletedFiles} arquivos.",
+                    "NothingToClean" => $"Nada para limpar em '{cat.CategoryKey}': a pasta existe, mas não há arquivos elegíveis.",
+                    "Partial" => $"Limpeza parcial em '{cat.CategoryKey}': {freedMb:F2} MB liberados; {deletedFiles} arquivos removidos, {skippedLocked} em uso e {skippedLinks} links preservados.",
+                    "DirectoryMissing" => $"Limpeza não executada em '{cat.CategoryKey}': o diretório autorizado não existe.",
+                    _ => $"Falha na limpeza de '{cat.CategoryKey}'. {(root.TryGetProperty("errors", out var err) && err.ValueKind == JsonValueKind.Array && err.GetArrayLength() > 0 ? err[0].GetString() : "Nenhum resultado completo foi confirmado.")}"
+                };
+
+                if (!success && !partial && status == "Failed")
+                    cat.RealFreedText = "Nenhuma limpeza confirmada pelo agente.";
             }
-        });
+            catch (Exception ex)
+            {
+                cat.LastOperationStatus = "Falha na limpeza";
+                cat.RealFreedText = "Nenhum resultado confirmado.";
+                DebloatSummaryText = $"Falha ao limpar '{cat.CategoryKey}' pelo agente privilegiado: {ex.Message}";
+                CleanerAffectedFilesLog.Clear();
+                CleanerAffectedFilesLog.Add($"[ERRO] {ex.Message}");
+            }
+            finally
+            {
+                _isCleanerBusy = false;
+                OnPropertyChanged(nameof(CanRunCleanerOperation));
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }, _ => CanRunCleanerOperation);
 
         RunNetworkDiagCommand = new RelayCommand(async _ =>
         {
@@ -1037,10 +1507,16 @@ public class MainViewModel : INotifyPropertyChanged
         });
 
         RefreshProcessesCommand = new RelayCommand(_ => RefreshRunningProcesses());
+        RefreshRunningProcesses();
 
         StartPresentMonCaptureCommand = new RelayCommand(async _ =>
         {
             if (IsCapturingPresentMon) return;
+            if (string.IsNullOrWhiteSpace(ManualProcessName))
+            {
+                PresentMonStatusText = "Selecione um jogo aberto na lista antes de iniciar a captura.";
+                return;
+            }
             IsCapturingPresentMon = true;
             _presentMonCts = new CancellationTokenSource();
 
@@ -1095,7 +1571,8 @@ public class MainViewModel : INotifyPropertyChanged
             _presentMonCts?.Cancel();
         });
 
-        RefreshDriversCommand = new RelayCommand(_ => RefreshDriversList());
+        RefreshDriversCommand = new RelayCommand(async _ => await RefreshDriversListAsync());
+        _ = RefreshDriversListAsync();
         RefreshAuditLogsCommand = new RelayCommand(_ => RefreshAuditLogs());
 
         RequestElevationCommand = new RelayCommand(_ =>
@@ -1116,19 +1593,56 @@ public class MainViewModel : INotifyPropertyChanged
             }
         });
 
-        RefreshGameConnectionsCommand = new RelayCommand(_ =>
+        RefreshGameConnectionsCommand = new RelayCommand(async _ =>
         {
-            DetectedGameSockets.Clear();
-            foreach (var conn in GameNetworkAcceleratorService.DetectRunningGamesAndConnections())
+            if (_isRefreshingGameConnections) return;
+
+            _isRefreshingGameConnections = true;
+            OnPropertyChanged(nameof(CanRefreshGameConnections));
+            OnPropertyChanged(nameof(RefreshGameConnectionsButtonText));
+            GameConnectionsStatusText = "Lendo catálogos dos launchers e conexões ativas em segundo plano...";
+
+            try
             {
-                DetectedGameSockets.Add(conn);
+                var scan = await Task.Run(() => (
+                    Games: GameNetworkAcceleratorService.DiscoverInstalledGames(),
+                    Connections: GameNetworkAcceleratorService.DetectRunningGamesAndConnections(),
+                    Nodes: GameNetworkAcceleratorService.GetRegisteredRelayNodes()
+                ));
+
+                InstalledGames.Clear();
+                foreach (var game in scan.Games)
+                    InstalledGames.Add(game);
+
+                DetectedGameSockets.Clear();
+                foreach (var connection in scan.Connections)
+                    DetectedGameSockets.Add(connection);
+
+                RelayNodes.Clear();
+                foreach (var node in scan.Nodes)
+                    RelayNodes.Add(node);
+
+                GameConnectionsStatusText =
+                    $"Varredura concluída: {InstalledGames.Count} jogo(s) instalado(s), " +
+                    $"{DetectedGameSockets.Count} conexão(ões) de jogos e {RelayNodes.Count} nó(s) de rota.";
+                StatusMessage = GameConnectionsStatusText;
             }
-            RelayNodes.Clear();
-            foreach (var node in GameNetworkAcceleratorService.GetRegisteredRelayNodes())
+            catch (Exception ex)
             {
-                RelayNodes.Add(node);
+                GameConnectionsStatusText = $"Falha ao atualizar a biblioteca de jogos: {ex.Message}";
+                StatusMessage = GameConnectionsStatusText;
             }
-        });
+            finally
+            {
+                _isRefreshingGameConnections = false;
+                OnPropertyChanged(nameof(CanRefreshGameConnections));
+                OnPropertyChanged(nameof(RefreshGameConnectionsButtonText));
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }, _ => CanRefreshGameConnections);
+
+        // Discover installed games automatically in the background at startup.
+        RefreshGameConnectionsCommand.Execute(null);
 
         EvaluateGameRouteCommand = new RelayCommand(async _ =>
         {
@@ -1194,80 +1708,163 @@ public class MainViewModel : INotifyPropertyChanged
 
         ApplySafeBoostProfileCommand = new RelayCommand(async _ =>
         {
-            var safeTweaks = CatalogTweaks
-                .Where(t => !t.IsApplied &&
-                    (string.Equals(t.RiskLevel, "Safe", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-
-            if (safeTweaks.Count == 0)
+            if (_isApplyingSafeBoostProfile)
             {
                 StatusMessage = Loc.CurrentCulture == "pt-BR"
-                    ? "As otimizações seguras já estão aplicadas ou não há itens seguros disponíveis."
-                    : "Safe optimizations are already applied or no safe items are available.";
+                    ? "O perfil seguro já está em execução. Aguarde a conclusão antes de iniciar novamente."
+                    : "The safe profile is already running. Wait for it to finish before starting it again.";
                 return;
             }
 
-            StatusMessage = Loc.CurrentCulture == "pt-BR"
-                ? "Criando e verificando um ponto de restauração antes das otimizações..."
-                : "Creating and verifying a restore point before applying optimizations.";
-
-            var (snapshotCreated, snapshotDetails) = await _agentClient.CreateSnapshotAsync();
-            RefreshBackupsList();
-            RefreshAuditLogs();
-
-            if (!snapshotCreated)
+            _isApplyingSafeBoostProfile = true;
+            try
             {
+                if (_isRefreshingTweakStates)
+                {
+                    StatusMessage = Loc.CurrentCulture == "pt-BR"
+                        ? "Aguarde a consulta do Registro terminar antes de iniciar o perfil em lote."
+                        : "Wait for the Registry inspection to finish before starting the batch profile.";
+                    return;
+                }
+    
+                // Refresh the read-only Registry baseline immediately before selecting
+                // tweaks; never rely on a potentially stale screen state for a batch write.
+                await RefreshAllTweakStatesAsync();
+    
+                var safeTweaks = CatalogTweaks
+                    .Where(t => t.CanApply &&
+                        (string.Equals(t.RiskLevel, "Safe", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(t.RiskLevel, "Seguro", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(t.RiskLevel, "Low", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(t.RiskLevel, "Baixo", StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+    
+                if (safeTweaks.Count == 0)
+                {
+                    StatusMessage = Loc.CurrentCulture == "pt-BR"
+                        ? "Nenhum ajuste seguro está elegível agora. Os itens já aplicados ou com estado do Registro não confirmado ficam bloqueados."
+                        : "No safe tweak is currently eligible. Already-applied items and items without a confirmed Registry baseline remain blocked.";
+                    return;
+                }
+    
                 StatusMessage = Loc.CurrentCulture == "pt-BR"
-                    ? $"Nenhuma alteração foi aplicada porque o backup não foi confirmado: {snapshotDetails}"
-                    : $"No changes were applied because the backup could not be verified: {snapshotDetails}";
+                    ? "Criando e verificando um ponto de restauração antes das otimizações..."
+                    : "Creating and verifying a restore point before applying optimizations.";
+    
+                var (snapshotCreated, snapshotDetails) = await _agentClient.CreateSnapshotAsync();
+                RefreshBackupsList();
+                RefreshAuditLogs();
+    
+                if (!snapshotCreated)
+                {
+                    StatusMessage = Loc.CurrentCulture == "pt-BR"
+                        ? $"Nenhuma alteração foi aplicada porque o backup não foi confirmado: {snapshotDetails}"
+                        : $"No changes were applied because the backup could not be verified: {snapshotDetails}";
+                    return;
+                }
+    
+                int appliedCount = 0;
+                int failedCount = 0;
+    
+                foreach (var tweak in safeTweaks)
+                {
+                    var (success, details) = await _agentClient.ApplyCatalogTweakAsync(tweak.TweakId, tweak.RecommendedValue);
+                    if (!success)
+                    {
+                        tweak.VerificationState = "Falha / Requer UAC";
+                        failedCount++;
+                        continue;
+                    }
+    
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(details);
+                        if (doc.RootElement.TryGetProperty("operationId", out var operationId))
+                            tweak.LastOperationId = operationId.GetString();
+                    }
+                    catch { }
+    
+                    // A successful agent response confirms the write request, not the
+                    // effective Registry state. Re-read the value before reporting success.
+                    var readBack = RegistryOptimizer.InspectCatalogTweak(tweak.TweakId);
+                    UpdateTweakInspection(tweak, readBack, Loc.CurrentCulture == "pt-BR");
+    
+                    if (!tweak.IsApplied)
+                    {
+                        failedCount++;
+                        StatusMessage = Loc.CurrentCulture == "pt-BR"
+                            ? $"O ajuste '{tweak.Name}' foi enviado ao agente, mas a releitura não confirmou o valor recomendado. Estado: {tweak.VerificationState}."
+                            : $"The agent accepted '{tweak.Name}', but read-back did not confirm the recommended value. State: {tweak.VerificationState}.";
+                        continue;
+                    }
+    
+                    await _databaseService.UpsertOptimizationActionAsync(
+                        tweak.TweakId,
+                        tweak.Name,
+                        tweak.Category,
+                        tweak.RegistryPath,
+                        tweak.ValueName,
+                        "Ledger-DPAPI",
+                        tweak.RecommendedValue,
+                        isApplied: true,
+                        backupId: tweak.LastOperationId
+                    );
+                    appliedCount++;
+                }
+    
+                RefreshAuditLogs();
+                OnPropertyChanged(nameof(AppliedTweaksCount));
+                OnPropertyChanged(nameof(AppliedTweaksBadgeText));
+                CommandManager.InvalidateRequerySuggested();
+    
+                StatusMessage = Loc.CurrentCulture == "pt-BR"
+                    ? $"Backup confirmado. {appliedCount} otimização(ões) segura(s) aplicada(s) e verificadas; {failedCount} falha(s)."
+                    : $"Backup verified. {appliedCount} safe optimization(s) applied and verified; {failedCount} failure(s).";
+            }
+            finally
+            {
+                _isApplyingSafeBoostProfile = false;
+                CommandManager.InvalidateRequerySuggested();
+            }
+        });
+
+        InstallSoftwareCommand = new RelayCommand(async parameter =>
+        {
+            string packageId = parameter as string ?? string.Empty;
+            var package = WingetSoftwareCenterService.OfficialCatalog.FirstOrDefault(
+                item => string.Equals(item.PackageId, packageId, StringComparison.OrdinalIgnoreCase));
+            if (package == null)
+            {
+                SoftwareInstallStatusText = "Este aplicativo não pertence ao catálogo oficial autorizado.";
                 return;
             }
 
-            int appliedCount = 0;
-            int failedCount = 0;
+            var confirmation = MessageBox.Show(
+                $"Deseja instalar {package.Name} pelo catálogo oficial do Windows?\n\nFornecedor: {package.Publisher}\nPacote: {package.PackageId}",
+                "Confirmar instalação",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
 
-            foreach (var tweak in safeTweaks)
+            if (confirmation != MessageBoxResult.Yes) return;
+
+            SoftwareInstallStatusText = $"Preparando a instalação de {package.Name}...";
+            try
             {
-                var (success, details) = await _agentClient.ApplyCatalogTweakAsync(tweak.TweakId, tweak.RecommendedValue);
-                if (!success)
-                {
-                    tweak.VerificationState = "Falha / Requer UAC";
-                    failedCount++;
-                    continue;
-                }
+                var progress = new Progress<string>(message => SoftwareInstallStatusText = message);
+                var result = await _softwareCenter.InstallPackageAsync(
+                    package.PackageId,
+                    userConfirmed: true,
+                    source: "winget",
+                    progress: progress);
 
-                try
-                {
-                    using var doc = JsonDocument.Parse(details);
-                    if (doc.RootElement.TryGetProperty("operationId", out var operationId))
-                        tweak.LastOperationId = operationId.GetString();
-                }
-                catch { }
-
-                tweak.IsApplied = true;
-                tweak.VerificationState = $"Verificado ({tweak.RecommendedValue})";
-                await _databaseService.UpsertOptimizationActionAsync(
-                    tweak.TweakId,
-                    tweak.Name,
-                    tweak.Category,
-                    tweak.RegistryPath,
-                    tweak.ValueName,
-                    "Ledger-DPAPI",
-                    tweak.RecommendedValue,
-                    isApplied: true,
-                    backupId: tweak.LastOperationId
-                );
-                appliedCount++;
+                SoftwareInstallStatusText = result.Success
+                    ? $"{package.Name} foi instalado com sucesso."
+                    : $"Não foi possível instalar {package.Name}: {result.OutputLog}";
             }
-
-            RefreshAuditLogs();
-            OnPropertyChanged(nameof(AppliedTweaksCount));
-            OnPropertyChanged(nameof(AppliedTweaksBadgeText));
-
-            StatusMessage = Loc.CurrentCulture == "pt-BR"
-                ? $"Backup confirmado. {appliedCount} otimização(ões) segura(s) aplicada(s) e verificadas; {failedCount} falha(s)."
-                : $"Backup verified. {appliedCount} safe optimization(s) applied and verified; {failedCount} failure(s).";
+            catch (Exception ex)
+            {
+                SoftwareInstallStatusText = $"Falha ao instalar {package.Name}: {ex.Message}";
+            }
         });
 
         RunBenchmarkCommand = new RelayCommand(async _ =>
@@ -1285,28 +1882,32 @@ public class MainViewModel : INotifyPropertyChanged
 
                 sw.Stop();
                 long cpuMs = Math.Max(1, sw.ElapsedMilliseconds);
-                int opsScore = (int)Math.Round(250_000.0 / cpuMs * 10.0);
+                long iterationsPerSecond = (long)Math.Round(2_500_000.0 / (cpuMs / 1000.0));
 
                 var memSw = System.Diagnostics.Stopwatch.StartNew();
                 byte[] buffer = new byte[32 * 1024 * 1024];
-                for (int i = 0; i < buffer.Length; i += 64)
+                for (int i = 0; i < buffer.Length; i++)
                     buffer[i] = (byte)(i & 0xFF);
 
                 memSw.Stop();
-                double memBandwidthGbS = Math.Round((32.0 / 1024.0) / Math.Max(0.0005, memSw.Elapsed.TotalSeconds), 2);
-                return (opsScore, cpuMs, memBandwidthGbS, checksum: acc);
+                double bufferSizeGb = buffer.Length / (1024.0 * 1024.0 * 1024.0);
+                double memBandwidthGbS = Math.Round(bufferSizeGb / Math.Max(0.0005, memSw.Elapsed.TotalSeconds), 2);
+                return (iterationsPerSecond, cpuMs, memBandwidthGbS, checksum: acc);
             });
 
             BenchmarkResultSummary = Loc.CurrentCulture == "pt-BR"
-                ? $"CPU: {result.opsScore} pontos ({result.cpuMs} ms) · Memória: {result.memBandwidthGbS:F2} GB/s · Teste local concluído."
-                : $"CPU: {result.opsScore} points ({result.cpuMs} ms) · Memory: {result.memBandwidthGbS:F2} GB/s · Local test completed.";
+                ? $"CPU: {result.iterationsPerSecond:N0} iterações/s ({result.cpuMs} ms) · Escrita sequencial em RAM: {result.memBandwidthGbS:F2} GB/s · Teste concluído."
+                : $"CPU: {result.iterationsPerSecond:N0} iterations/s ({result.cpuMs} ms) · Sequential RAM write: {result.memBandwidthGbS:F2} GB/s · Test completed.";
+            BenchmarkCpuScoreText = result.iterationsPerSecond.ToString("N0") + " it/s";
+            BenchmarkCpuTimeText = result.cpuMs.ToString("N0") + " ms";
+            BenchmarkMemoryBandwidthText = result.memBandwidthGbS.ToString("F2") + " GB/s";
         });
 
         MeasureInputCadenceCommand = new RelayCommand(_ =>
         {
             PeripheralCadenceSummary = Loc.CurrentCulture == "pt-BR"
-                ? $"Monitor: {DisplayInfoText} · Frequência do contador de alta resolução: {System.Diagnostics.Stopwatch.Frequency / 1_000_000.0:F2} MHz. Esta verificação não mede a taxa de polling do mouse/teclado nem detecta perda de eventos."
-                : $"Monitor: {DisplayInfoText} · High-resolution counter frequency: {System.Diagnostics.Stopwatch.Frequency / 1_000_000.0:F2} MHz. This check does not measure mouse/keyboard polling rate or detect dropped input events.";
+                ? $"Tela detectada: {DisplayInfoText}. Clique na área de teste e pressione teclas ou botões do mouse para conferir a resposta."
+                : $"Detected display: {DisplayInfoText}. Click the test area and press keys or mouse buttons to check input response.";
         });
 
         GenerateDiagnosticInsightsCommand = new RelayCommand(_ => RefreshAssistantInsights());
@@ -1336,6 +1937,38 @@ public class MainViewModel : INotifyPropertyChanged
         };
         _telemetryRefreshTimer.Start();
         _ = RefreshTelemetryAndStatusAsync();
+
+        // Run the single initial Registry inspection after construction on the UI dispatcher.
+        // The actual reads execute inside Task.Run; the continuation updates bound properties safely.
+        Application.Current?.Dispatcher.BeginInvoke(
+            DispatcherPriority.Background,
+            new Action(async () => await RefreshAllTweakStatesAsync()));
+    }
+
+    private static string ResolveSoftwareIconUrl(string packageId)
+    {
+        string? slug = packageId switch
+        {
+            "Discord.Discord" => "discord/5865F2",
+            "Valve.Steam" => "steam/FFFFFF",
+            "EpicGames.EpicGamesLauncher" => "epicgames/FFFFFF",
+            "ElectronicArts.EADesktop" => "ea/FFFFFF",
+            "Ubisoft.Connect" => "ubisoft/FFFFFF",
+            "GOG.Galaxy" => "gogdotcom/FFFFFF",
+            "Microsoft.GamingApp" => "xbox/107C10",
+            "Opera.OperaGX" => "operagx/FA1E4E",
+            "Mozilla.Firefox" => "firefox/FF7139",
+            "Google.Chrome" => "googlechrome/FFFFFF",
+            "Brave.Brave" => "brave/FB542B",
+            "OBSProject.OBSStudio" => "obsstudio/FFFFFF",
+            "REALiX.HWiNFO" => "hwinfo/FFFFFF",
+            "Intel.PresentMon" => "intel/0071C5",
+            "CPUID.CPU-Z" => "https://www.google.com/s2/favicons?domain=cpuid.com&sz=64",
+            "TechPowerUp.GPU-Z" => "https://www.google.com/s2/favicons?domain=techpowerup.com&sz=64",
+            _ => null
+        };
+
+        return string.IsNullOrEmpty(slug) ? string.Empty : (slug.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? slug : $"https://cdn.simpleicons.org/{slug}");
     }
 
     private void InitializeVerifiedSoftwareCatalog()
@@ -1349,8 +1982,52 @@ public class MainViewModel : INotifyPropertyChanged
                 pkg.PackageId,
                 pkg.Publisher,
                 $"winget install --id \"{pkg.PackageId}\" --exact --source winget --accept-package-agreements --accept-source-agreements",
-                pkg.Description
+                pkg.Description,
+                ResolveSoftwareIconUrl(pkg.PackageId)
             ));
+        }
+    }
+
+    private async Task RunSystemDoctorAuditAsync()
+    {
+        SystemDoctorSummaryText = "Verificando o computador... Aguarde.";
+        SystemDoctorFindings.Clear();
+
+        try
+        {
+            HardwareSnapshot snapshot;
+            if (_hardwareMonitor != null)
+            {
+                snapshot = await _hardwareMonitor.CaptureSnapshotAsync();
+            }
+            else
+            {
+                snapshot = new HardwareSnapshot(
+                    DateTime.UtcNow, null, null, null, null, null, null, null, null,
+                    Array.Empty<SensorDataPoint>(),
+                    MonitorStatus: SensorReadingStatus.ReadingUnavailable,
+                    DiagnosticMessage: "Monitor de hardware não disponível.");
+            }
+
+            SystemDoctorReport report = await _systemDoctor.RunComprehensiveAuditAsync(snapshot);
+            foreach (SystemDoctorFinding finding in report.Findings)
+                SystemDoctorFindings.Add(finding);
+
+            SystemDoctorSummaryText = $"{report.ExecutiveSummary} Verificação realizada em {report.AuditedAtUtc.ToLocalTime():dd/MM/yyyy HH:mm}. Os resultados abaixo mostram somente os itens que o Windows e os sensores conseguiram verificar.";
+            if (report.Findings.Count == 0)
+                SystemDoctorSummaryText += " Nenhum alerta foi encontrado nos itens verificados.";
+        }
+        catch (Exception ex)
+        {
+            SystemDoctorSummaryText = $"Não foi possível concluir o diagnóstico: {ex.Message}";
+            SystemDoctorFindings.Add(new SystemDoctorFinding(
+                "Diagnóstico",
+                "A verificação foi interrompida",
+                DiagnosticSeverityLevel.Alto,
+                ex.Message,
+                "Falha ao consultar um ou mais recursos do Windows ou sensores.",
+                "Feche e abra o aplicativo novamente. Se persistir, envie este erro ao suporte.",
+                false));
         }
     }
 
@@ -1372,16 +2049,16 @@ public class MainViewModel : INotifyPropertyChanged
             new ModuleCapabilityMatrixItem(2, "Hardware Monitor", "Funcional", "UniversalHardwareEngine + LHM + WMI", "Logs / Sessão", "Pipeline multi-fonte com proveniência por métrica; N/D quando não suportado."),
             new ModuleCapabilityMatrixItem(3, "GPU Health Lab", "Funcional", "GpuThermalAuditor (Multi-Vendor)", "Logs / Sessão", "Suporte universal AMD Radeon, NVIDIA GeForce/RTX, Intel Arc e Qualcomm Adreno; avalia Core vs Hotspot ΔT."),
             new ModuleCapabilityMatrixItem(4, "Boost Center", "Funcional (Perfis)", "RegistryOptimizer + CompatibilityEngine", "SQLite + Ledger DPAPI", "Aplica perfis reversíveis com verificação de compatibilidade e backup SHA-256."),
-            new ModuleCapabilityMatrixItem(5, "Game Center", "Funcional", "GameProfileManager + GameNetworkAccelerator", "SQLite", "Detecta jogos instalados e em execução com sockets TCP/UDP ativos."),
+            new ModuleCapabilityMatrixItem(5, "Game Center", "Funcional (biblioteca + processos)", "GameNetworkAcceleratorService", "Sessão", "Descobre jogos por catálogos Steam, Epic, GOG, Ubisoft, EA e Xbox/Microsoft Store; identifica processos e conexões TCP/UDP em execução."),
             new ModuleCapabilityMatrixItem(6, "Performance Lab", "Funcional", "PresentMonSessionParser", "Arquivos CSV", "Captura frametimes reais (Média, 1% Low, 0.1% Low) via Intel PresentMon CLI."),
-            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Funcional / Determinístico", "Diagnóstico Sintético Local", "SQLite", "Medição determinística de CPU, RAM e Armazenamento sem scores inventados."),
-            new ModuleCapabilityMatrixItem(8, "Diagnostics / System Doctor", "Funcional", "SystemDoctorService + IntegrityVerifier", "Registro + SQLite + EventLog", "Diagnóstico imediato em leitura e reparos assistidos DISM/SFC/CHKDSK com confirmação UAC."),
-            new ModuleCapabilityMatrixItem(9, "Windows Tweaks", "Funcional (11 Categorias)", "RegistryOptimizer + CompatibilityEngine", "Ledger DPAPI+HMAC + SQLite", "11 categorias com validação de estado Ativo/Inativo/Parcial, backup prévio e reversão individual."),
-            new ModuleCapabilityMatrixItem(10, "Debloat & Cleaner", "Funcional", "DiskCleanerEngine", "Relatório de Sessão", "Dry-Run separado de Purge; bloqueia ReparsePoints/Symlinks."),
+            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Parcial (CPU e memória)", "Benchmark local da MainViewModel", "Sessão", "Mede operações de CPU e largura de banda de memória; ainda não executa benchmarks reais de GPU nem de armazenamento."),
+            new ModuleCapabilityMatrixItem(8, "Diagnostics / System Doctor", "Funcional (auditoria em leitura)", "SystemDoctorService + IntegrityVerifier", "Registro + EventLog + sessão", "Executa auditoria abrangente sob demanda, apresenta evidências e ações recomendadas; a verificação não altera configurações do Windows."),
+            new ModuleCapabilityMatrixItem(9, "Windows Tweaks", "Funcional (leitura, aplicação e reversão)", "RegistryOptimizer + Agente Privilegiado", "Ledger DPAPI+HMAC + SQLite", "Consulta estados reais dos 23 ajustes, permite atualizar a leitura sem gravar no Registro e exibe explicações curtas em português, com aplicação e reversão verificadas pelo agente."),
+            new ModuleCapabilityMatrixItem(10, "Debloat & Cleaner", "Funcional (6 categorias)", "DiskCleanerEngine", "Relatório de Sessão", "Faz varredura e exclusão real em seis áreas autorizadas, incluindo Prefetch e cache de Entrega do Windows; arquivos em uso são preservados."),
             new ModuleCapabilityMatrixItem(11, "Network Lab", "Funcional", "NetworkDiagnosticsService", "Histórico em Memória", "ICMP Echo, TCP:443 multi-alvo, DNS e Throughput separados; zero perda TCP artificial."),
-            new ModuleCapabilityMatrixItem(12, "Game Network Accelerator", "Funcional c/ 5 Modos", "GameNetworkAcceleratorService + WireGuard", "SQLite + ACL Restrita", "Modos Automático/Gaming/Baixa Latência/Estabilidade/Personalizado; analisa Wi-Fi vs Ethernet e protege PrivateKey."),
-            new ModuleCapabilityMatrixItem(13, "Peripheral Test", "Funcional", "Monitor & Input Cadence Inspector", "Sessão", "Avalia cadência de eventos de input e refresh rate Win32."),
-            new ModuleCapabilityMatrixItem(14, "Driver Center", "Funcional (Leitura)", "DriverScannerService (WMI)", "Somente Leitura", "Inventário de drivers assinados; não baixa nem instala drivers sem consentimento."),
+            new ModuleCapabilityMatrixItem(12, "Game Network Accelerator", "Parcial (sem provedor incluso)", "GameNetworkAcceleratorService + WireGuard", "SQLite + ACL Restrita", "Mede rota direta e permite avaliar um relay/VPS próprio; não inclui rede global de roteamento nem divisão por processo via WFP nesta versão."),
+            new ModuleCapabilityMatrixItem(13, "Peripheral Test", "Parcial (somente monitor)", "DisplaySettingsService + Stopwatch", "Sessão", "Mostra informações do monitor e frequência do contador do Windows; não mede polling real de mouse/teclado nem perda de eventos."),
+            new ModuleCapabilityMatrixItem(14, "Driver Center", "Parcial (inventário)", "DriverScannerService (WMI)", "Somente Leitura", "Lista drivers de algumas classes de dispositivos; ainda não identifica com segurança todos os dispositivos sem driver nem compara versões com as versões oficiais atuais."),
             new ModuleCapabilityMatrixItem(15, "Software Hub", "Funcional (14 Categorias)", "WingetSoftwareCenterService", "Fila Verificada", "Busca, verifica, instala, atualiza e desinstala pacotes oficiais via winget com confirmação."),
             new ModuleCapabilityMatrixItem(16, "Restore Center", "Funcional", "RegistrySnapshotEngine + Ledger", "JSON SHA-256 + DPAPI", "Verificação SHA-256 obrigatória, histórico de alterações e rollback transacional."),
             new ModuleCapabilityMatrixItem(17, "AI Assistant", "Consultivo Baseado em Evidências", "RecommendationEngine + Diagnóstico Local", "Somente Leitura", "Gera recomendações baseadas exclusivamente em evidências reais sem viés de fabricante.")
@@ -1400,6 +2077,7 @@ public class MainViewModel : INotifyPropertyChanged
         foreach (var tweak in CatalogTweaks)
         {
             tweak.Name = isPt ? tweak.NamePt : tweak.NameEn;
+            tweak.VerificationState = GetTweakStateDisplay(tweak.InspectionState, isPt);
         }
         foreach (var cat in CleanerCategories)
         {
@@ -1460,18 +2138,41 @@ public class MainViewModel : INotifyPropertyChanged
     private void RefreshRunningProcesses()
     {
         AvailableProcesses.Clear();
-        foreach (var p in PresentMonSessionParser.ListAvailableProcesses())
+        foreach (var process in PresentMonSessionParser.ListAvailableProcesses()
+            .Where(p => !string.IsNullOrWhiteSpace(p.MainWindowTitle)))
         {
-            AvailableProcesses.Add(p);
+            AvailableProcesses.Add(process);
         }
+        if (SelectedProcess is null && AvailableProcesses.Count == 1)
+            SelectedProcess = AvailableProcesses[0];
+        PresentMonStatusText = AvailableProcesses.Count > 0
+            ? $"{AvailableProcesses.Count} aplicativos com janela encontrados. Selecione o jogo aberto para medir FPS e frametime."
+            : "Nenhum jogo ou aplicativo com janela foi encontrado. Abra o jogo e atualize a lista.";
     }
 
-    private void RefreshDriversList()
+    private async Task RefreshDriversListAsync()
     {
-        InstalledDrivers.Clear();
-        foreach (var drv in DriverScannerService.QuerySignedDrivers())
+        try
         {
-            InstalledDrivers.Add(drv);
+            var drivers = await Task.Run(() => DriverScannerService.QuerySignedDrivers());
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                InstalledDrivers.Clear();
+                foreach (var driver in drivers) InstalledDrivers.Add(driver);
+                StatusMessage = DriverScannerService.LastError is { Length: > 0 } error
+                    ? $"Leitura parcial do Windows: {InstalledDrivers.Count} driver(s) encontrados. {error}"
+                    : InstalledDrivers.Count > 0
+                        ? $"Inventário concluído: {InstalledDrivers.Count} driver(s) encontrados no Windows."
+                        : "O Windows não retornou drivers. Verifique se o serviço de Instrumentação de Gerenciamento do Windows (WMI) está ativo e tente novamente.";
+            });
+        }
+        catch (Exception ex)
+        {
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                InstalledDrivers.Clear();
+                StatusMessage = $"Não foi possível consultar os drivers instalados: {ex.Message}";
+            });
         }
     }
 
@@ -1524,6 +2225,8 @@ public class MainViewModel : INotifyPropertyChanged
 
         // Update Hardware Sensors from real LibreHardwareMonitor (Zero Fake Fallbacks)
         AllHardwareSensors.Clear();
+        GpuHardwareSensors.Clear();
+        StorageDrives.Clear();
         if (_hardwareMonitor != null)
         {
             var snap = await _hardwareMonitor.CaptureSnapshotAsync();
@@ -1537,9 +2240,14 @@ public class MainViewModel : INotifyPropertyChanged
 
             if (snap.IsHardwareMonitorAvailable)
             {
+                foreach (var drive in snap.StorageDrives ?? Array.Empty<StorageTelemetryPoint>())
+                    StorageDrives.Add(drive);
+
                 foreach (var s in snap.Sensors)
                 {
                     AllHardwareSensors.Add(s);
+                    if (s.HardwareType.Contains("Gpu", StringComparison.OrdinalIgnoreCase))
+                        GpuHardwareSensors.Add(s);
                 }
 
                 string notSupported = Loc["SensorStatusNotSupported"];
@@ -1572,14 +2280,17 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     var thermalEval = GpuThermalAuditor.EvaluateThermalState(snap.GpuCoreTemp.Value, snap.GpuHotspotTemp.Value, snap.GpuModelName);
                     GpuHotspotDeltaText = $"+{thermalEval.Delta:F1} °C";
-                    GpuThermalDiagnosisText = $"Status: {thermalEval.Status} (Delta Core/Hotspot: +{thermalEval.Delta:F1} °C) — {thermalEval.Message}";
-                    OverallHealthScore = thermalEval.Delta < 25 ? "96" : "78";
+                    GpuThermalDiagnosisText = BuildGpuThermalUserMessage(thermalEval, Loc.CurrentCulture == "pt-BR");
+                    // A GPU hotspot delta alone is not a complete system-health score.
+                    // Keep the score unavailable until a transparent multi-component model exists.
+                    OverallHealthScore = "N/D";
                 }
                 else
                 {
                     GpuHotspotDeltaText = unavailable;
                     GpuThermalDiagnosisText = notSupported;
-                    OverallHealthScore = "92";
+                    // Missing GPU thermal sensors must never be converted into a fabricated health score.
+                    OverallHealthScore = "N/D";
                 }
 
                 if (snap.RamUsedGb.HasValue && snap.RamTotalGb.HasValue && snap.RamTotalGb.Value > 0)
@@ -1639,7 +2350,7 @@ public class MainViewModel : INotifyPropertyChanged
         RamAvailableText = unavailable;
         OnPropertyChanged(nameof(RamUsageWithPercent));
         UpdatePrimaryDiskAndProfileTelemetry(null, null);
-        OverallHealthScore = "--";
+        OverallHealthScore = "N/D";
         RefreshAssistantInsights();
         }
         finally

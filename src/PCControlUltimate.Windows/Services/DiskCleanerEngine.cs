@@ -21,7 +21,8 @@ public record DiskDryRunReport(
     long EstimatedBytes,
     int CandidateFilesCount,
     int SkippedSymlinksCount,
-    bool Success = true
+    bool Success = true,
+    IReadOnlyList<string>? Errors = null
 )
 {
     public int EstimatedFilesCount => CandidateFilesCount;
@@ -36,7 +37,10 @@ public record DiskPurgeReport(
     int SkippedLockedCount,
     int SkippedSymlinksCount,
     IReadOnlyList<string> AffectedItemsLog,
-    IReadOnlyList<string> Errors
+    IReadOnlyList<string> Errors,
+    string Status = "Completed",
+    bool DirectoryExisted = true,
+    IReadOnlyList<string>? Warnings = null
 )
 {
     public long BytesFreed => FreedBytes;
@@ -49,7 +53,9 @@ public static class DiskCleanerEngine
         "cache-dx-shaders",
         "temp-windows",
         "temp-user",
-        "update-cache"
+        "update-cache",
+        "temp-prefetch",
+        "temp-delivery-optimization"
     };
 
     public static IReadOnlyList<CleanerCategoryMetadata> GetAuthorizedCategories()
@@ -62,8 +68,12 @@ public static class DiskCleanerEngine
                 GetCategoryPath("temp-user") ?? "", false, true),
             new("temp-windows", "Arquivos Temporários do Sistema (C:\\Windows\\Temp)", "System Temporary Files (C:\\Windows\\Temp)",
                 GetCategoryPath("temp-windows") ?? "", true, true),
-            new("update-cache", "Cache de Downloads do Windows Update (SoftwareDistribution)", "Windows Update Download Cache (SoftwareDistribution)",
-                GetCategoryPath("update-cache") ?? "", true, true)
+            new("update-cache", "Downloads antigos do Windows Update", "Windows Update download cache",
+                GetCategoryPath("update-cache") ?? "", true, true),
+            new("temp-prefetch", "Cache de inicialização do Windows (Prefetch)", "Windows Prefetch cache",
+                GetCategoryPath("temp-prefetch") ?? "", true, true),
+            new("temp-delivery-optimization", "Cache de Entrega do Windows", "Windows Delivery Optimization cache",
+                GetCategoryPath("temp-delivery-optimization") ?? "", true, true)
         };
     }
 
@@ -75,9 +85,11 @@ public static class DiskCleanerEngine
         return categoryKey.ToLowerInvariant() switch
         {
             "cache-dx-shaders" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "D3DSCache"),
-            "temp-windows" => @"C:\Windows\Temp",
+            "temp-windows" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp"),
             "temp-user" => Path.GetTempPath(),
-            "update-cache" => @"C:\Windows\SoftwareDistribution\Download",
+            "update-cache" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SoftwareDistribution", "Download"),
+            "temp-prefetch" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch"),
+            "temp-delivery-optimization" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
             _ => null
         };
     }
@@ -132,7 +144,7 @@ public static class DiskCleanerEngine
 
             foreach (var personal in personalSubtrees)
             {
-                if (!string.IsNullOrEmpty(personal) && fullPath.StartsWith(personal, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(personal) && IsSameOrDescendantPath(fullPath, personal))
                     return false;
             }
 
@@ -142,6 +154,18 @@ public static class DiskCleanerEngine
         {
             return false;
         }
+    }
+
+    private static bool IsSameOrDescendantPath(string candidatePath, string parentPath)
+    {
+        string candidate = Path.GetFullPath(candidatePath);
+        string parent = Path.GetFullPath(parentPath);
+        string relative = Path.GetRelativePath(parent, candidate);
+        return relative == "." ||
+               (!Path.IsPathRooted(relative) &&
+                relative != ".." &&
+                !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+                !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal));
     }
 
     public static bool IsReparsePointOrSymlink(FileSystemInfo info)
@@ -163,27 +187,40 @@ public static class DiskCleanerEngine
     {
         string? targetDir = GetCategoryPath(categoryKey);
         if (string.IsNullOrEmpty(targetDir) || !IsPathSafe(targetDir))
-        {
             return new DiskDryRunReport(categoryKey, targetDir ?? "N/D", true, 0, 0, 0, Success: false);
-        }
 
+        return SimulateDirectoryDryRunCore(categoryKey, targetDir);
+    }
+
+    // Internal path injection keeps automated tests inside isolated temporary directories.
+    internal static DiskDryRunReport SimulateDirectoryDryRunForTesting(string categoryKey, string targetDir)
+    {
+        if (string.IsNullOrWhiteSpace(categoryKey) || !AllowedCategories.Contains(categoryKey) ||
+            string.IsNullOrWhiteSpace(targetDir) || !IsPathSafe(targetDir))
+            return new DiskDryRunReport(categoryKey, targetDir ?? "N/D", true, 0, 0, 0, Success: false);
+
+        return SimulateDirectoryDryRunCore(categoryKey, targetDir);
+    }
+
+    private static DiskDryRunReport SimulateDirectoryDryRunCore(string categoryKey, string targetDir)
+    {
         if (!Directory.Exists(targetDir))
-        {
-            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 0, Success: true);
-        }
+            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 0, Success: false,
+                Errors: new[] { "O diretório de teste/limpeza não existe." });
 
         var rootDir = new DirectoryInfo(targetDir);
         if (IsReparsePointOrSymlink(rootDir))
-        {
-            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 1, Success: false);
-        }
+            return new DiskDryRunReport(categoryKey, targetDir, true, 0, 0, 1, Success: false,
+                Errors: new[] { "O diretório raiz é um link simbólico ou junction." });
 
         long bytes = 0;
         int files = 0;
         int symlinks = 0;
-        ScanDirectoryRecursiveSafe(rootDir, ref bytes, ref files, ref symlinks);
+        var scanErrors = new List<string>();
+        ScanDirectoryRecursiveSafe(rootDir, ref bytes, ref files, ref symlinks, scanErrors);
 
-        return new DiskDryRunReport(categoryKey, targetDir, true, bytes, files, symlinks, Success: true);
+        return new DiskDryRunReport(categoryKey, targetDir, true, bytes, files, symlinks,
+            Success: scanErrors.Count == 0, Errors: scanErrors);
     }
 
     public static long ScanCategoryBytes(string categoryKey)
@@ -192,7 +229,7 @@ public static class DiskCleanerEngine
         return dryRun.EstimatedBytes;
     }
 
-    private static void ScanDirectoryRecursiveSafe(DirectoryInfo dir, ref long bytes, ref int filesCount, ref int symlinksCount)
+    private static void ScanDirectoryRecursiveSafe(DirectoryInfo dir, ref long bytes, ref int filesCount, ref int symlinksCount, List<string> errors)
     {
         try
         {
@@ -208,7 +245,10 @@ public static class DiskCleanerEngine
                     bytes += file.Length;
                     filesCount++;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    if (errors.Count < 100) errors.Add($"Falha ao inspecionar arquivo '{file.FullName}': {ex.Message}");
+                }
             }
 
             foreach (var subDir in dir.EnumerateDirectories())
@@ -220,12 +260,18 @@ public static class DiskCleanerEngine
                         symlinksCount++;
                         continue;
                     }
-                    ScanDirectoryRecursiveSafe(subDir, ref bytes, ref filesCount, ref symlinksCount);
+                    ScanDirectoryRecursiveSafe(subDir, ref bytes, ref filesCount, ref symlinksCount, errors);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    if (errors.Count < 100) errors.Add($"Falha ao inspecionar pasta '{subDir.FullName}': {ex.Message}");
+                }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            if (errors.Count < 100) errors.Add($"Falha ao enumerar pasta '{dir.FullName}': {ex.Message}");
+        }
     }
 
     public static DiskPurgeReport PurgeCategoryWithReport(string categoryKey, bool confirmServiceStop = false)
@@ -246,9 +292,32 @@ public static class DiskCleanerEngine
             return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
+        return PurgeAuthorizedDirectory(categoryKey, targetDir);
+    }
+
+    // Internal path injection is available only to the test assembly via InternalsVisibleTo.
+    internal static DiskPurgeReport PurgeDirectoryForTesting(string categoryKey, string targetDir)
+    {
+        if (string.IsNullOrWhiteSpace(categoryKey) || !AllowedCategories.Contains(categoryKey) ||
+            string.IsNullOrWhiteSpace(targetDir) || !IsPathSafe(targetDir) ||
+            string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase))
+        {
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0,
+                Array.Empty<string>(), new[] { "Categoria ou caminho de teste não autorizado." }, Status: "Failed");
+        }
+
+        return PurgeAuthorizedDirectory(categoryKey, targetDir);
+    }
+
+    private static DiskPurgeReport PurgeAuthorizedDirectory(string categoryKey, string targetDir)
+    {
+        var errors = new List<string>();
+        var affectedItems = new List<string>();
         if (!Directory.Exists(targetDir))
         {
-            return new DiskPurgeReport(true, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
+            errors.Add("O diretório autorizado não existe; nenhuma limpeza foi executada.");
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors,
+                Status: "DirectoryMissing", DirectoryExisted: false);
         }
 
         var rootDir = new DirectoryInfo(targetDir);
@@ -271,14 +340,21 @@ public static class DiskCleanerEngine
             ref deletedFiles,
             ref skippedLocked,
             ref skippedSymlinks,
-            affectedItems
+            affectedItems,
+            errors
         );
 
-        bool fullSuccess = errors.Count == 0 && skippedLocked == 0;
-        bool partialSuccess = deletedFiles > 0 && (skippedLocked > 0 || errors.Count > 0);
+        bool hasSkippedItems = skippedLocked > 0 || skippedSymlinks > 0;
+        bool fullSuccess = errors.Count == 0 && !hasSkippedItems && deletedFiles > 0;
+        bool partialSuccess = (deletedFiles > 0 && (hasSkippedItems || errors.Count > 0)) ||
+                              (deletedFiles == 0 && hasSkippedItems && errors.Count == 0);
+        bool nothingToClean = deletedFiles == 0 && skippedLocked == 0 && skippedSymlinks == 0 && errors.Count == 0;
+        string status = fullSuccess ? "Completed" :
+            partialSuccess ? "Partial" :
+            nothingToClean ? "NothingToClean" : "Failed";
 
         return new DiskPurgeReport(
-            Success: fullSuccess || partialSuccess,
+            Success: fullSuccess || partialSuccess || nothingToClean,
             PartialSuccess: partialSuccess,
             CategoryKey: categoryKey,
             FreedBytes: freedBytes,
@@ -286,8 +362,21 @@ public static class DiskCleanerEngine
             SkippedLockedCount: skippedLocked,
             SkippedSymlinksCount: skippedSymlinks,
             AffectedItemsLog: affectedItems.Take(100).ToList(),
-            Errors: errors
+            Errors: errors,
+            Status: status,
+            DirectoryExisted: true,
+            Warnings: BuildPurgeWarnings(skippedLocked, skippedSymlinks)
         );
+    }
+
+    private static IReadOnlyList<string> BuildPurgeWarnings(int skippedLocked, int skippedSymlinks)
+    {
+        var warnings = new List<string>();
+        if (skippedLocked > 0)
+            warnings.Add($"{skippedLocked} arquivo(s) em uso ou sem permissão foram preservados; os demais itens elegíveis foram processados.");
+        if (skippedSymlinks > 0)
+            warnings.Add($"{skippedSymlinks} link(s) simbólico(s) ou junction(s) foram preservados.");
+        return warnings;
     }
 
     private static void PurgeDirectoryRecursiveSafe(
@@ -298,13 +387,19 @@ public static class DiskCleanerEngine
         ref int deletedFiles,
         ref int skippedLocked,
         ref int skippedSymlinks,
-        List<string> affectedItems)
+        List<string> affectedItems,
+        List<string> errors)
     {
         try
         {
             string currentCanonical = Path.GetFullPath(currentDir.FullName);
-            if (!currentCanonical.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
+            string relativePath = Path.GetRelativePath(canonicalRoot, currentCanonical);
+            if (Path.IsPathRooted(relativePath) ||
+                relativePath == ".." ||
+                relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
+                relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
             {
+                errors.Add($"Caminho fora da raiz autorizada bloqueado: '{currentCanonical}'.");
                 return;
             }
 
@@ -328,9 +423,17 @@ public static class DiskCleanerEngine
                         affectedItems.Add($"[DEL] {fullName} ({size} B)");
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
+                    // Files in use or access-restricted are expected exclusions, not a fatal
+                    // category failure. Keep cleaning other eligible files and report the skip.
                     skippedLocked++;
+                    if (affectedItems.Count < 100)
+                        affectedItems.Add($"[PRESERVADO] {file.FullName} — arquivo em uso ou sem permissão: {ex.Message}");
+                }
+                catch (Exception ex)
+                {
+                    if (errors.Count < 100) errors.Add($"Falha inesperada ao excluir arquivo '{file.FullName}': {ex.Message}");
                 }
             }
 
@@ -352,7 +455,8 @@ public static class DiskCleanerEngine
                         ref deletedFiles,
                         ref skippedLocked,
                         ref skippedSymlinks,
-                        affectedItems
+                        affectedItems,
+                        errors
                     );
 
                     if (subDir.GetFileSystemInfos().Length == 0)
@@ -365,15 +469,17 @@ public static class DiskCleanerEngine
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     skippedLocked++;
+                    if (errors.Count < 100) errors.Add($"Falha ao processar pasta '{subDir.FullName}': {ex.Message}");
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
             skippedLocked++;
+            if (errors.Count < 100) errors.Add($"Falha ao acessar pasta '{currentDir.FullName}': {ex.Message}");
         }
     }
 

@@ -88,6 +88,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         int cpuTempPriority = 0;
         float? cpuLoad = null;
         float? cpuClock = null;
+        float? cpuClockFallback = null;
         float? cpuPower = null;
 
         string? gpuModel = null;
@@ -190,10 +191,10 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                     if (hardware.HardwareType == HardwareType.Cpu)
                     {
-                        if (sensor.SensorType == SensorType.Temperature)
+                        if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                         {
                             int candidatePriority = GetCpuTemperatureSensorPriority(sensor.Name);
-                            if (candidatePriority > cpuTempPriority)
+                            if (cpuTemp is null || candidatePriority > cpuTempPriority)
                             {
                                 cpuTemp = sensor.Value;
                                 cpuTempPriority = candidatePriority;
@@ -201,8 +202,14 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.Clock && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                            cpuClock ??= sensor.Value;
+                        if (sensor.SensorType == SensorType.Clock && sensor.Value is > 0)
+                        {
+                            // Ignore zero-MHz readings from sleeping cores and report the fastest
+                            // currently active core instead of freezing on the first core sensor.
+                            cpuClockFallback = Math.Max(cpuClockFallback ?? 0, sensor.Value.Value);
+                            if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+                                cpuClock = Math.Max(cpuClock ?? 0, sensor.Value.Value);
+                        }
                         if (sensor.SensorType == SensorType.Power &&
                             (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
                              sensor.Name.Contains("Cores", StringComparison.OrdinalIgnoreCase)))
@@ -318,27 +325,28 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             ));
         }
 
-        if (storageDrives.Count == 0)
+        // Also append logical fixed volumes: physical drive sensors do not expose mount-point capacity.
+        try
         {
-            try
+            foreach (var drive in DriveInfo.GetDrives())
             {
-                foreach (var drive in DriveInfo.GetDrives())
+                if (drive.IsReady && drive.DriveType == DriveType.Fixed)
                 {
-                    if (drive.IsReady && drive.DriveType == DriveType.Fixed)
-                    {
-                        float totalGb = (float)Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 1);
-                        float freeGb = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 1);
-                        storageDrives.Add(new StorageTelemetryPoint(
-                            Model: $"Volume {drive.Name} ({drive.VolumeLabel})",
-                            CapacityGb: totalGb,
-                            FreeSpaceGb: freeGb,
-                            TemperatureC: null
-                        ));
-                    }
+                    float totalGb = (float)Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 1);
+                    float freeGb = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 1);
+                    string label = string.IsNullOrWhiteSpace(drive.VolumeLabel) ? "Sem rótulo" : drive.VolumeLabel;
+                    storageDrives.Add(new StorageTelemetryPoint(
+                        Model: $"Volume {drive.Name.TrimEnd('\\')} — {label}",
+                        CapacityGb: totalGb,
+                        FreeSpaceGb: freeGb,
+                        TemperatureC: null
+                    ));
                 }
             }
-            catch { }
         }
+        catch { }
+
+        cpuClock ??= cpuClockFallback;
 
         var snapshot = new HardwareSnapshot(
             DateTime.UtcNow,
