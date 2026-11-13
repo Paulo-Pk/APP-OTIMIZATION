@@ -982,4 +982,36 @@ public class RegistryOptimizerTests : IDisposable
         Assert.False(RegistryStateLedger.VerifyEntryHmac(entry));
     }
 
+    [Fact]
+    public void RegistryStateLedger_DuplicateOperationIds_AreRejectedAsAmbiguous()
+    {
+        RegistryStateLedger.ClearLedgerForTesting();
+        var def = RegistryOptimizer.Catalog["perf-game-dvr"];
+        var createdAt = DateTime.UtcNow.ToString("O");
+        var first = new RegistryLedgerEntry
+        {
+            OperationId = "op-duplicate-identity",
+            TweakId = def.TweakId,
+            Hive = def.Hive,
+            SubKeyPath = def.SubKeyPath,
+            ValueName = def.ValueName,
+            OriginalValueKind = nameof(RegistryValueKind.DWord),
+            OriginalRawValue = "1",
+            WasInitiallyAbsent = false,
+            KeyCreatedByApp = false,
+            AppliedValue = "0",
+            CreatedAtUtc = createdAt
+        };
+        var second = first with { OriginalRawValue = "2", AppliedValue = "1" };
+
+        RegistryStateLedger.SaveRawEntriesForTesting(new[] { first, second });
+
+        var resolved = RegistryStateLedger.ResolveTrustedRestoreEntry(def.TweakId, first.OperationId);
+
+        Assert.False(resolved.IsValid);
+        Assert.Equal("LEDGER_INTEGRITY_FAILED", resolved.ErrorCode);
+        Assert.Contains("duplicado", resolved.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(RegistryStateLedger.GetAllEntries());
+    }
+
 }
