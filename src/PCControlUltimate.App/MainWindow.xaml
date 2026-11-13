@@ -1530,6 +1530,7 @@
                     </Grid>
                 </Border>
 
+                <TextBlock Text="{Binding SoftwareInstallStatusText}" FontSize="11" Foreground="#C4B5FD" TextWrapping="Wrap" Margin="2,0,2,8"/>
                 <Border Style="{StaticResource CardBorderStyle}">
                     <DataGrid ItemsSource="{Binding VerifiedWingetCatalog}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="500">
                         <DataGrid.Columns>
@@ -1552,6 +1553,22 @@
                             <DataGridTextColumn Header="ID oficial" Binding="{Binding WingetId}" Width="210"/>
                             <DataGridTextColumn Header="Publicador" Binding="{Binding Publisher}" Width="160"/>
                             <DataGridTextColumn Header="Descrição" Binding="{Binding Description}" Width="*"/>
+                            <DataGridTemplateColumn Header="Ação" Width="100">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="Instalar"
+                                                Padding="10,5"
+                                                FontSize="11"
+                                                Background="#6D28D9"
+                                                Foreground="White"
+                                                BorderBrush="#8B5CF6"
+                                                BorderThickness="1"
+                                                Cursor="Hand"
+                                                Command="{Binding DataContext.InstallSoftwareCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding WingetId}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Border>
