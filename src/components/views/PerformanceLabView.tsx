@@ -38,7 +38,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
       const gameEntries = (installedGames || []).filter((game) => game.isInstalled && game.executablePath);
       const titleByProcess: Record<string, string> = {};
       for (const game of gameEntries) {
-        const executableName = game.executablePath!.split(/[\\\\/]/).pop()?.replace(/\\.exe$/i, '').toLowerCase();
+        const executableName = game.executablePath!.split(/[\\/]/).pop()?.replace(/\.exe$/i, '').toLowerCase();
         if (executableName) titleByProcess[executableName] = game.title;
       }
       const matchedGames = visibleProcesses.filter((process) => Boolean(titleByProcess[process.processName.toLowerCase()]));
