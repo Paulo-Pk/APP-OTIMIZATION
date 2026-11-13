@@ -143,12 +143,17 @@ export default function App() {
 
       const active = result.inspections.filter((item) => item.state === 'Ativo').length;
       const inactive = result.inspections.filter((item) => item.state === 'Inativo').length;
+      const noChange = result.inspections.filter((item) => item.state === 'Sem Alteração Necessária').length;
       const custom = result.inspections.filter((item) => item.state === 'Personalizado').length;
-      const blocked = result.inspections.filter((item) =>
-        item.isUndeterminable || item.state === 'Acesso Negado' || item.state === 'Erro de Leitura'
+      const wrongType = result.inspections.filter((item) => item.state === 'Tipo Incorreto').length;
+      const accessDenied = result.inspections.filter((item) => item.state === 'Acesso Negado').length;
+      const readErrors = result.inspections.filter((item) => item.state === 'Erro de Leitura').length;
+      const undetermined = result.inspections.filter((item) =>
+        item.state === 'Estado Não Determinável' || item.state === 'Padrão Dependente' ||
+        (item.isUndeterminable && !['Tipo Incorreto', 'Acesso Negado', 'Erro de Leitura'].includes(item.state))
       ).length;
       setTweakInspectionSummary(
-        `Leitura confirmada: ${result.inspections.length} ajustes — ${active} ativos, ${inactive} inativos, ${custom} personalizados e ${blocked} com estado indeterminável/bloqueado. Nenhuma chave foi gravada.`
+        `Leitura confirmada: ${result.inspections.length} ajustes — ${active} ativos, ${inactive} inativos, ${noChange} sem alteração necessária, ${custom} personalizados, ${wrongType} com tipo incorreto, ${accessDenied} com acesso negado, ${readErrors} com erro de leitura e ${undetermined} com estado não determinável. Consulta somente leitura; nenhuma chave foi gravada.`
       );
     } catch (error: any) {
       const message = `Erro ao consultar o Registro: ${error?.message || 'falha inesperada'}`;
