@@ -529,6 +529,12 @@ public static class RegistryStateLedger
                 return null;
             }
 
+            if (ledger.FormatVersion is not ("2.5" or "2.6"))
+            {
+                errorMessage = $"Versão do Ledger não suportada: {ledger.FormatVersion ?? "(nula)"}; recuperação bloqueada.";
+                return null;
+            }
+
             // OperationId is the recovery identity used by restore and completion APIs.
             // Reject ambiguous identities before any FirstOrDefault lookup can select one.
             var operationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -606,6 +612,7 @@ public static class RegistryStateLedger
         if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
             throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Gravação bloqueada.");
 
+        ledger.FormatVersion = "2.6";
         ledger.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
         ledger.LedgerHmacSha256 = IntegrityVerifier.ComputeHmacSha256(_ledgerSecretKey, BuildLedgerCanonicalString(ledger.Entries));
         string json = JsonSerializer.Serialize(ledger, new JsonSerializerOptions { WriteIndented = true });
