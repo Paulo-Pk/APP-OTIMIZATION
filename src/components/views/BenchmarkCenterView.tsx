@@ -230,6 +230,25 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         </div>
       </div>
 
+      {/* Visual summary of the tests actually executed */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800"><div className="text-[10px] uppercase text-slate-500">Testes nesta sessão</div><div className="text-2xl font-black text-white mt-1">{records.length}</div><div className="text-[11px] text-slate-400">Somente execuções concluídas</div></div>
+        <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800"><div className="text-[10px] uppercase text-slate-500">Último resultado</div><div className="text-2xl font-black text-purple-300 mt-1">{records.length ? records[0].score.toLocaleString() : '—'}</div><div className="text-[11px] text-slate-400">{records.length ? records[0].type + ' · ' + records[0].metric : 'Execute um teste para começar'}</div></div>
+        <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800"><div className="text-[10px] uppercase text-slate-500">Tempo do último teste</div><div className="text-2xl font-black text-cyan-300 mt-1">{records.length ? records[0].durationMs + ' ms' : '—'}</div><div className="text-[11px] text-slate-400">Duração medida pelo cronômetro</div></div>
+      </div>
+      <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
+        <div><h3 className="text-sm font-bold text-white">Comparativo visual dos resultados</h3><p className="text-[11px] text-slate-400">Cada tipo de teste é normalizado separadamente. Pontuações de CPU, GPU e RAM não são comparáveis entre si.</p></div>
+        {records.length === 0 ? <div className="h-24 flex items-center justify-center rounded-lg bg-[#0a0c13] border border-slate-800 text-xs text-slate-500">O gráfico será preenchido após os primeiros testes</div> : (
+          <div className="space-y-3">
+            {(['CPU', 'GPU', 'RAM'] as const).map((kind) => {
+              const group = records.filter((record) => record.type === kind).slice(0, 5).reverse();
+              const maxScore = Math.max(1, ...group.map((record) => record.score));
+              if (group.length === 0) return null;
+              return <div key={kind} className="space-y-2"><div className="text-[11px] font-bold text-slate-300">{kind}</div>{group.map((record) => <div key={record.id} className="grid grid-cols-[minmax(70px,0.7fr)_3fr_auto] gap-3 items-center text-[11px]"><span className="text-slate-500 truncate">{record.date}</span><div className="h-2.5 rounded-full bg-slate-800 overflow-hidden"><div className="h-full rounded-full bg-purple-500" style={{ width: (record.score / maxScore * 100) + '%' }} /></div><span className="font-mono text-slate-200">{record.score.toLocaleString()}</span></div>)}</div>;
+            })}
+          </div>
+        )}
+      </div>
       {/* Benchmark History Log Table */}
       <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800">
