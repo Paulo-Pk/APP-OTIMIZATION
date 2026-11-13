@@ -2535,7 +2535,7 @@ public class MainViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(RamUsageWithPercent));
 
                 UpdatePrimaryDiskAndProfileTelemetry(snap.GpuModelName, snap.RamTotalGb);
-                AppendTelemetryChartSample(snap.CpuTotalLoad ?? 0, snap.GpuLoadPercent ?? 0, snap.CpuPackageTemp);
+                AppendTelemetryChartSample(snap.CpuTotalLoad ?? 0, snap.GpuLoadPercent ?? 0, cpuTemperatureReading);
 
                 RefreshAssistantInsights();
                 return;
