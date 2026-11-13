@@ -124,26 +124,38 @@ class NativeBridgeService {
       });
       if (res.ok) {
         const data = await res.json();
-        // The Windows agent returns HardwareSnapshot (C# domain model), not the
-        // presentation HardwareTelemetry shape. Normalize explicitly instead of
-        // casting incompatible objects and silently rendering zero/empty values.
-        const sensors = Array.isArray(data.sensors) ? data.sensors : [];
-        const cpuSensors = sensors.filter((s: any) => String(s.hardwareType || s.hardwareCategory || '').toLowerCase() === 'cpu' && s.isAvailable && Number.isFinite(Number(s.value)));
-        const gpuSensors = sensors.filter((s: any) => /^gpu/i.test(String(s.hardwareType || s.hardwareCategory || '')) && s.isAvailable && Number.isFinite(Number(s.value)));
-        const findSensor = (items: any[], type: string, pattern: RegExp) => items.find((s) => String(s.sensorType || '').toLowerCase() === type.toLowerCase() && pattern.test(String(s.name || '')))?.value;
+        // HardwareSnapshot is serialized by System.Text.Json with PascalCase property names.
+        // Normalize it explicitly before passing it to the React presentation model.
+        const read = (object: any, key: string) => object?.[key] ?? object?.[key.charAt(0).toUpperCase() + key.slice(1)];
+        const rawSensors = read(data, 'sensors');
+        const sensors = (Array.isArray(rawSensors) ? rawSensors : []).map((sensor: any) => ({
+          identifier: String(read(sensor, 'identifier') || ''),
+          name: String(read(sensor, 'name') || ''),
+          hardwareType: String(read(sensor, 'hardwareType') || read(sensor, 'hardwareCategory') || ''),
+          sensorType: String(read(sensor, 'sensorType') || ''),
+          value: read(sensor, 'value') ?? null,
+          unit: String(read(sensor, 'unit') || ''),
+          isAvailable: Boolean(read(sensor, 'isAvailable')),
+          status: String(read(sensor, 'status') || ''),
+        }));
+        const cpuSensors = sensors.filter((sensor: any) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.isAvailable && Number.isFinite(Number(sensor.value)));
+        const gpuSensors = sensors.filter((sensor: any) => /^gpu/i.test(sensor.hardwareType) && sensor.isAvailable && Number.isFinite(Number(sensor.value)));
+        const findSensor = (items: any[], type: string, pattern: RegExp) => items.find((sensor) => sensor.sensorType.toLowerCase() === type.toLowerCase() && pattern.test(sensor.name))?.value;
         const numeric = (value: any, fallback = 0) => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : fallback;
-        const gpuAdapter = Array.isArray(data.gpuAdapters) ? data.gpuAdapters[0] : null;
-        const cpuClockMhz = numeric(data.cpuClockMhz, numeric(findSensor(cpuSensors, 'Clock', /core|cpu|clock/i)));
-        const cpuTemp = numeric(data.cpuPackageTemp, numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
-        const gpuCoreTemp = numeric(data.gpuCoreTemp, numeric(gpuAdapter?.coreTempC, numeric(findSensor(gpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
-        const gpuHotspot = numeric(data.gpuHotspotTemp, numeric(gpuAdapter?.hotspotTempC, numeric(findSensor(gpuSensors, 'Temperature', /hot.?spot|junction/i))));
+        const gpuAdaptersRaw = read(data, 'gpuAdapters');
+        const gpuAdapter = Array.isArray(gpuAdaptersRaw) ? gpuAdaptersRaw[0] : null;
+        const cpuClockMhz = numeric(read(data, 'cpuClockMhz'), numeric(findSensor(cpuSensors, 'Clock', /core|cpu|clock/i)));
+        const cpuTemp = numeric(read(data, 'cpuPackageTemp'), numeric(findSensor(cpuSensors, 'Temperature', /tctl|tdie|package|cpu|core/i)));
+        const gpuCoreTemp = numeric(read(data, 'gpuCoreTemp'), numeric(read(gpuAdapter, 'coreTempC'), numeric(findSensor(gpuSensors, 'Temperature', /core|gpu(?!.*memory)/i))));
+        const gpuHotspot = numeric(read(data, 'gpuHotspotTemp'), numeric(read(gpuAdapter, 'hotspotTempC'), numeric(findSensor(gpuSensors, 'Temperature', /hot.?spot|junction/i))));
         const gpuMemoryTemp = numeric(findSensor(gpuSensors, 'Temperature', /memory|vram/i));
         const gpuMemoryClock = numeric(findSensor(gpuSensors, 'Clock', /memory/i));
-        const gpuFanRpm = numeric(data.gpuFanRpm, numeric(gpuAdapter?.fanRpm, numeric(findSensor(gpuSensors, 'Fan', /fan/i))));
-        const ramTotal = numeric(data.ramTotalGb);
-        const ramUsed = numeric(data.ramUsedGb);
-        const storage = Array.isArray(data.storageDrives) ? data.storageDrives : [];
-        const vendorText = String(gpuAdapter?.hardwareType || '').toLowerCase();
+        const gpuFanRpm = numeric(read(data, 'gpuFanRpm'), numeric(read(gpuAdapter, 'fanRpm'), numeric(findSensor(gpuSensors, 'Fan', /fan/i))));
+        const ramTotal = numeric(read(data, 'ramTotalGb'));
+        const ramUsed = numeric(read(data, 'ramUsedGb'));
+        const rawStorage = read(data, 'storageDrives');
+        const storage = Array.isArray(rawStorage) ? rawStorage : [];
+        const vendorText = String(read(gpuAdapter, 'hardwareType') || '').toLowerCase();
         const gpuVendor = vendorText.includes('nvidia') ? 'NVIDIA' : vendorText.includes('amd') ? 'AMD' : vendorText.includes('intel') ? 'Intel' : 'Outro';
         return {
           isSimulatedMode: false,
@@ -151,18 +163,18 @@ class NativeBridgeService {
           fpsCaptureActive: false,
           lastUpdated: Date.now(),
           cpu: {
-            name: data.cpuModelName || '', socket: 'Não informado', temperature: cpuTemp,
-            load: numeric(data.cpuTotalLoad), frequencyGHz: cpuClockMhz / 1000,
-            cores: 0, threads: 0, powerWatts: numeric(data.cpuPowerWatts), voltageV: 0, coreList: [],
+            name: String(read(data, 'cpuModelName') || ''), socket: 'Não informado', temperature: cpuTemp,
+            load: numeric(read(data, 'cpuTotalLoad')), frequencyGHz: cpuClockMhz / 1000,
+            cores: 0, threads: 0, powerWatts: numeric(read(data, 'cpuPowerWatts')), voltageV: 0, coreList: [],
           },
           gpu: {
-            name: data.gpuModelName || gpuAdapter?.model || '', vendor: gpuVendor,
+            name: String(read(data, 'gpuModelName') || read(gpuAdapter, 'model') || ''), vendor: gpuVendor,
             temperature: gpuCoreTemp, hotspot: gpuHotspot, memoryTemp: gpuMemoryTemp,
-            clockMHz: numeric(data.gpuClockMhz, numeric(gpuAdapter?.coreClockMhz)),
-            memoryClockMHz: gpuMemoryClock, utilization: numeric(data.gpuLoadPercent, numeric(gpuAdapter?.loadPercent)),
-            vramUsedMB: numeric(data.gpuVramUsedMb, numeric(gpuAdapter?.vramUsedMb)),
-            vramTotalMB: numeric(data.gpuVramTotalMb, numeric(gpuAdapter?.vramTotalMb)),
-            powerWatts: numeric(data.gpuPowerWatts, numeric(gpuAdapter?.powerWatts)),
+            clockMHz: numeric(read(data, 'gpuClockMhz'), numeric(read(gpuAdapter, 'coreClockMhz'))),
+            memoryClockMHz: gpuMemoryClock, utilization: numeric(read(data, 'gpuLoadPercent'), numeric(read(gpuAdapter, 'loadPercent'))),
+            vramUsedMB: numeric(read(data, 'gpuVramUsedMb'), numeric(read(gpuAdapter, 'vramUsedMb'))),
+            vramTotalMB: numeric(read(data, 'gpuVramTotalMb'), numeric(read(gpuAdapter, 'vramTotalMb'))),
+            powerWatts: numeric(read(data, 'gpuPowerWatts'), numeric(read(gpuAdapter, 'powerWatts'))),
             fansRPM: gpuFanRpm, fanSpeedPercent: numeric(findSensor(gpuSensors, 'Load', /fan/i)),
             thermalLimitReported: 0, isThrottling: false, pcieLane: 'Não informado',
           },
@@ -171,12 +183,15 @@ class NativeBridgeService {
             percentage: ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0,
             speedMT: 0, channels: 'Não informado', type: 'Não informado',
           },
-          disks: storage.map((drive: any, index: number) => ({
-            id: String(index), model: String(drive.model || `Unidade ${index + 1}`),
-            interface: /nvme/i.test(String(drive.model || '')) ? 'NVMe' : /ssd/i.test(String(drive.model || '')) ? 'SATA SSD' : /hdd|hard disk/i.test(String(drive.model || '')) ? 'HDD' : 'Outro',
-            temperature: numeric(drive.temperatureC), capacityGB: numeric(drive.capacityGb),
-            freeSpaceGB: numeric(drive.freeSpaceGb), healthPercent: 0, readSpeedMBs: 0, writeSpeedMBs: 0, smartStatus: 'N/D',
-          })),
+          disks: storage.map((drive: any, index: number) => {
+            const model = String(read(drive, 'model') || 'Unidade ' + (index + 1));
+            return {
+              id: String(index), model,
+              interface: /nvme/i.test(model) ? 'NVMe' : /ssd/i.test(model) ? 'SATA SSD' : /hdd|hard disk/i.test(model) ? 'HDD' : 'Outro',
+              temperature: numeric(read(drive, 'temperatureC')), capacityGB: numeric(read(drive, 'capacityGb')),
+              freeSpaceGB: numeric(read(drive, 'freeSpaceGb')), healthPercent: 0, readSpeedMBs: 0, writeSpeedMBs: 0, smartStatus: 'N/D',
+            };
+          }),
           motherboard: {
             model: 'Não informado', chipset: 'Não informado', biosVersion: 'Não informado',
             temperatures: { system: 0, vrm: 0, chipset: 0 }, voltages: { v12: 0, v5: 0, v33: 0 },
