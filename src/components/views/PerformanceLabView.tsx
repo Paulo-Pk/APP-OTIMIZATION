@@ -96,11 +96,11 @@ export const PerformanceLabView: React.FC = () => {
             value={selectedProcess}
             onChange={(e) => setSelectedProcess(e.target.value)}
             disabled={isLoadingProcesses || runningProcesses.length === 0}
-            className="min-w-[250px] px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs text-white disabled:opacity-60"
+            className="min-w-[250px] px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs text-white [color-scheme:dark] disabled:opacity-60" style={{ colorScheme: "dark" }}
           >
-            <option value="">{isLoadingProcesses ? 'Procurando jogos em execução...' : 'Selecione um jogo em execução'}</option>
+            <option className="bg-[#0a0c13] text-white" value="">{isLoadingProcesses ? 'Procurando jogos em execução...' : 'Selecione um jogo em execução'}</option>
             {runningProcesses.map((process) => (
-              <option key={process.processId} value={process.processName}>
+              <option className="bg-[#0a0c13] text-white" key={process.processId} value={process.processName}>
                 {process.mainWindowTitle ? `${process.mainWindowTitle} — ${process.processName}.exe` : `${process.processName}.exe`}
               </option>
             ))}
@@ -111,11 +111,11 @@ export const PerformanceLabView: React.FC = () => {
           <select
             value={durationSec}
             onChange={(e) => setDurationSec(Number(e.target.value))}
-            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white"
+            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white [color-scheme:dark]" style={{ colorScheme: "dark" }}
           >
-            <option value={10}>10s</option>
-            <option value={30}>30s</option>
-            <option value={60}>60s</option>
+            <option className="bg-[#0a0c13] text-white" value={10}>10s</option>
+            <option className="bg-[#0a0c13] text-white" value={30}>30s</option>
+            <option className="bg-[#0a0c13] text-white" value={60}>60s</option>
           </select>
           <button
             onClick={handleStartCapture}
