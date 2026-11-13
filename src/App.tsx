@@ -191,12 +191,18 @@ export default function App() {
       }
     });
 
+    let telemetryRefreshInFlight = false;
     const interval = setInterval(async () => {
-      if (nativeBridge.getStatus().isConnected) {
+      if (!nativeBridge.getStatus().isConnected || telemetryRefreshInFlight) return;
+
+      telemetryRefreshInFlight = true;
+      try {
         const real = await nativeBridge.fetchRealTelemetry();
         if (real) {
           setTelemetry(real);
         }
+      } finally {
+        telemetryRefreshInFlight = false;
       }
     }, 2000);
 
