@@ -2389,6 +2389,7 @@ public class MainViewModel : INotifyPropertyChanged
                 }
 
                 string notSupported = Loc["SensorStatusNotSupported"];
+                string cpuSensorUnavailable = IsAdmin ? notSupported : "Leitura indisponível. Tente abrir o PC Control como administrador para acessar os sensores.";
                 // Some motherboard/CPU combinations expose valid values only in the raw sensor inventory.
                 // Fall back to those real readings before reporting that temperature or clock is unavailable.
                 float? cpuTemperatureReading = snap.CpuPackageTemp ??
@@ -2411,10 +2412,10 @@ public class MainViewModel : INotifyPropertyChanged
                         .Max();
 
                 CpuModel = !string.IsNullOrWhiteSpace(snap.CpuModelName) ? snap.CpuModelName : unavailable;
-                CpuTemp = cpuTemperatureReading.HasValue ? $"{cpuTemperatureReading.Value:F1} °C" : notSupported;
+                CpuTemp = cpuTemperatureReading.HasValue ? $"{cpuTemperatureReading.Value:F1} °C" : cpuSensorUnavailable;
                 CpuLoad = snap.CpuTotalLoad.HasValue ? $"{snap.CpuTotalLoad.Value:F0} %" : notSupported;
                 CpuLoadPercent = snap.CpuTotalLoad ?? 0;
-                CpuClock = cpuClockReading.HasValue ? $"{cpuClockReading.Value:F0} MHz" : notSupported;
+                CpuClock = cpuClockReading.HasValue ? $"{cpuClockReading.Value:F0} MHz" : cpuSensorUnavailable;
                 CpuPower = snap.CpuPowerWatts.HasValue ? $"{snap.CpuPowerWatts.Value:F1} W" : notSupported;
 
                 GpuModel = !string.IsNullOrWhiteSpace(snap.GpuModelName) ? snap.GpuModelName : unavailable;
