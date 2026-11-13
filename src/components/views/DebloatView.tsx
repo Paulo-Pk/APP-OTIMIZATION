@@ -93,15 +93,17 @@ export const DebloatView: React.FC = () => {
       const failures: string[] = [];
       let deletedFiles = 0;
       let skippedLocked = 0;
+      let skippedSymlinks = 0;
       for (const id of Array.from(selectedIds)) {
         const result = await nativeBridge.purgeRealDebloatDirectory(id);
         totalFreed += result.freedBytes;
         deletedFiles += result.deletedFilesCount;
         skippedLocked += result.skippedLockedCount;
-        if (!result.success) failures.push(...result.errors);
+        skippedSymlinks += result.skippedSymlinksCount;
+        if (result.errors.length) failures.push(...result.errors);
       }
       setCleanedBytes(totalFreed);
-      setNoticeMessage(`${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s).`);
+      setNoticeMessage(`${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s); ${skippedSymlinks} link(s) simbólico(s) preservado(s).`);
       if (failures.length) setErrorMessage(`Limpeza parcial: ${failures.slice(0, 3).join(' | ')}`);
       await scanNow();
     } catch (err: any) {
