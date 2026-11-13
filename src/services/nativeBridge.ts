@@ -233,6 +233,12 @@ class NativeBridgeService {
         const gpuCoreTempReading = firstAvailableReading(read(data, 'gpuCoreTemp'), read(gpuAdapter, 'coreTempC'), findSensor(primaryGpuSensors, 'Temperature', /core|gpu(?!.*memory)/i));
         const gpuHotspotReading = firstAvailableReading(read(data, 'gpuHotspotTemp'), read(gpuAdapter, 'hotspotTempC'), findSensor(primaryGpuSensors, 'Temperature', /hot.?spot|junction/i));
         const gpuMemoryTempReading = firstAvailableReading(findSensor(primaryGpuSensors, 'Temperature', /memory|vram/i));
+        // Motherboard sensor names vary by vendor; only map explicit labels and keep
+        // unavailable readings distinct from a legitimate 0°C numeric value.
+        const motherboardSensors = sensors.filter((sensor: any) => sensor.hardwareType.toLowerCase() === 'motherboard' && hasNumericReading(sensor));
+        const motherboardSystemTemp = firstAvailableReading(findSensor(motherboardSensors, 'Temperature', /^(system|motherboard|board)\b/i));
+        const motherboardVrmTemp = firstAvailableReading(findSensor(motherboardSensors, 'Temperature', /\b(vrm|mos)\b/i));
+        const motherboardChipsetTemp = firstAvailableReading(findSensor(motherboardSensors, 'Temperature', /chipset|pch/i));
         const cpuTemp = cpuTempReading ?? 0;
         const gpuCoreTemp = gpuCoreTempReading ?? 0;
         const gpuHotspot = gpuHotspotReading ?? 0;
@@ -296,7 +302,7 @@ class NativeBridgeService {
           }),
           motherboard: {
             model: 'Não informado', chipset: 'Não informado', biosVersion: 'Não informado',
-            temperatures: { system: 0, vrm: 0, chipset: 0 }, voltages: { v12: 0, v5: 0, v33: 0 },
+            temperatures: { system: motherboardSystemTemp ?? 0, vrm: motherboardVrmTemp ?? 0, chipset: motherboardChipsetTemp ?? 0, systemAvailable: motherboardSystemTemp !== null, vrmAvailable: motherboardVrmTemp !== null, chipsetAvailable: motherboardChipsetTemp !== null }, voltages: { v12: 0, v5: 0, v33: 0 },
             fans: { cpuFanRPM: 0, pumpRPM: 0, caseFansRPM: [] },
           },
           sensors,
