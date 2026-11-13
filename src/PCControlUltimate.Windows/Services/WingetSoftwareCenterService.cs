@@ -978,9 +978,24 @@ public class WingetSoftwareCenterService
                 // Preserve the original cancellation result if the process already exited.
             }
 
-            // Observe the redirected stderr read after terminating winget. Otherwise
-            // cancellation can leave its task faulted without an observer.
-            try { await standardErrorTask.ConfigureAwait(false); } catch { }
+            // Bound process shutdown and stderr draining as well. If termination fails
+            // or a descendant keeps the redirected pipe open, cancellation must not hang.
+            try
+            {
+                await process.WaitForExitAsync(CancellationToken.None)
+                    .WaitAsync(TimeSpan.FromSeconds(5))
+                    .ConfigureAwait(false);
+            }
+            catch { }
+
+            try
+            {
+                await standardErrorTask
+                    .WaitAsync(TimeSpan.FromSeconds(1))
+                    .ConfigureAwait(false);
+            }
+            catch { }
+
             throw;
         }
     }
