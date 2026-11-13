@@ -2405,7 +2405,7 @@ public class MainViewModel : INotifyPropertyChanged
                         .Where(sensor => sensor.IsAvailable &&
                             string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
                             string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase) &&
-                            sensor.Value.HasValue)
+                            sensor.Value.HasValue && sensor.Value.Value > 0)
                         .OrderByDescending(sensor => GetCpuTemperaturePriority(sensor.Name))
                         .Select(sensor => sensor.Value)
                         .FirstOrDefault();
@@ -2415,7 +2415,7 @@ public class MainViewModel : INotifyPropertyChanged
                         .Where(sensor => sensor.IsAvailable &&
                             string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
                             string.Equals(sensor.SensorType, "Clock", StringComparison.OrdinalIgnoreCase) &&
-                            sensor.Value.HasValue)
+                            sensor.Value.HasValue && sensor.Value.Value > 0)
                         .Select(sensor => sensor.Value)
                         .Max();
 
