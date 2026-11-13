@@ -47,7 +47,7 @@ public static class DriverScannerService
                 string version = obj["DriverVersion"]?.ToString() ?? "N/D";
                 string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante OEM";
                 string rawDate = obj["DriverDate"]?.ToString() ?? string.Empty;
-                bool isSigned = obj["IsSigned"] is bool b ? b : true;
+                bool? isSigned = obj["IsSigned"] is bool b ? b : null;
 
                 string formattedDate = "N/D";
                 if (rawDate.Length >= 8)
@@ -56,7 +56,12 @@ public static class DriverScannerService
                 }
 
                 string officialUrl = ResolveVendorSupportUrl(deviceName, manufacturer);
-                string statusText = isSigned ? "Assinado Digitalmente (WMI)" : "Sem Assinatura WHQL Detectada";
+                string statusText = isSigned switch
+                {
+                    true => "Assinado digitalmente (informação do Windows)",
+                    false => "Windows informa que não possui assinatura digital",
+                    _ => "Assinatura não informada pelo Windows"
+                };
 
                 results.Add(new InstalledDriverEntry(
                     Device: deviceName,
