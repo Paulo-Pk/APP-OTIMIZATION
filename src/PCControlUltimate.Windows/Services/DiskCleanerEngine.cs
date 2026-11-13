@@ -365,10 +365,18 @@ public static class DiskCleanerEngine
             Errors: errors,
             Status: status,
             DirectoryExisted: true,
-            Warnings: skippedSymlinks > 0
-                ? new[] { $"{skippedSymlinks} link(s) simbólico(s) ou junction(s) foram preservados." }
-                : Array.Empty<string>()
+            Warnings: BuildPurgeWarnings(skippedLocked, skippedSymlinks)
         );
+    }
+
+    private static IReadOnlyList<string> BuildPurgeWarnings(int skippedLocked, int skippedSymlinks)
+    {
+        var warnings = new List<string>();
+        if (skippedLocked > 0)
+            warnings.Add($"{skippedLocked} arquivo(s) em uso ou sem permissão foram preservados; os demais itens elegíveis foram processados.");
+        if (skippedSymlinks > 0)
+            warnings.Add($"{skippedSymlinks} link(s) simbólico(s) ou junction(s) foram preservados.");
+        return warnings;
     }
 
     private static void PurgeDirectoryRecursiveSafe(
@@ -415,10 +423,17 @@ public static class DiskCleanerEngine
                         affectedItems.Add($"[DEL] {fullName} ({size} B)");
                     }
                 }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // Files in use or access-restricted are expected exclusions, not a fatal
+                    // category failure. Keep cleaning other eligible files and report the skip.
+                    skippedLocked++;
+                    if (affectedItems.Count < 100)
+                        affectedItems.Add($"[PRESERVADO] {file.FullName} — arquivo em uso ou sem permissão: {ex.Message}");
+                }
                 catch (Exception ex)
                 {
-                    skippedLocked++;
-                    if (errors.Count < 100) errors.Add($"Falha ao excluir arquivo '{file.FullName}': {ex.Message}");
+                    if (errors.Count < 100) errors.Add($"Falha inesperada ao excluir arquivo '{file.FullName}': {ex.Message}");
                 }
             }
 
