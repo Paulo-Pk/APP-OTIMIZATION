@@ -245,9 +245,9 @@ class NativeBridgeService {
           .filter((sensor: any) => sensor.sensorType.toLowerCase() === 'fan' && /case|cha.*fan|chassis|sys.*fan/i.test(sensor.name))
           .map((sensor: any) => Number(sensor.value))
           .filter((value: number) => Number.isFinite(value));
-        const motherboard12v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\\s|\\+)12(?:v|\\b)/i));
-        const motherboard5v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\\s|\\+)5(?:v|\\b)/i));
-        const motherboard33v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\\s|\\+)3[.,]3(?:v|\\b)/i));
+        const motherboard12v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\s|\+)12(?:v|\b)/i));
+        const motherboard5v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\s|\+)5(?:v|\b)/i));
+        const motherboard33v = firstAvailableReading(findSensor(motherboardSensors, 'Voltage', /(?:^|\s|\+)3[.,]3(?:v|\b)/i));
         const cpuTemp = cpuTempReading ?? 0;
         const gpuCoreTemp = gpuCoreTempReading ?? 0;
         const gpuHotspot = gpuHotspotReading ?? 0;
