@@ -1147,7 +1147,8 @@
                             </DataGrid.Columns>
                         </DataGrid>
                     </StackPanel>
-                </Border>
+                    </Border>
+                </Expander>
             </StackPanel>
         </DataTemplate>
 
