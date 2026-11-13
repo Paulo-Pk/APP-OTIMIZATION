@@ -62,15 +62,15 @@ export const DriverCenterView: React.FC = () => {
       <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
           <span className="font-bold text-white uppercase tracking-wider">
-            {t.driverCenter.tableTitle}
+            Dispositivos e drivers reportados pelo Windows
           </span>
           <span className="text-slate-400 font-mono">
-            {isScanning ? 'Consultando Windows...' : `${drivers.length} drivers encontrados`}
+            {isScanning ? 'Consultando Windows...' : `${drivers.length} itens no inventário`}
           </span>
         </div>
 
         <div className="divide-y divide-slate-800/80">
-          {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum driver retornado pelo Windows. Clique em “Escanear drivers instalados” para tentar novamente.</div> : null}
+          {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum dispositivo ou driver foi retornado pelo Windows nesta consulta. Verifique o serviço WMI e tente novamente.</div> : null}
           {drivers.map((driver, idx) => {
             const isVerified = driver.status === 'Verificado via WMI';
 
@@ -93,7 +93,7 @@ export const DriverCenterView: React.FC = () => {
                     </span>
                   </div>
                   <div className="text-slate-400 text-[11px]">
-                    {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate}) · Assinatura: {driver.signatureStatus || 'Não informada'}
+                    Categoria: <span className="text-slate-200">{driver.category || 'Outros'}</span> · {t.hardwareMonitor.vendor} {driver.vendor} · {t.common.versionLabel}: <span className="text-slate-200 font-mono font-semibold">{driver.installedVersion}</span> ({driver.releaseDate}) · {driver.signatureStatus || 'Assinatura não informada'}
                   </div>
                 </div>
 
