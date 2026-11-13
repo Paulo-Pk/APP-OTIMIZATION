@@ -57,7 +57,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
         namePattern.test(item.name) &&
         item.isAvailable &&
         item.value !== null &&
-        Number.isFinite(item.value)
+        typeof item.value === 'number' && Number.isFinite(item.value)
       );
       return sensor?.value ?? null;
     };
@@ -85,7 +85,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
       if (nativeResult && nativeResult.capturedFrames > 0) {
         const samples = telemetrySamples.current;
         const average = (key: 'cpuLoad' | 'gpuLoad' | 'cpuTemp' | 'gpuTemp') => {
-          const values = samples.map((sample) => sample[key]).filter((value) => Number.isFinite(value) && (key === 'cpuLoad' || key === 'gpuLoad' ? value >= 0 : value > 0));
+          const values = samples.map((sample) => sample[key]).filter((value) => typeof value === 'number' && Number.isFinite(value) && (key === 'cpuLoad' || key === 'gpuLoad' ? value >= 0 : value > 0));
           return values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : null;
         };
 
