@@ -180,13 +180,22 @@ public static class PresentMonSessionParser
         string procNameWithoutExt = Path.GetFileNameWithoutExtension(safeExeName);
 
         var runningProcs = Process.GetProcessesByName(procNameWithoutExt);
-        bool isRunning = runningProcs.Length > 0;
+        int matchingProcessCount = runningProcs.Length;
         foreach (var rp in runningProcs)
         {
             try { rp.Dispose(); } catch { }
         }
 
-        if (!isRunning)
+        if (matchingProcessCount > 1)
+        {
+            return new PresentMonCaptureResponse(
+                false, safeExeName, version, null, -1, null, null, null,
+                $"Há {matchingProcessCount} instâncias de '{safeExeName}' em execução. A captura por nome seria ambígua; feche as instâncias extras e tente novamente.",
+                timestamp
+            );
+        }
+
+        if (matchingProcessCount == 0)
         {
             return new PresentMonCaptureResponse(
                 false, safeExeName, version, null, -1, null, null, null,
