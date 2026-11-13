@@ -1293,14 +1293,32 @@
 
                     <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}">
                         <StackPanel>
-                            <TextBlock Text="Resposta dos serviços testados" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                            <TextBlock Text="Tempo de resposta da conexão" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,4"/>
+                            <TextBlock Text="Quanto menor o tempo em milissegundos, mais rápida tende a ser a resposta. A barra é apenas uma prévia visual; ela não mede a velocidade de download nem o servidor específico da sua partida." FontSize="10.5" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                            <ItemsControl ItemsSource="{Binding NetworkEndpoints}" Margin="0,0,0,12">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,3">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="150"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="72"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding TargetName}" Foreground="#CBD5E1" FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            <ProgressBar Grid.Column="1" Minimum="0" Maximum="250" Value="{Binding AverageRttMs}" Height="7" VerticalAlignment="Center" Background="#1E293B" Foreground="#9333EA" BorderThickness="0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding AverageRttMs, StringFormat={}{0:F1} ms}" Foreground="#C084FC" FontSize="10" FontFamily="Consolas" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="Detalhes das medições" FontSize="12" FontWeight="Bold" Foreground="#E2E8F0" Margin="0,0,0,6"/>
                             <DataGrid ItemsSource="{Binding NetworkEndpoints}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="280">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Alvo" Binding="{Binding TargetName}" Width="150"/>
                                     <DataGridTextColumn Header="IP" Binding="{Binding HostOrIp}" Width="115"/>
                                     <DataGridTextColumn Header="Tempo médio (ms)" Binding="{Binding AverageRttMs}" Width="110"/>
-                                    <DataGridTextColumn Header="Variação (ms)" Binding="{Binding JitterMs}" Width="95"/>
-                                    <DataGridTextColumn Header="Falhas (%)" Binding="{Binding PacketLossPercent}" Width="90"/>
+                                    <DataGridTextColumn Header="Oscilação (ms)" Binding="{Binding JitterMs}" Width="95"/>
+                                    <DataGridTextColumn Header="Tentativas sem resposta (%)" Binding="{Binding PacketLossPercent}" Width="125"/>
                                     <DataGridTextColumn Header="Tempo para conectar (ms)" Binding="{Binding TcpHandshakeMs}" Width="*"/>
                                 </DataGrid.Columns>
                             </DataGrid>
