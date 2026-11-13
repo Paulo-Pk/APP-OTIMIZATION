@@ -195,23 +195,27 @@ export async function runGpuBenchmark(
     gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
 
     const totalFrames = 60;
+    let measuredRenderMs = 0;
+    let batchStart = performance.now();
     for (let frame = 0; frame < totalFrames; frame++) {
       gl.uniform1f(timeLocation, frame * 0.05);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-      if (frame % 10 === 0) {
+      if ((frame + 1) % 10 === 0) {
+        // Finish each batch before measuring it. UI refresh pauses are excluded from the score.
+        gl.finish();
+        measuredRenderMs += performance.now() - batchStart;
         onProgress({
           status: 'running',
-          progress: Math.round(10 + (frame / totalFrames) * 80),
+          progress: Math.round(10 + ((frame + 1) / totalFrames) * 80),
           currentTest: `Renderizando carga gráfica ${frame + 1}/${totalFrames}...`,
         });
         await new Promise((resolve) => setTimeout(resolve, 12));
+        batchStart = performance.now();
       }
     }
 
-    // Wait for the GPU to finish queued work before stopping the timer.
-    gl.finish();
-    const duration = Math.max(1, performance.now() - startTime);
+    const duration = Math.max(1, measuredRenderMs);
     const renderFps = Math.round((totalFrames / (duration / 1000)) * 10) / 10;
     const score = renderFps;
 
