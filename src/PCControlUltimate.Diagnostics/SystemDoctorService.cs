@@ -242,13 +242,15 @@ public class SystemDoctorService
             );
         }
 
+        // Target the actual Windows system volume instead of assuming Windows is installed on C:.
+        string systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
         var (fileName, args, description) = repairCommandId.ToLowerInvariant() switch
         {
             "dism-checkhealth" => ("dism.exe", "/Online /Cleanup-Image /CheckHealth", "Verificação rápida de integridade do repositório de componentes (DISM CheckHealth)"),
             "dism-scanhealth" => ("dism.exe", "/Online /Cleanup-Image /ScanHealth", "Varredura profunda de corrupção na imagem do Windows (DISM ScanHealth)"),
             "sfc-verifyonly" => ("sfc.exe", "/verifyonly", "Verificação de integridade de arquivos protegidos do sistema sem alteração (SFC VerifyOnly)"),
             "sfc-scannow" => ("sfc.exe", "/scannow", "Verificação e reparo de arquivos protegidos do Windows (SFC ScanNow)"),
-            "chkdsk-readonly" => ("chkdsk.exe", "C:", "Inspeção somente-leitura do sistema de arquivos NTFS (CHKDSK)"),
+            "chkdsk-readonly" => ("chkdsk.exe", systemDrive, "Inspeção somente-leitura do volume do Windows (CHKDSK)"),
             _ => (string.Empty, string.Empty, string.Empty)
         };
 
