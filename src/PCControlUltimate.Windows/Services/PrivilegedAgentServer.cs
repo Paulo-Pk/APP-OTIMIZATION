@@ -666,7 +666,7 @@ public class PrivilegedAgentServer : IDisposable
                 }
 
                 var (isValid, checksum, err) = RegistrySnapshotEngine.VerifyBackupIntegrity(targetPath);
-                await SendJsonAsync(res, new { success = true, isValid, checksum, error = err });
+                await SendJsonAsync(res, new { success = isValid, isValid, checksum, error = err }, isValid ? 200 : 422);
                 return;
             }
 
@@ -919,8 +919,18 @@ public class PrivilegedAgentServer : IDisposable
                             ? dEl.GetString()!
                             : "Backup dos Ajustes Suportados pelo Aplicativo";
                         var snapshotResult = RegistrySnapshotEngine.CreateBackup(desc);
-                        WriteAuditLog("SNAPSHOT_CREATE", "Registry backup snapshot created and verified on disk.");
-                        await SendJsonAsync(res, snapshotResult);
+                        bool snapshotSuccess = false;
+                        try
+                        {
+                            using var snapshotJson = JsonDocument.Parse(JsonSerializer.Serialize(snapshotResult));
+                            snapshotSuccess = snapshotJson.RootElement.TryGetProperty("success", out var successElement) &&
+                                successElement.ValueKind == JsonValueKind.True;
+                        }
+                        catch (JsonException) { }
+
+                        WriteAuditLog("SNAPSHOT_CREATE",
+                            $"Registry backup creation completed. Success={snapshotSuccess}.");
+                        await SendJsonAsync(res, snapshotResult, snapshotSuccess ? 200 : 500);
                         return;
                     }
 
@@ -951,7 +961,7 @@ public class PrivilegedAgentServer : IDisposable
                             failedKeysCount = report.FailedCount,
                             itemReports = report.ItemReports,
                             error = report.ErrorMessage
-                        });
+                        }, report.Success ? 200 : report.PartialSuccess ? 207 : 400);
                         return;
                     }
 
