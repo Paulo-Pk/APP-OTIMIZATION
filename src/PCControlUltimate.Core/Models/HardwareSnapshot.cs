@@ -37,7 +37,8 @@ public record StorageTelemetryPoint(
     string Model,
     float? CapacityGb,
     float? FreeSpaceGb,
-    float? TemperatureC
+    float? TemperatureC,
+    bool IsSystemDisk = false
 );
 
 /// <summary>
