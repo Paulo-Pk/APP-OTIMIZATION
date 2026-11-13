@@ -48,7 +48,7 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
     if (!isRecording) return;
     telemetrySamples.current.push({
       cpuLoad: Number(telemetry.cpu.load) || 0,
-      gpuLoad: Number(telemetry.gpu.load) || 0,
+      gpuLoad: Number(telemetry.gpu.utilization) || 0,
       cpuTemp: Number(telemetry.cpu.temperature) || 0,
       gpuTemp: Number(telemetry.gpu.temperature) || 0,
     });
