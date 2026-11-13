@@ -145,6 +145,9 @@ export interface MotherboardTelemetry {
     system: number;
     vrm: number;
     chipset: number;
+    systemAvailable?: boolean;
+    vrmAvailable?: boolean;
+    chipsetAvailable?: boolean;
   };
   voltages: {
     v12: number;
