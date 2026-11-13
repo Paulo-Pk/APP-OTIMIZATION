@@ -5,11 +5,6 @@ import {
   SlidersHorizontal,
   Plus,
   Play,
-  RotateCcw,
-  CheckCircle2,
-  Clock,
-  Gauge,
-  Flame,
   ShieldCheck,
 } from 'lucide-react';
 import { GameProfile } from '../../types';
