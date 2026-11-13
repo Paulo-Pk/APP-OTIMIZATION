@@ -42,15 +42,31 @@ export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetr
   const [durationSec, setDurationSec] = useState<number>(10);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const telemetrySamples = useRef<Array<{ cpuLoad: number; gpuLoad: number; cpuTemp: number; gpuTemp: number }>>([]);
+  const telemetrySamples = useRef<Array<{ cpuLoad: number | null; gpuLoad: number | null; cpuTemp: number | null; gpuTemp: number | null }>>([]);
 
   useEffect(() => {
     if (!isRecording) return;
+
+    // The bridge normalizes unavailable numeric telemetry to zero for legacy UI
+    // compatibility. For a capture, use sensor availability to distinguish a
+    // genuine 0% reading from a missing sensor instead of averaging fake zeros.
+    const findAvailableSensor = (hardwarePattern: RegExp, sensorType: string, namePattern: RegExp): number | null => {
+      const sensor = telemetry.sensors?.find((item) =>
+        hardwarePattern.test(item.hardwareType) &&
+        item.sensorType.toLowerCase() === sensorType.toLowerCase() &&
+        namePattern.test(item.name) &&
+        item.isAvailable &&
+        item.value !== null &&
+        Number.isFinite(item.value)
+      );
+      return sensor?.value ?? null;
+    };
+
     telemetrySamples.current.push({
-      cpuLoad: Number(telemetry.cpu.load) || 0,
-      gpuLoad: Number(telemetry.gpu.utilization) || 0,
-      cpuTemp: Number(telemetry.cpu.temperature) || 0,
-      gpuTemp: Number(telemetry.gpu.temperature) || 0,
+      cpuLoad: findAvailableSensor(/^cpu$/i, 'Load', /total|cpu/i),
+      gpuLoad: findAvailableSensor(/^gpu/i, 'Load', /core|gpu|total/i),
+      cpuTemp: Number.isFinite(telemetry.cpu.temperature) && telemetry.cpu.temperature > 0 ? telemetry.cpu.temperature : null,
+      gpuTemp: Number.isFinite(telemetry.gpu.temperature) && telemetry.gpu.temperature > 0 ? telemetry.gpu.temperature : null,
     });
   }, [telemetry, isRecording]);
 
