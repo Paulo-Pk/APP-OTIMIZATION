@@ -74,8 +74,11 @@ export interface GpuTelemetry {
   name: string;
   vendor: 'NVIDIA' | 'AMD' | 'Intel' | 'Outro';
   temperature: number;
+  temperatureAvailable?: boolean;
   hotspot: number;
+  hotspotAvailable?: boolean;
   memoryTemp: number;
+  memoryTempAvailable?: boolean;
   clockMHz: number;
   memoryClockMHz: number;
   utilization: number;
@@ -100,6 +103,7 @@ export interface CpuTelemetry {
   name: string;
   socket: string;
   temperature: number;
+  temperatureAvailable?: boolean;
   load: number;
   frequencyGHz: number;
   cores: number;
