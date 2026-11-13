@@ -151,7 +151,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">
-              {t.hardwareMonitor.gpuCoreTemp}
+              Temperatura da GPU
             </span>
             <span className="text-base font-mono font-bold text-white">
               {telemetry.gpu.temperature > 0
@@ -165,7 +165,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
 
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">
-              {t.hardwareMonitor.gpuHotspotTemp}
+              Hotspot
             </span>
             <span className="text-base font-mono font-bold text-amber-400">
               {telemetry.gpu.hotspot > 0

@@ -259,6 +259,19 @@ class NativeBridgeService {
     }
   }
 
+  public async listRunningProcesses(): Promise<Array<{ processId: number; processName: string; mainWindowTitle: string }> | null> {
+    if (!this.agentStatus.isConnected) return null;
+    try {
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/presentmon/processes`, { headers: this.getAuthHeaders() });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.processes) ? data.processes : [];
+    } catch (err) {
+      console.warn('Failed to list running processes from native agent:', err);
+      return null;
+    }
+  }
+
   public async runPresentMonCapture(
     processName: string,
     durationSeconds: number

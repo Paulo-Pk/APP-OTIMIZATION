@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Gauge,
   Activity,
@@ -14,12 +14,33 @@ export const PerformanceLabView: React.FC = () => {
   const { t } = useI18n();
   // Strictly empty until a real PresentMon capture is completed via the Windows Agent
   const [sessions, setSessions] = useState<PresentMonSession[]>([]);
-  const [selectedProcess, setSelectedProcess] = useState<string>('cs2.exe');
+  const [selectedProcess, setSelectedProcess] = useState<string>('');
+  const [runningProcesses, setRunningProcesses] = useState<Array<{ processId: number; processName: string; mainWindowTitle: string }>>([]);
+  const [isLoadingProcesses, setIsLoadingProcesses] = useState(false);
+
+  const refreshRunningProcesses = async () => {
+    setIsLoadingProcesses(true);
+    try {
+      const processes = await nativeBridge.listRunningProcesses();
+      setRunningProcesses((processes || []).filter((p) => p.processName && p.processId > 4));
+      if (processes && processes.length > 0) {
+        setSelectedProcess((current) => current || processes[0].processName);
+      }
+    } finally {
+      setIsLoadingProcesses(false);
+    }
+  };
+
+  useEffect(() => { void refreshRunningProcesses(); }, []);
   const [durationSec, setDurationSec] = useState<number>(10);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const handleStartCapture = async () => {
+    if (!selectedProcess) {
+      setStatusMessage('Selecione um jogo ou processo em execução antes de iniciar a captura.');
+      return;
+    }
     setIsRecording(true);
     setStatusMessage(t.performanceLab.initializingHook);
 
@@ -31,9 +52,9 @@ export const PerformanceLabView: React.FC = () => {
         date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         durationSeconds: durationSec,
         avgFps: nativeResult.avgFps,
-        minFps: nativeResult.minFps ?? Math.round(nativeResult.avgFps * 0.72),
+        minFps: nativeResult.minFps ?? 0,
         onePercentLow: nativeResult.onePercentLow,
-        pointOnePercentLow: Math.round(nativeResult.onePercentLow * 0.8),
+        pointOnePercentLow: 0,
         frametimeAvgMs: nativeResult.frametimeAvgMs,
         frametimeStDevMs: nativeResult.frametimeStDevMs,
         cpuLoadAvg: 0,
@@ -66,13 +87,22 @@ export const PerformanceLabView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
+          <select
             value={selectedProcess}
             onChange={(e) => setSelectedProcess(e.target.value)}
-            placeholder="Processo (ex: cs2.exe)"
-            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white"
-          />
+            disabled={isLoadingProcesses || runningProcesses.length === 0}
+            className="min-w-[250px] px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs text-white disabled:opacity-60"
+          >
+            <option value="">{isLoadingProcesses ? 'Procurando jogos em execução...' : 'Selecione um jogo em execução'}</option>
+            {runningProcesses.map((process) => (
+              <option key={process.processId} value={process.processName}>
+                {process.mainWindowTitle ? `${process.mainWindowTitle} — ${process.processName}.exe` : `${process.processName}.exe`}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => void refreshRunningProcesses()} disabled={isLoadingProcesses} className="px-3 py-2 rounded-lg bg-[#171b2a] border border-slate-700 text-xs text-slate-200 disabled:opacity-50">
+            {isLoadingProcesses ? 'Buscando...' : 'Atualizar jogos'}
+          </button>
           <select
             value={durationSec}
             onChange={(e) => setDurationSec(Number(e.target.value))}
@@ -84,7 +114,7 @@ export const PerformanceLabView: React.FC = () => {
           </select>
           <button
             onClick={handleStartCapture}
-            disabled={isRecording}
+            disabled={isRecording || !selectedProcess}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all cursor-pointer ${
               isRecording
                 ? 'bg-rose-600 text-white animate-pulse'
