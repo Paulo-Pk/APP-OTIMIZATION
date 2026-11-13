@@ -479,6 +479,58 @@ class NativeBridgeService {
     }
   }
 
+  public async measureGameReferenceTargets(gameIds: string[]): Promise<{
+    measurementMethod?: string;
+    tcpReachabilityPercent?: number;
+    structuredDiagnostic?: Record<string, string>;
+    results: Array<{
+      id: string; server: string; location: string; host: string; protocol: string;
+      pingMs: number | null; jitterMs: number | null; tcpFailurePercent: number;
+      tcpHandshakeState: string; samples: number[]; isSuccess: boolean;
+    }>;
+  } | null> {
+    if (!this.agentStatus.isConnected || gameIds.length === 0) return null;
+    try {
+      const query = encodeURIComponent(gameIds.join(','));
+      const res = await fetch(`${LOCAL_AGENT_URL}/api/network/game-targets?games=${query}`, {
+        headers: this.getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) return null;
+      const read = (object: any, key: string) => object?.[key] ?? object?.[key.charAt(0).toUpperCase() + key.slice(1)];
+      const rawResults = read(data, 'results');
+      const rawDiagnostic = read(data, 'structuredDiagnostic');
+      const diagnostic = rawDiagnostic ? {
+        whatWasTested: String(read(rawDiagnostic, 'whatWasTested') || ''),
+        whatFailed: String(read(rawDiagnostic, 'whatFailed') || ''),
+        evidenceFound: String(read(rawDiagnostic, 'evidenceFound') || ''),
+        probableCause: String(read(rawDiagnostic, 'probableCause') || ''),
+        recommendedSolution: String(read(rawDiagnostic, 'recommendedSolution') || ''),
+        verificationSteps: String(read(rawDiagnostic, 'verificationSteps') || ''),
+      } : undefined;
+      return {
+        measurementMethod: String(read(data, 'measurementMethod') || ''),
+        tcpReachabilityPercent: Number(read(data, 'tcpReachabilityPercent') || 0),
+        structuredDiagnostic: diagnostic,
+        results: (Array.isArray(rawResults) ? rawResults : []).map((item: any) => ({
+          id: String(read(item, 'id') || ''),
+          server: String(read(item, 'server') || ''),
+          location: String(read(item, 'location') || ''),
+          host: String(read(item, 'host') || ''),
+          protocol: String(read(item, 'protocol') || 'TCP'),
+          pingMs: read(item, 'pingMs') == null ? null : Number(read(item, 'pingMs')),
+          jitterMs: read(item, 'jitterMs') == null ? null : Number(read(item, 'jitterMs')),
+          tcpFailurePercent: Number(read(item, 'tcpFailurePercent') || 0),
+          tcpHandshakeState: String(read(item, 'tcpHandshakeState') || 'Não informado'),
+          samples: Array.isArray(read(item, 'samples')) ? read(item, 'samples').map(Number) : [],
+          isSuccess: Boolean(read(item, 'isSuccess')),
+        })),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   public async runRealNetworkDiagnostics(): Promise<any | null> {
     if (!this.agentStatus.isConnected) return null;
 
