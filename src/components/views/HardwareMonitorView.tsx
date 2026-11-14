@@ -97,7 +97,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
         {/* CPU summary: real values supplied by the Windows hardware agent */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
-            <span className="text-[10px] text-slate-500 uppercase block">Temperatura da CPU · Package/Die</span>
+            <span className="text-[10px] text-slate-500 uppercase block">Temperatura da CPU · sensor térmico principal</span>
             <span className="text-lg font-mono font-bold text-white">{hasCpuTemperature ? `${telemetry.cpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}</span>
           </div>
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
