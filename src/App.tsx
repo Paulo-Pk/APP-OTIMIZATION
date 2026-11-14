@@ -83,7 +83,7 @@ export default function App() {
     }))
   );
   const [games, setGames] = useState<GameProfile[]>([]);
-  const [gameSessions, setGameSessions] = useState<Array<{ sessionId: string; title: string; processId: number; isRunning: boolean; boostEnabled: boolean }>>([]);
+  const [gameSessions, setGameSessions] = useState<Array<{ sessionId: string; title: string; executablePath: string; processId: number; isRunning: boolean; boostEnabled: boolean }>>([]);
   const [agentStatus, setAgentStatus] = useState<NativeAgentStatus>(nativeBridge.getStatus());
 
   // Restore records: strictly no fake entries. Loaded from local storage or empty.
