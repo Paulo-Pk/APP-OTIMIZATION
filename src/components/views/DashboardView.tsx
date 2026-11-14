@@ -103,8 +103,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const primaryDisk = telemetry.disks.find((disk) => disk.isSystemDisk && disk.capacityGB > 0)
     ?? telemetry.disks.find((disk) => disk.capacityGB > 0)
     ?? telemetry.disks[0];
-  const diskTemperature = telemetry.disks.find((disk) => disk.temperature > 0)?.temperature
-    ?? (primaryDisk?.temperature || 0);
+  // Never borrow a temperature from a different physical drive than the one shown in this card.
+  // A logical system volume may have no direct thermal sensor; in that case show unavailable.
+  const diskTemperature = primaryDisk?.temperature || 0;
   const diskUsagePercent = primaryDisk && primaryDisk.capacityGB > 0
     ? Math.min(100, Math.max(0, ((primaryDisk.capacityGB - primaryDisk.freeSpaceGB) / primaryDisk.capacityGB) * 100))
     : 0;
@@ -199,7 +200,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
-              <span className="text-slate-500 block text-[10px]">CPU · Package/Die</span>
+              <span className="text-slate-500 block text-[10px]">CPU · sensor térmico principal</span>
               <span className="font-mono font-semibold text-slate-200">
                 {(telemetry.cpu.temperatureAvailable ?? (telemetry.cpu.temperature > 0))
                   ? `${telemetry.cpu.temperature.toFixed(1)}°C`
