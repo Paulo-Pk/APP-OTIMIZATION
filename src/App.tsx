@@ -808,7 +808,7 @@ export default function App() {
       setNotification({
         type: 'success',
         title: 'Jogo cadastrado',
-        message: `${profile.title} foi adicionado à biblioteca. O caminho foi salvo; iniciar o jogo e aplicar otimizações ainda dependem da integração de processos.`,
+        message: `${profile.title} foi adicionado. A autorização nativa é temporária (15 minutos) e de uso único; após iniciar, o Game Boost pode ajustar a prioridade do processo. Afinidade de CPU e preferências avançadas ainda não são aplicadas.`,
       });
     } catch {
       setNotification({
