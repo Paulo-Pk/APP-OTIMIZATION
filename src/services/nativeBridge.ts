@@ -256,16 +256,18 @@ class NativeBridgeService {
         // Some adapters expose dedicated VRAM only as SmallData sensors rather
         // than through the aggregate snapshot fields. Resolve those fallbacks
         // against the primary adapter only; never mix in a secondary GPU.
-        const gpuVramUsed = firstNumeric(
+        const gpuVramUsedReading = firstAvailableReading(
           read(data, 'gpuVramUsedMb'),
           read(gpuAdapter, 'vramUsedMb'),
           findSensor(primaryGpuSensors, 'SmallData', /^(GPU Memory Used|D3D Dedicated Memory Used)$/i),
         );
-        const gpuVramTotal = firstNumeric(
+        const gpuVramTotalReading = firstAvailableReading(
           read(data, 'gpuVramTotalMb'),
           read(gpuAdapter, 'vramTotalMb'),
           findSensor(primaryGpuSensors, 'SmallData', /^(GPU Memory Total|D3D Dedicated Memory Total)$/i),
         );
+        const gpuVramUsed = gpuVramUsedReading ?? 0;
+        const gpuVramTotal = gpuVramTotalReading ?? 0;
         const gpuFanRpm = numeric(read(data, 'gpuFanRpm'), numeric(read(gpuAdapter, 'fanRpm'), numeric(findSensor(primaryGpuSensors, 'Fan', /fan/i))));
         const ramTotal = numeric(read(data, 'ramTotalGb'));
         const ramUsed = numeric(read(data, 'ramUsedGb'));
@@ -288,8 +290,8 @@ class NativeBridgeService {
             temperature: gpuCoreTemp, temperatureAvailable: gpuCoreTempReading !== null, hotspot: gpuHotspot, hotspotAvailable: gpuHotspotReading !== null, memoryTemp: gpuMemoryTemp, memoryTempAvailable: gpuMemoryTempReading !== null,
             clockMHz: numeric(read(data, 'gpuClockMhz'), numeric(read(gpuAdapter, 'coreClockMhz'))),
             memoryClockMHz: gpuMemoryClock, utilization: numeric(read(data, 'gpuLoadPercent'), numeric(read(gpuAdapter, 'loadPercent'))),
-            vramUsedMB: gpuVramUsed,
-            vramTotalMB: gpuVramTotal,
+            vramUsedMB: gpuVramUsed, vramUsedAvailable: gpuVramUsedReading !== null,
+            vramTotalMB: gpuVramTotal, vramTotalAvailable: gpuVramTotalReading !== null,
             powerWatts: numeric(read(data, 'gpuPowerWatts'), numeric(read(gpuAdapter, 'powerWatts'))),
             fansRPM: gpuFanRpm, fanSpeedPercent: numeric(findSensor(primaryGpuSensors, 'Load', /fan/i)),
             thermalLimitReported: 0, isThrottling: false, pcieLane: 'Não informado',
