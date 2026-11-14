@@ -161,9 +161,9 @@ public static class DriverScannerService
 
         string signature = isSigned switch
         {
-            true => "Assinado digitalmente (Windows)",
-            false => "Windows informa que não possui assinatura digital",
-            _ => "Assinatura não informada"
+            true => "Windows informa: driver assinado digitalmente",
+            false => "Windows informa: driver sem assinatura digital",
+            _ => "Assinatura não informada pelo Windows"
         };
 
         string status = string.IsNullOrWhiteSpace(deviceStatus)
