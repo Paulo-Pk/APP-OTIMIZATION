@@ -501,6 +501,27 @@ public sealed class GameDiscoveryTests : IDisposable
     }
 
     [Fact]
+    public void GameExecutableApprovalStore_RejectsExecutableChangedAfterApproval()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"pccontrol-approval-changed-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string executable = Path.Combine(directory, "approved-game.exe");
+        File.WriteAllText(executable, "original executable contents");
+
+        try
+        {
+            string approvalId = GameExecutableApprovalStore.Register(executable);
+            File.WriteAllText(executable, "replaced executable contents");
+
+            Assert.False(GameExecutableApprovalStore.TryConsume(approvalId, out _));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void GameExecutableApprovalStore_RejectsNonExecutableFiles()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"pccontrol-approval-invalid-{Guid.NewGuid():N}");
