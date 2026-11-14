@@ -309,7 +309,7 @@ public static class DiskCleanerEngine
         }
     }
 
-    public static DiskPurgeReport PurgeCategoryWithReport(string categoryKey, bool confirmServiceStop = false)
+    public static DiskPurgeReport PurgeCategoryWithReport(string categoryKey, bool confirmUpdateCache = false)
     {
         var errors = new List<string>();
         var affectedItems = new List<string>();
@@ -321,7 +321,7 @@ public static class DiskCleanerEngine
             return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
-        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) && !confirmServiceStop)
+        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) && !confirmUpdateCache)
         {
             errors.Add("A limpeza do cache do Windows Update exige confirmação explícita do usuário.");
             return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
@@ -530,7 +530,7 @@ public static class DiskCleanerEngine
 
     public static long PurgeCategory(string categoryKey)
     {
-        var report = PurgeCategoryWithReport(categoryKey, confirmServiceStop: false);
+        var report = PurgeCategoryWithReport(categoryKey, confirmUpdateCache: false);
         return report.FreedBytes;
     }
 }
