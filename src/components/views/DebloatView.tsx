@@ -14,7 +14,7 @@ import { nativeBridge } from '../../services/nativeBridge';
 export const DebloatView: React.FC = () => {
   const { t } = useI18n();
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(['cache-dx-shaders', 'temp-user', 'temp-prefetch']));
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(['cache-dx-shaders', 'temp-user']));
   const [scan, setScan] = useState<{
     d3dCacheBytes: number; tempWindowsBytes: number; tempUserBytes: number; softwareDistributionBytes: number;
     prefetchBytes: number; deliveryOptimizationBytes: number; werQueueBytes: number; werArchiveBytes: number;
@@ -40,6 +40,7 @@ export const DebloatView: React.FC = () => {
         return;
       }
       setScan(result);
+      setSelectedIds((previous) => new Set(Array.from(previous).filter((id) => result.categories[id]?.success === true)));
       const failedCategories = Object.entries(result.categories).filter(([, status]) => !status.success);
       if (failedCategories.length > 0) {
         setNoticeMessage(
@@ -341,7 +342,7 @@ export const DebloatView: React.FC = () => {
             <div className="p-3 rounded-lg bg-[#141829] border border-slate-800 text-xs space-y-2">
               <span className="text-slate-400 block font-semibold">Pastas que serão verificadas e purgadas:</span>
               <ul className="list-disc list-inside text-slate-300 space-y-1 text-[11px] font-mono">
-                {Array.from(selectedIds).map((id) => {
+                {Array.from(selectedIds).filter((id) => scan?.categories[id]?.success === true).map((id) => {
                   const cat = categories.find((c) => c.id === id);
                   return <li key={id}>{cat?.name || id}</li>;
                 })}
