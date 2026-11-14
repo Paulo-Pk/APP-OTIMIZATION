@@ -326,7 +326,7 @@ public class RegistrySnapshotTests
                 {
                     TweakId = "perf-game-dvr",
                     Hive = "HKCU",
-                    SubKey = @"System\\GameConfigStore",
+                    SubKey = @"System\GameConfigStore",
                     ValueName = "GameDVR_Enabled",
                     ValueKind = "DWord",
                     RawValue = "1",
@@ -347,7 +347,7 @@ public class RegistrySnapshotTests
                 ReadFailuresCount = 1,
                 UnreadableItems = new List<RegistrySnapshotReadFailure>
                 {
-                    new("perf-win32-priority", "HKLM", @"SYSTEM\\CurrentControlSet\\Control\\PriorityControl", "Win32PrioritySeparation", "Access Denied")
+                    new("perf-win32-priority", "HKLM", @"SYSTEM\CurrentControlSet\Control\PriorityControl", "Win32PrioritySeparation", "Access Denied")
                 },
                 Entries = entries,
                 ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
