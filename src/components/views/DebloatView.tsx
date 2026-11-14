@@ -118,7 +118,7 @@ export const DebloatView: React.FC = () => {
     for (const id of Array.from(selectedIds).filter((selectedId) => scan?.categories[selectedId]?.success === true)) {
       const categoryName = categories.find((category) => category.id === id)?.name || id;
       try {
-        const result = await nativeBridge.purgeRealDebloatDirectory(id);
+        const result = await nativeBridge.purgeRealDebloatDirectory(id, true);
         totalFreed += result.freedBytes;
         deletedFiles += result.deletedFilesCount;
         skippedLocked += result.skippedLockedCount;
