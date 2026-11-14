@@ -29,7 +29,7 @@ export const DebloatView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
-  const scanNow = useCallback(async () => {
+  const scanNow = useCallback(async (preserveNotice = false) => {
     setIsScanning(true);
     try {
       const result = await nativeBridge.scanRealDebloatDirectories();
@@ -45,7 +45,7 @@ export const DebloatView: React.FC = () => {
         setNoticeMessage(
           `${failedCategories.length} categoria(s) não puderam ser verificadas. Elas ficarão indisponíveis para limpeza até uma leitura válida.`
         );
-      } else {
+      } else if (!preserveNotice) {
         setNoticeMessage(null);
       }
     } catch {
@@ -151,7 +151,7 @@ export const DebloatView: React.FC = () => {
     }
 
     try {
-      await scanNow();
+      await scanNow(true);
     } finally {
       setIsCleaning(false);
     }
@@ -263,7 +263,7 @@ export const DebloatView: React.FC = () => {
             {t.debloat.itemsTitle}
           </span>
           <span className="text-slate-400 font-mono">
-            {isScanning ? 'Verificando pastas...' : scan ? `Encontrado: ${formatBytes(categories.reduce((acc, c) => acc + c.estimatedBytes, 0))}` : 'Faça uma verificação para ver o espaço real'}
+            {isScanning ? 'Verificando pastas...' : scan ? `Encontrado: ${formatBytes(categories.filter((c) => c.scanAvailable).reduce((acc, c) => acc + c.estimatedBytes, 0))}` : 'Faça uma verificação para ver o espaço real'}
           </span>
           <button onClick={() => void scanNow()} disabled={isScanning || isCleaning} className="px-3 py-1.5 rounded-md bg-[#171b2a] border border-slate-700 text-slate-200 disabled:opacity-50">{isScanning ? 'Verificando...' : 'Verificar novamente'}</button>
         </div>
@@ -293,10 +293,12 @@ export const DebloatView: React.FC = () => {
                       </span>
                       {!c.scanAvailable ? (
                         <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">Verificação indisponível</span>
-                      ) : c.isSafe && (
+                      ) : c.isSafe ? (
                         <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                           {t.debloat.safeNotice}
                         </span>
+                      ) : (
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">Requer atenção</span>
                       )}
                     </div>
                     <p className="text-slate-400 text-xs leading-relaxed max-w-2xl">
