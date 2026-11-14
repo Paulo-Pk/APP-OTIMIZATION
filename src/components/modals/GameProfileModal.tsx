@@ -89,7 +89,6 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
               <option value="Normal">{t.gameCenter.priorityNormal}</option>
               <option value="Acima do Normal">{t.gameCenter.priorityAboveNormal}</option>
               <option value="Alta">{t.gameCenter.priorityHigh}</option>
-              <option value="Tempo Real">{t.gameCenter.priorityRealtime}</option>
             </select>
           </div>
 
