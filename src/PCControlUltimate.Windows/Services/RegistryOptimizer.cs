@@ -783,7 +783,8 @@ public static class RegistryOptimizer
     public static RegistryOperationResult RestoreCatalogTweakFromTrustedSource(
         string tweakId,
         string? operationId = null,
-        string? snapshotIdOrPath = null)
+        string? snapshotIdOrPath = null,
+        bool confirmIncompleteBackup = false)
     {
         if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
         {
@@ -798,7 +799,7 @@ public static class RegistryOptimizer
         {
             var snapReport = RegistrySnapshotEngine.RestoreFromBackupWithReport(
                 snapshotIdOrPath,
-                confirmIncompleteBackup: true,
+                confirmIncompleteBackup: confirmIncompleteBackup,
                 singleTweakId: def.TweakId,
                 rollbackOnPartialFailure: false
             );
