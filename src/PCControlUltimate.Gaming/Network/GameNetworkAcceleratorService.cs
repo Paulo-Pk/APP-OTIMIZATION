@@ -188,9 +188,15 @@ public static class GameNetworkAcceleratorService
         }
 
         var cidrs = (gameTargetCidrs ?? Array.Empty<string>())
-            .Select(c => c.Trim())
             .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        if (cidrs.Count == 0)
+        {
+            return (false, "EMPTY_GAME_TARGET_CIDRS: Informe ao menos uma sub-rede de destino do jogo para registrar o nó.", null);
+        }
 
         foreach (var cidr in cidrs)
         {
@@ -198,6 +204,11 @@ public static class GameNetworkAcceleratorService
             {
                 return (false, $"INVALID_CIDR_BLOCK: O bloco CIDR '{cidr}' não é uma sub-rede IPv4/IPv6 válida.", null);
             }
+        }
+
+        if (!WireGuardTunnelManager.IsValidWireGuardKey(publicKey))
+        {
+            return (false, "INVALID_RELAY_PUBLIC_KEY: A chave pública WireGuard do nó está ausente ou fora do formato Curve25519 Base64.", null);
         }
 
         var candidate = new RelayNodeCandidate(
@@ -226,7 +237,8 @@ public static class GameNetworkAcceleratorService
         string trimmed = hostOrIp.Trim();
         if (!SafeHostOrIpRegex.IsMatch(trimmed)) return false;
         if (trimmed.Contains("..") || trimmed.StartsWith('-') || trimmed.EndsWith('-')) return false;
-        return true;
+        if (IPAddress.TryParse(trimmed, out _)) return true;
+        return !trimmed.Contains(':') && Uri.CheckHostName(trimmed) == UriHostNameType.Dns;
     }
 
     private static bool IsMainGameTitle(string? title)
