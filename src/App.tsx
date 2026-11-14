@@ -765,22 +765,52 @@ export default function App() {
     const duplicate = games.find((game) =>
       game.executablePath.trim().toLowerCase() === normalizedPath.toLowerCase()
     );
-    if (duplicate && existingGameId !== duplicate.id) {
+    const targetGame = existingGameId ? games.find((game) => game.id === existingGameId) : undefined;
+
+    if (targetGame) {
+      if (duplicate && duplicate.id !== targetGame.id) {
+        setNotification({
+          type: 'warning',
+          title: 'Executável já associado',
+          message: `Este arquivo já está associado a ${duplicate.title}. Escolha outro executável.`,
+        });
+        return;
+      }
+
+      const updatedGames = games.map((game) => game.id === targetGame.id
+        ? { ...game, executablePath: normalizedPath, approvalId: selected.approvalId }
+        : game);
+      setGames(updatedGames);
+
+      if (targetGame.platform === 'Manual') {
+        const persistable = updatedGames
+          .filter((game) => game.platform === 'Manual')
+          .map(({ approvalId: _approvalId, ...profile }) => profile);
+        try {
+          localStorage.setItem(MANUAL_GAMES_STORAGE_KEY, JSON.stringify(persistable));
+        } catch {
+          setNotification({
+            type: 'warning',
+            title: 'Executável autorizado nesta sessão',
+            message: 'O caminho não pôde ser salvo localmente. A autorização temporária continua disponível até fechar o aplicativo ou expirar.',
+          });
+          return;
+        }
+      }
+
+      setNotification({
+        type: 'success',
+        title: 'Executável associado e autorizado',
+        message: `${targetGame.title}: arquivo vinculado ao perfil. A autorização é temporária, de uso único e expira em 15 minutos.`,
+      });
+      return;
+    }
+
+    if (duplicate) {
       setNotification({
         type: 'warning',
         title: 'Jogo já cadastrado',
         message: `${duplicate.title} já está na biblioteca do Game Center.`,
-      });
-      return;
-    }
-    if (duplicate && existingGameId === duplicate.id) {
-      setGames((previous) => previous.map((game) =>
-        game.id === duplicate.id ? { ...game, approvalId: selected.approvalId } : game
-      ));
-      setNotification({
-        type: 'success',
-        title: 'Executável revalidado',
-        message: `${duplicate.title}: autorização temporária renovada. Ela expira automaticamente e não é salva no disco.`,
       });
       return;
     }
