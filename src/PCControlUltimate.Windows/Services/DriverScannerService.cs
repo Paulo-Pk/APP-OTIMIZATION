@@ -47,8 +47,13 @@ public static class DriverScannerService
                 "SELECT DeviceName, DriverVersion, DriverDate, Manufacturer, DeviceClass, IsSigned, DeviceID FROM Win32_PnPSignedDriver WHERE DeviceName IS NOT NULL"
             );
 
+            var seenSignedDeviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (ManagementObject obj in signedSearcher.Get())
             {
+                string? deviceId = obj["DeviceID"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(deviceId) && !seenSignedDeviceIds.Add(deviceId))
+                    continue;
+
                 results.Add(CreateEntry(
                     obj["DeviceName"]?.ToString() ?? "Dispositivo sem nome",
                     obj["DeviceClass"]?.ToString() ?? string.Empty,
@@ -68,8 +73,6 @@ public static class DriverScannerService
         if (results.Count > 0)
         {
             return results
-                .GroupBy(d => d.Device, StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
                 .OrderBy(d => d.Category, StringComparer.CurrentCultureIgnoreCase)
                 .ThenBy(d => d.Device, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
@@ -83,8 +86,13 @@ public static class DriverScannerService
                 "SELECT Name, Manufacturer, PNPClass, PNPDeviceID, Status, ConfigManagerErrorCode FROM Win32_PnPEntity WHERE PNPDeviceID IS NOT NULL"
             );
 
+            var seenPnpDeviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (ManagementObject obj in pnpSearcher.Get())
             {
+                string? deviceId = obj["PNPDeviceID"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(deviceId) && !seenPnpDeviceIds.Add(deviceId))
+                    continue;
+
                 string name = obj["Name"]?.ToString() ?? "Dispositivo sem nome";
                 string deviceClass = obj["PNPClass"]?.ToString() ?? string.Empty;
                 string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante não informado";
@@ -130,8 +138,6 @@ public static class DriverScannerService
                     (signedQueryError == null ? string.Empty : $" {signedQueryError}");
 
         return results
-            .GroupBy(d => d.Device, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
             .OrderBy(d => d.Category, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(d => d.Device, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
