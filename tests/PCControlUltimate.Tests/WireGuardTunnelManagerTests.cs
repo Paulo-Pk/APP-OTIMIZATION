@@ -81,4 +81,57 @@ public sealed class WireGuardTunnelManagerTests
         Assert.False(audit.IsValid);
         Assert.Contains("UNSAFE_SCRIPT_HOOK_BLOCKED", audit.ErrorReason);
     }
+    [Fact]
+    public void RelayRegistration_RejectsMissingPublicKey()
+    {
+        GameNetworkAcceleratorService.ClearNodesForTesting();
+
+        var result = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "relay-test", "Relay Test", "BR", "relay.example.com", 51820,
+            string.Empty, new[] { "10.20.0.0/16" });
+
+        Assert.False(result.success);
+        Assert.Contains("INVALID_RELAY_PUBLIC_KEY", result.errorReason);
+    }
+
+    [Fact]
+    public void RelayRegistration_RejectsEmptyGameTargetNetworks()
+    {
+        GameNetworkAcceleratorService.ClearNodesForTesting();
+
+        var result = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "relay-test", "Relay Test", "BR", "relay.example.com", 51820,
+            ValidPublicKey, Array.Empty<string>());
+
+        Assert.False(result.success);
+        Assert.Contains("EMPTY_GAME_TARGET_CIDRS", result.errorReason);
+    }
+
+    [Fact]
+    public void RelayRegistration_RejectsHostWithEmbeddedPort()
+    {
+        GameNetworkAcceleratorService.ClearNodesForTesting();
+
+        var result = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "relay-test", "Relay Test", "BR", "relay.example.com:443", 51820,
+            ValidPublicKey, new[] { "10.20.0.0/16" });
+
+        Assert.False(result.success);
+        Assert.Contains("INVALID_ENDPOINT_HOST", result.errorReason);
+    }
+
+    [Fact]
+    public void RelayRegistration_AcceptsValidatedNodeMetadata()
+    {
+        GameNetworkAcceleratorService.ClearNodesForTesting();
+
+        var result = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "relay-test", "Relay Test", "BR", "relay.example.com", 51820,
+            ValidPublicKey, new[] { "10.20.0.0/16" });
+
+        Assert.True(result.success, result.errorReason);
+        Assert.NotNull(result.node);
+        Assert.Contains("10.20.0.0/16", result.node!.GameTargetCidrs);
+    }
+
 }
