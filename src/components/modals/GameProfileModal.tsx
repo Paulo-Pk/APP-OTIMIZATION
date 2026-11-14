@@ -1,12 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Gamepad2,
   X,
   Check,
-  Cpu,
-  Flame,
-  Zap,
-  Activity,
 } from 'lucide-react';
 import { GameProfile } from '../../types';
 import { useI18n } from '../../i18n';
@@ -25,16 +21,25 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
   onSave,
 }) => {
   const { t } = useI18n();
+  const [priority, setPriority] = useState<GameProfile['processPriority']>('Normal');
+  const [affinity, setAffinity] = useState<GameProfile['cpuAffinity']>('Todos');
+  const [powerProfile, setPowerProfile] = useState<GameProfile['powerProfile']>('Equilibrado');
+  const [monitorFps, setMonitorFps] = useState(false);
+  const [boostEnabled, setBoostEnabled] = useState(false);
 
-  if (!isOpen || !game) return null;
-
-  const [priority, setPriority] = useState(game.processPriority);
-  const [affinity, setAffinity] = useState(game.cpuAffinity);
-  const [powerProfile, setPowerProfile] = useState(game.powerProfile);
-  const [monitorFps, setMonitorFps] = useState(game.monitorFps);
-  const [boostEnabled, setBoostEnabled] = useState(game.boostEnabled);
+  // Keep the editor synchronized when the selected game changes. All hooks run
+  // on every render, including while the modal is closed.
+  useEffect(() => {
+    if (!game) return;
+    setPriority(game.processPriority);
+    setAffinity(game.cpuAffinity);
+    setPowerProfile(game.powerProfile);
+    setMonitorFps(game.monitorFps);
+    setBoostEnabled(game.boostEnabled);
+  }, [game]);
 
   const handleSave = () => {
+    if (!game) return;
     onSave({
       ...game,
       processPriority: priority,
@@ -45,6 +50,8 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
     });
     onClose();
   };
+
+  if (!isOpen || !game) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
@@ -64,6 +71,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-white font-bold text-lg cursor-pointer"
+            aria-label={t.common.cancel}
           >
             <X className="w-5 h-5" />
           </button>
@@ -77,7 +85,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
             </label>
             <select
               value={priority}
-              onChange={(e) => setPriority(e.target.value as any)}
+              onChange={(e) => setPriority(e.target.value as GameProfile['processPriority'])}
               className="w-full bg-[#0a0c13] border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
               <option value="Normal">{t.gameCenter.priorityNormal}</option>
@@ -93,7 +101,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
             </label>
             <select
               value={affinity}
-              onChange={(e) => setAffinity(e.target.value as any)}
+              onChange={(e) => setAffinity(e.target.value as GameProfile['cpuAffinity'])}
               className="w-full bg-[#0a0c13] border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
               <option value="Todos">{t.gameCenter.affinityAll}</option>
@@ -108,7 +116,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
             </label>
             <select
               value={powerProfile}
-              onChange={(e) => setPowerProfile(e.target.value as any)}
+              onChange={(e) => setPowerProfile(e.target.value as GameProfile['powerProfile'])}
               className="w-full bg-[#0a0c13] border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
               <option value="Desempenho Máximo PC Control">{t.gameCenter.powerPlanUltimate}</option>
