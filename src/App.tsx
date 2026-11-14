@@ -803,7 +803,7 @@ export default function App() {
       setGames(updatedGames);
 
       try {
-        if (targetGame.platform === 'Manual') {
+        if (!targetGame.id.startsWith('installed-')) {
           const persistable = updatedGames
             .filter((game) => game.platform === 'Manual')
             .map(({ approvalId: _approvalId, ...profile }) => profile);
