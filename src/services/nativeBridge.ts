@@ -453,6 +453,61 @@ class NativeBridgeService {
     }
   }
 
+  public async pickExecutableFile(): Promise<{ path: string; title: string } | null> {
+    const webview = (window as unknown as {
+      chrome?: {
+        webview?: {
+          postMessage: (message: string) => void;
+          addEventListener: (type: 'message', listener: (event: MessageEvent) => void) => void;
+          removeEventListener: (type: 'message', listener: (event: MessageEvent) => void) => void;
+        };
+      };
+    }).chrome?.webview;
+
+    // This capability exists only inside the trusted WPF WebView2 host.
+    if (!webview || !this.agentStatus.isConnected) return null;
+
+    const requestId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `pick-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result: { path: string; title: string } | null) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        webview.removeEventListener('message', onMessage);
+        resolve(result);
+      };
+
+      const onMessage = (event: MessageEvent) => {
+        const data = event.data;
+        if (!data || typeof data !== 'object' ||
+            data.type !== 'pccontrol:pick-executable-result' ||
+            data.requestId !== requestId) return;
+
+        if (typeof data.path === 'string' && data.path.trim() &&
+            typeof data.title === 'string' && data.title.trim()) {
+          finish({ path: data.path, title: data.title });
+        } else {
+          finish(null);
+        }
+      };
+
+      const timeoutId = window.setTimeout(() => finish(null), 120000);
+      webview.addEventListener('message', onMessage);
+      try {
+        webview.postMessage(JSON.stringify({
+          type: 'pccontrol:pick-executable',
+          requestId,
+        }));
+      } catch {
+        finish(null);
+      }
+    });
+  }
+
   public async discoverInstalledGames(): Promise<Array<{ title: string; launcher: string; installLocation: string; appId: string; executablePath: string | null; isInstalled: boolean }> | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
