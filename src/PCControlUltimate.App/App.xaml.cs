@@ -169,7 +169,7 @@ public partial class App : Application
             services.AddTransient<RestoreCenterView>();
             services.AddTransient<AiAssistantView>();
 
-            services.AddSingleton<MainWindow>();
+            services.AddSingleton<MainWindow>(_ => new MainWindow(inMemoryToken ?? string.Empty, _agentServer != null));
 
             _serviceProvider = services.BuildServiceProvider();
 
