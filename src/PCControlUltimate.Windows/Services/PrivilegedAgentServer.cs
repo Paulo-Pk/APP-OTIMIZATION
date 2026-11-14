@@ -916,6 +916,16 @@ public class PrivilegedAgentServer : IDisposable
                 return;
             }
 
+            if (path == "/api/wireguard/status" && req.HttpMethod == "GET")
+            {
+                var tunnelStatus = await WireGuardTunnelManager.QueryTunnelStatusAsync(
+                    "PCControlGameTunnel",
+                    cancellationToken
+                );
+                await SendJsonAsync(res, tunnelStatus);
+                return;
+            }
+
             if (path == "/api/games/sessions" && req.HttpMethod == "GET")
             {
                 await SendJsonAsync(res, new { success = true, sessions = _gameProcessSessions.GetSessions() });
