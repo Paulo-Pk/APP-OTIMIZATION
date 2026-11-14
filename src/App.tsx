@@ -214,8 +214,14 @@ export default function App() {
 
     // Re-check authentication periodically so the UI recovers when the
     // Windows agent starts, stops, or restarts after the app has opened.
-    const connectionInterval = setInterval(() => {
-      void nativeBridge.checkConnection();
+    const connectionInterval = setInterval(async () => {
+      const connected = await nativeBridge.checkConnection();
+      if (connected) {
+        const sessions = await nativeBridge.getGameSessions();
+        if (sessions) setGameSessions(sessions);
+      } else {
+        setGameSessions([]);
+      }
     }, 5000);
 
     let telemetryRefreshInFlight = false;
