@@ -46,7 +46,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         id: `bm-${Date.now()}`,
         type: 'CPU',
         score: result.score,
-        metric: t.benchmarks.metricIpc,
+        metric: 'Pontos sintéticos',
         date: t.benchmarks.justNow,
         hardware: telemetry.cpu.name || t.common.sensorNotAvailable,
         durationMs: Math.round(result.durationMs),
@@ -340,7 +340,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[9px] uppercase">
-                      {t.benchmarks.peakTemp}
+                      Temperatura registrada
                     </span>
                     <span className="text-slate-300">
                       {r.cpuTempPeak > 0
