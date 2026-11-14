@@ -829,6 +829,7 @@ export default function App() {
       setNotification({ type: 'error', title: 'Não foi possível iniciar o jogo', message: result.error || 'O agente Windows recusou a inicialização.' });
       return;
     }
+    setGames((previous) => previous.map((item) => item.id === game.id ? { ...item, approvalId: undefined } : item));
     const sessions = await nativeBridge.getGameSessions();
     if (sessions) setGameSessions(sessions);
     setNotification({ type: 'success', title: 'Processo iniciado', message: `${game.title} iniciado pelo Windows (PID ${result.processId}).` });
@@ -857,7 +858,7 @@ export default function App() {
   };
 
   const handleSaveGameProfile = (updated: GameProfile) => {
-    setGames((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+    setGames((prev) => prev.map((g) => (g.id === updated.id ? { ...updated, approvalId: g.approvalId } : g)));
     setNotification({
       type: 'warning',
       message: `${updated.title}: preferências do perfil salvas. Elas ainda não são aplicadas ao processo do jogo.`,
