@@ -70,7 +70,7 @@ export const DriverCenterView: React.FC = () => {
         <div className="divide-y divide-slate-800/80">
           {drivers.length === 0 && !isScanning ? <div className="py-8 text-center text-xs text-slate-500">Nenhum dispositivo ou driver foi retornado pelo Windows nesta consulta. Verifique o serviço WMI e tente novamente.</div> : null}
           {drivers.map((driver, idx) => {
-            const hasVerifiedSignature = (driver.status || '').toLowerCase().includes('assinado digitalmente');
+            const windowsReportsSigned = (driver.status || '').toLowerCase().includes('informa: driver assinado digitalmente');
 
             return (
               <div
@@ -82,7 +82,7 @@ export const DriverCenterView: React.FC = () => {
                     <span className="font-bold text-white text-sm">{driver.device}</span>
                     <span
                       className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
-                        hasVerifiedSignature
+                        windowsReportsSigned
                           ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
                           : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
                       }`}
