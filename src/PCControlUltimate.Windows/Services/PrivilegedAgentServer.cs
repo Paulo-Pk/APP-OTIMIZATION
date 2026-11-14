@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -162,7 +163,8 @@ internal sealed class GameProcessSessionManager : IDisposable
             }
             else
             {
-                RestorePriority(session);
+                if (!RestorePriority(session))
+                    return (false, "Não foi possível restaurar a prioridade original. O agente tentará novamente ao encerrar.");
             }
             return (true, null);
         }
@@ -198,17 +200,22 @@ internal sealed class GameProcessSessionManager : IDisposable
         }
     }
 
-    private static void RestorePriority(Session session)
+    private static bool RestorePriority(Session session)
     {
-        if (!session.OriginalPriority.HasValue) return;
+        if (!session.OriginalPriority.HasValue) return true;
         try
         {
             if (!session.Process.HasExited)
                 session.Process.PriorityClass = session.OriginalPriority.Value;
+            session.OriginalPriority = null;
+            session.BoostEnabled = false;
+            return true;
         }
-        catch { }
-        session.OriginalPriority = null;
-        session.BoostEnabled = false;
+        catch
+        {
+            // Keep the original value so a later disable or application shutdown can retry.
+            return false;
+        }
     }
 
     public void Dispose()
