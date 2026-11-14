@@ -40,6 +40,7 @@ public class DiskCleanerTests
         string sys32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        string downloads = string.IsNullOrWhiteSpace(userProfile) ? string.Empty : Path.Combine(userProfile, "Downloads");
 
         Assert.False(DiskCleanerEngine.IsPathSafe(winDir));
         Assert.False(DiskCleanerEngine.IsPathSafe(sys32));
@@ -47,6 +48,11 @@ public class DiskCleanerTests
         if (!string.IsNullOrWhiteSpace(documents))
         {
             Assert.False(DiskCleanerEngine.IsPathSafe(documents));
+        }
+        if (!string.IsNullOrWhiteSpace(downloads))
+        {
+            Assert.False(DiskCleanerEngine.IsPathSafe(downloads));
+            Assert.False(DiskCleanerEngine.IsPathSafe(Path.Combine(downloads, "Temp")));
         }
     }
 
