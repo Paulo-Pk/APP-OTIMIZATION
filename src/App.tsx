@@ -825,27 +825,12 @@ export default function App() {
             <GameCenterView
               games={games}
               onOpenProfileModal={setGameProfileToEdit}
-              onToggleGameBoost={(id) => {
-                setGames((prev) =>
-                  prev.map((g) => (g.id === id ? { ...g, boostEnabled: !g.boostEnabled } : g))
-                );
-              }}
               onAddCustomGame={() => {
-                const newGame: GameProfile = {
-                  id: `game-${Date.now()}`,
-                  title: 'Custom Game Process',
-                  platform: 'Manual',
-                  executablePath: 'C:\\Games\\Game.exe',
-                  coverImage: '',
-                  processPriority: 'Alta',
-                  cpuAffinity: 'P-Cores Apenas',
-                  gpuPreference: 'Alto Desempenho',
-                  powerProfile: 'Desempenho Máximo PC Control',
-                  monitorFps: true,
-                  monitorTemps: true,
-                  boostEnabled: true,
-                };
-                setGames((prev) => [newGame, ...prev]);
+                setNotification({
+                  type: 'warning',
+                  title: 'Cadastro manual indisponível',
+                  message: 'O seletor nativo de executáveis ainda não está integrado. Nenhum perfil fictício foi criado.',
+                });
               }}
             />
           )}

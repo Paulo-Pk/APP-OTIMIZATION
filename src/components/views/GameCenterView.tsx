@@ -4,7 +4,6 @@ import {
   Zap,
   SlidersHorizontal,
   Plus,
-  Play,
   ShieldCheck,
 } from 'lucide-react';
 import { GameProfile } from '../../types';
@@ -13,32 +12,22 @@ import { useI18n } from '../../i18n';
 interface GameCenterViewProps {
   games: GameProfile[];
   onOpenProfileModal: (game: GameProfile) => void;
-  onToggleGameBoost: (gameId: string) => void;
   onAddCustomGame: () => void;
 }
 
 export const GameCenterView: React.FC<GameCenterViewProps> = ({
   games,
   onOpenProfileModal,
-  onToggleGameBoost,
   onAddCustomGame,
 }) => {
   const { t } = useI18n();
   const [activePlatformFilter, setActivePlatformFilter] = useState<string>('all');
-  const [runningGameId, setRunningGameId] = useState<string | null>(null);
 
   const filteredGames = games.filter((g) => {
     if (activePlatformFilter === 'all') return true;
     return g.platform.toLowerCase() === activePlatformFilter.toLowerCase();
   });
 
-  const handleLaunchGame = (game: GameProfile) => {
-    setRunningGameId(game.id);
-  };
-
-  const handleStopGame = () => {
-    setRunningGameId(null);
-  };
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -103,16 +92,10 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
           </div>
         )}
         {filteredGames.map((game) => {
-          const isRunning = runningGameId === game.id;
-
           return (
             <div
               key={game.id}
-              className={`rounded-xl overflow-hidden border transition-all flex flex-col justify-between ${
-                isRunning
-                  ? 'bg-[#141829] border-purple-500 shadow-lg shadow-purple-900/30'
-                  : 'bg-[#0f121b] border-slate-800 hover:border-purple-600/40'
-              }`}
+              className="rounded-xl overflow-hidden border transition-all flex flex-col justify-between bg-[#0f121b] border-slate-800 hover:border-purple-600/40"
             >
               {/* Cover Image */}
               <div className="relative h-40 bg-slate-900 overflow-hidden group">
@@ -135,19 +118,6 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
                   </div>
                 )}
 
-                {isRunning && (
-                  <div className="absolute inset-0 bg-purple-950/80 backdrop-blur-xs flex items-center justify-center flex-col gap-2 p-3 text-center">
-                    <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" /> {t.gameCenter.gameRunning}
-                    </span>
-                    <button
-                      onClick={handleStopGame}
-                      className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer transition-colors"
-                    >
-                      {t.gameCenter.stopSession}
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* Body */}
@@ -192,11 +162,12 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
                   </button>
 
                   <button
-                    onClick={() => handleLaunchGame(game)}
-                    className="flex-1 py-2 px-3 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border border-purple-400/30 flex items-center justify-center gap-1.5 shadow-sm"
+                    type="button"
+                    disabled
+                    title="A inicialização nativa de jogos ainda não está disponível."
+                    className="flex-1 py-2 px-3 rounded-lg bg-slate-800 text-slate-500 text-xs font-bold uppercase tracking-wider cursor-not-allowed border border-slate-700"
                   >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>{t.gameCenter.gameBoost}</span>
+                    Inicialização indisponível
                   </button>
                 </div>
               </div>
