@@ -17,7 +17,18 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
 }) => {
   const { t } = useI18n();
 
-  const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
+  const hasCpuTemperature = telemetry.cpu.temperatureAvailable ?? (telemetry.cpu.temperature > 0);
+  const hasGpuCoreTemperature = telemetry.gpu.temperatureAvailable ?? (telemetry.gpu.temperature > 0);
+  const hasGpuHotspotTemperature = telemetry.gpu.hotspotAvailable ?? (telemetry.gpu.hotspot > 0);
+  const hasGpuTemps = hasGpuCoreTemperature && hasGpuHotspotTemperature;
+  const hasCpuLoadReading = (telemetry.sensors || []).some((sensor) => sensor.hardwareType.toLowerCase() === 'cpu' && sensor.sensorType === 'Load' && /total/i.test(sensor.name) && sensor.isAvailable && sensor.value !== null && Number.isFinite(sensor.value));
+  // The native bridge already scopes VRAM readings to the primary GPU adapter.
+  // Do not fall back to the unfiltered sensor list here: it contains every GPU
+  // and could combine dedicated memory readings from different adapters.
+  const hasVramUsed = telemetry.gpu.vramUsedAvailable ?? (telemetry.gpu.vramUsedMB > 0);
+  const hasVramTotal = telemetry.gpu.vramTotalAvailable ?? (telemetry.gpu.vramTotalMB > 0);
+  const vramUsedMB = hasVramUsed ? telemetry.gpu.vramUsedMB : null;
+  const vramTotalMB = hasVramTotal ? telemetry.gpu.vramTotalMB : null;
   const sensorTypeLabels: Record<string, string> = { Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' };
   const hardwareTypeLabels: Record<string, string> = { Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' };
   const sensorTypeLabel = (type: string) => sensorTypeLabels[type] || type;
@@ -40,7 +51,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0e111a] border border-slate-800 text-xs font-mono text-slate-300">
           <span
             className={`w-2 h-2 rounded-full ${
-              telemetry.cpu.cores > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+              (hasCpuLoadReading || telemetry.cpu.temperature > 0 || telemetry.cpu.frequencyGHz > 0) ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
             }`}
           />
           <span>{t.hardwareMonitor.pollingLabel}</span>
@@ -88,8 +99,8 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
         {/* CPU summary: real values supplied by the Windows hardware agent */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
-            <span className="text-[10px] text-slate-500 uppercase block">Temperatura da CPU</span>
-            <span className="text-lg font-mono font-bold text-white">{telemetry.cpu.temperature > 0 ? `${telemetry.cpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}</span>
+            <span className="text-[10px] text-slate-500 uppercase block">Temperatura da CPU · sensor térmico principal</span>
+            <span className="text-lg font-mono font-bold text-white">{hasCpuTemperature ? `${telemetry.cpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}</span>
           </div>
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Frequência da CPU</span>
@@ -97,7 +108,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
           </div>
           <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800/80">
             <span className="text-[10px] text-slate-500 uppercase block">Uso da CPU</span>
-            <span className="text-lg font-mono font-bold text-cyan-300">{telemetry.cpu.cores > 0 ? `${telemetry.cpu.load.toFixed(0)}%` : t.common.sensorNotAvailable}</span>
+            <span className="text-lg font-mono font-bold text-cyan-300">{hasCpuLoadReading ? `${telemetry.cpu.load.toFixed(0)}%` : t.common.sensorNotAvailable}</span>
           </div>
         </div>
 
@@ -127,9 +138,9 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
                     <span>
-                      {core.frequencyGHz > 0 ? `${Math.round(core.frequencyGHz * 1000).toLocaleString('pt-BR')} MHz` : '--'}
+                      {core.frequencyGHz !== null && core.frequencyGHz > 0 ? `${Math.round(core.frequencyGHz * 1000).toLocaleString('pt-BR')} MHz` : '--'}
                     </span>
-                    <span>{core.temp ? `${core.temp.toFixed(0)}°C` : '--'}</span>
+                    <span>{core.temp !== null && core.temp > 0 ? `${core.temp.toFixed(0)}°C` : '--'}</span>
                   </div>
                 </div>
               ))}
@@ -174,12 +185,12 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               Temperatura da GPU
             </span>
             <span className="text-base font-mono font-bold text-white">
-              {telemetry.gpu.temperature > 0
+              {hasGpuCoreTemperature
                 ? `${telemetry.gpu.temperature.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
             <span className="text-[10px] text-emerald-400 block mt-0.5">
-              {telemetry.gpu.temperature > 0 ? t.common.good : '--'}
+              {hasGpuCoreTemperature ? t.common.good : '--'}
             </span>
           </div>
 
@@ -188,7 +199,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               Hotspot
             </span>
             <span className="text-base font-mono font-bold text-amber-400">
-              {telemetry.gpu.hotspot > 0
+              {hasGpuHotspotTemperature
                 ? `${telemetry.gpu.hotspot.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
@@ -205,7 +216,7 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               {t.hardwareMonitor.gpuVramTemp}
             </span>
             <span className="text-base font-mono font-bold text-slate-200">
-              {telemetry.gpu.memoryTemp > 0
+              {(telemetry.gpu.memoryTempAvailable ?? (telemetry.gpu.memoryTemp > 0))
                 ? `${telemetry.gpu.memoryTemp.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
@@ -245,13 +256,13 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               {t.hardwareMonitor.vramAllocation}
             </span>
             <span className="text-base font-mono font-bold text-cyan-300">
-              {telemetry.gpu.vramTotalMB > 0
-                ? `${(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} GB`
+              {vramTotalMB !== null && vramTotalMB > 0 && vramUsedMB !== null
+                ? `${(vramUsedMB / 1024).toFixed(1)} GB`
                 : t.common.sensorNotAvailable}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">
-              {telemetry.gpu.vramTotalMB > 0
-                ? `${t.hardwareMonitor.of} ${(telemetry.gpu.vramTotalMB / 1024).toFixed(0)} GB`
+              {vramTotalMB !== null && vramTotalMB > 0
+                ? `${t.hardwareMonitor.of} ${(vramTotalMB / 1024).toFixed(0)} GB`
                 : '--'}
             </span>
           </div>

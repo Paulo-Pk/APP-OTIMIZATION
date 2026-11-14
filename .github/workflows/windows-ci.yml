@@ -1,18 +1,17 @@
 name: Windows Native Build, Test & Release x64
 
 on:
+  # Feature branches are validated through pull_request to avoid duplicate runs
+  # when a branch update also synchronizes an open PR.
   push:
     branches:
       - main
       - master
-      - 'feature/**'
-      - feature/game-network-accelerator
   pull_request:
     branches:
       - main
       - master
       - 'feature/**'
-      - feature/game-network-accelerator
   workflow_dispatch:
 
 jobs:
@@ -65,9 +64,11 @@ jobs:
         run: dotnet test PCControlUltimate.sln -c Release -p:Platform=x64 --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
 
       - name: 7. Publish Native WPF Application (Windows x64 Self-Contained)
+        if: github.event_name == 'workflow_dispatch'
         run: dotnet publish src/PCControlUltimate.App/PCControlUltimate.App.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true -o artifacts/publish/win-x64
 
       - name: 8. Verify Published Executable, Native Libraries & SQLite Dependencies
+        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: |
           $publishDir = "artifacts/publish/win-x64"
@@ -98,7 +99,7 @@ jobs:
           Write-Host "Verified all required executables, assemblies, and SQLite dependencies in $publishDir"
 
       - name: 9. Package & Verify Windows x64 Release ZIP Archive
-        if: success()
+        if: success() && github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: |
           Compress-Archive -Path "artifacts/publish/win-x64/*" -DestinationPath "artifacts/PCControlUltimate-win-x64-Release.zip" -Force
@@ -114,13 +115,13 @@ jobs:
           }
 
       - name: 10. Upload Windows x64 Release Artifact & Test Results
-        if: success()
+        # Keep PR validation storage-free; publish an artifact only on an explicit manual run.
+        if: success() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: PCControlUltimate-win-x64-Release
           path: |
             artifacts/PCControlUltimate-win-x64-Release.zip
-            artifacts/publish/win-x64/
             **/TestResults/*.trx
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3

@@ -161,7 +161,7 @@ export const NetworkLabView: React.FC = () => {
       <div className="p-3.5 rounded-xl bg-[#0e121e] border border-purple-500/20 text-xs flex items-center gap-2.5 text-purple-300">
         <ShieldCheck className="w-4 h-4 text-purple-400 shrink-0" />
         <span>
-          Em termos simples: medimos quanto tempo alguns serviços levam para aceitar uma conexão, testamos a velocidade de download e comparamos a resposta dos servidores DNS. O tempo de conexão TCP não é o mesmo que o ping dentro de uma partida.
+          Em termos simples: verificamos quanto tempo sites e serviços levam para responder, medimos a velocidade de download e conferimos se os endereços da internet estão sendo localizados normalmente. Isso ajuda a encontrar lentidão e instabilidade; não substitui o ping mostrado dentro de cada jogo.
         </span>
       </div>
 
@@ -171,6 +171,28 @@ export const NetworkLabView: React.FC = () => {
           <span>{testError}</span>
         </div>
       )}
+
+      <div className="rounded-xl border border-slate-800 bg-gradient-to-r from-[#121522] to-[#0d111a] p-4">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-cyan-300 mb-3">Prévia do teste de internet</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-lg bg-[#090c14] border border-slate-800 p-3">
+            <div className="text-xs font-semibold text-white">1. Tempo de resposta</div>
+            <div className="text-[11px] text-slate-400 mt-1">Quanto tempo os serviços levam para responder</div>
+            <div className="text-lg font-mono text-cyan-300 mt-2">— ms</div>
+          </div>
+          <div className="rounded-lg bg-[#090c14] border border-slate-800 p-3">
+            <div className="text-xs font-semibold text-white">2. Estabilidade</div>
+            <div className="text-[11px] text-slate-400 mt-1">Se a resposta varia muito entre as tentativas</div>
+            <div className="text-lg font-mono text-purple-300 mt-2">—</div>
+          </div>
+          <div className="rounded-lg bg-[#090c14] border border-slate-800 p-3">
+            <div className="text-xs font-semibold text-white">3. Velocidade e DNS</div>
+            <div className="text-[11px] text-slate-400 mt-1">Download e localização de endereços de sites</div>
+            <div className="text-lg font-mono text-emerald-300 mt-2">—</div>
+          </div>
+        </div>
+        <p className="text-[10px] text-slate-500 mt-3">Os traços são apenas uma prévia visual. Nenhum resultado aparece até você executar o teste real.</p>
+      </div>
 
       {/* Primary Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono tabular-nums">
@@ -317,7 +339,7 @@ export const NetworkLabView: React.FC = () => {
 
                 <div className="flex items-center gap-6 font-mono tabular-nums">
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Conexão TCP</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Resposta do serviço</span>
                     {target.pingMs !== null ? (
                       <span
                         className={`text-sm font-bold ${
@@ -336,7 +358,7 @@ export const NetworkLabView: React.FC = () => {
                   </div>
 
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Jitter</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Variação</span>
                     <span className="text-slate-300 text-sm">
                       {target.jitterMs !== null ? `±${target.jitterMs} ms` : '—'}
                     </span>
@@ -373,7 +395,7 @@ export const NetworkLabView: React.FC = () => {
               Game Network Accelerator · WireGuard Selective CIDR Routing
             </span>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Avalia múltiplas amostras antes de recomendar túneis. Se o nó intermediário não reduzir a latência/jitter com estabilidade comprovada, recomenda manter a Rota Direta.
+              Compara várias respostas para verificar se outro caminho realmente melhora a conexão. Se o caminho alternativo não for melhor e estável, é mais seguro manter a conexão atual.
             </p>
           </div>
           <span className="text-xs font-mono text-emerald-400 shrink-0">
@@ -382,7 +404,7 @@ export const NetworkLabView: React.FC = () => {
         </div>
 
         <div className="p-3.5 rounded-lg bg-[#0a0c13] border border-amber-500/30 text-xs text-amber-200 leading-relaxed">
-          <strong className="text-amber-400">Escopo Técnico Real (WFP &amp; Anti-Cheat):</strong> O roteamento seletivo opera por sub-redes de destino dos servidores do jogo (<code className="font-mono text-purple-300">AllowedIPs = 155.133.248.0/24, 104.160.152.0/24</code>), preservando a rota padrão do Windows (<code className="font-mono text-rose-300">0.0.0.0/0</code> bloqueado por padrão). O redirecionamento exclusivo por PID via driver kernel WFP (<code className="font-mono">Callout Driver</code>) permanece desativado nesta versão para evitar hooks invasivos e reduzir o risco de conflito com sistemas anti-cheat (Vanguard, Ricochet, EAC, BattlEye), sem prometer imunidade absoluta frente a políticas externas de terceiros.
+          <strong className="text-amber-400">Sobre o modo de roteamento:</strong> o aplicativo ainda não força cada jogo a usar um caminho diferente da rede. Ele mede a conexão e permite avaliar um servidor intermediário configurado pelo usuário. Não altera arquivos do jogo nem injeta código, e não promete evitar todas as restrições de anti-cheat.
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono tabular-nums">

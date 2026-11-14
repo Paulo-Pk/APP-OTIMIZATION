@@ -47,6 +47,42 @@ interface NotificationState {
   message: string;
 }
 
+const MANUAL_GAMES_STORAGE_KEY = 'pc_control_manual_games';
+const GAME_EXECUTABLE_OVERRIDES_STORAGE_KEY = 'pc_control_game_executable_overrides';
+
+const loadGameExecutableOverrides = (): Record<string, string> => {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(GAME_EXECUTABLE_OVERRIDES_STORAGE_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([id, path]) =>
+        typeof id === 'string' && id.length > 0 && typeof path === 'string' && path.trim().length > 0
+      )
+    );
+  } catch {
+    return {};
+  }
+};
+
+const loadManualGameProfiles = (): GameProfile[] => {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(MANUAL_GAMES_STORAGE_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((game): game is GameProfile =>
+      !!game &&
+      typeof game === 'object' &&
+      game.platform === 'Manual' &&
+      typeof game.id === 'string' &&
+      game.id.startsWith('manual-') &&
+      typeof game.title === 'string' &&
+      typeof game.executablePath === 'string' &&
+      game.executablePath.trim().length > 0
+    );
+  } catch {
+    return [];
+  }
+};
+
 export default function App() {
   const { t } = useI18n();
   const [currentTab, setCurrentTab] = useState<TabId>('dashboard');
@@ -63,6 +99,7 @@ export default function App() {
     }))
   );
   const [games, setGames] = useState<GameProfile[]>([]);
+  const [gameSessions, setGameSessions] = useState<Array<{ sessionId: string; title: string; executablePath: string; processId: number; isRunning: boolean; boostEnabled: boolean }>>([]);
   const [agentStatus, setAgentStatus] = useState<NativeAgentStatus>(nativeBridge.getStatus());
 
   // Restore records: strictly no fake entries. Loaded from local storage or empty.
@@ -196,37 +233,67 @@ export default function App() {
       }
     });
 
+    // Re-check authentication periodically so the UI recovers when the
+    // Windows agent starts, stops, or restarts after the app has opened.
+    const connectionInterval = setInterval(async () => {
+      const connected = await nativeBridge.checkConnection();
+      if (connected) {
+        const sessions = await nativeBridge.getGameSessions();
+        if (sessions) setGameSessions(sessions);
+      } else {
+        setGameSessions([]);
+      }
+    }, 5000);
+
+    let telemetryRefreshInFlight = false;
     const interval = setInterval(async () => {
-      if (nativeBridge.getStatus().isConnected) {
+      if (!nativeBridge.getStatus().isConnected || telemetryRefreshInFlight) return;
+
+      telemetryRefreshInFlight = true;
+      try {
         const real = await nativeBridge.fetchRealTelemetry();
         if (real) {
           setTelemetry(real);
         }
+      } finally {
+        telemetryRefreshInFlight = false;
       }
     }, 2000);
 
     return () => {
       unsubscribe();
+      clearInterval(connectionInterval);
       clearInterval(interval);
     };
   }, []);
 
   useEffect(() => {
-    if (!agentStatus.isConnected) { setGames([]); return; }
+    if (!agentStatus.isConnected) {
+      setGames(loadManualGameProfiles());
+      return;
+    }
     let cancelled = false;
     nativeBridge.discoverInstalledGames().then((found) => {
       if (cancelled || !found) return;
+      const executableOverrides = loadGameExecutableOverrides();
       const mapped: GameProfile[] = found
-        .filter((game) => game.isInstalled && game.title && !/\b(dlc|season pass|expansion(?: pass)?|add[\s-]?on|content pack|soundtrack|ost|supporter pack|upgrade pack|cosmetic pack|bonus content|artbook|demo|playtest)\b/i.test(game.title))
-        .map((game, index) => ({
-          id: `installed-${game.launcher.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${game.appId || index}`,
-          title: game.title,
-          platform: (["Steam", "Epic", "Epic Games", "Xbox", "GOG", "Ubisoft Connect", "EA app"].includes(game.launcher) ? game.launcher : "Manual") as GameProfile["platform"],
-          executablePath: game.executablePath || "", coverImage: game.launcher.toLowerCase().includes('steam') && /^\\d+$/.test(String(game.appId || '')) ? 'https://cdn.cloudflare.steamstatic.com/steam/apps/' + game.appId + '/header.jpg' : "",
-          processPriority: "Normal", cpuAffinity: "Todos", gpuPreference: "Alto Desempenho", powerProfile: "Equilibrado",
-          monitorFps: true, monitorTemps: true, boostEnabled: false,
-        }));
-      setGames(mapped);
+        .filter((game) => game.isInstalled && game.title && !/\b(dlcs?|expansions?(?:\s+pack)?|season\s+pass|add[- ]?ons?|content\s+pack|soundtracks?|original\s+soundtrack|ost|supporter\s+pack|upgrade\s+pack|cosmetic\s+pack|bonus\s+content|artbook|demo|playtest|dedicated\s+server|server\s+tools|workshop\s+tools|test\s+server|public\s+test|test\s+application|sdk|editor|mod\s+tools|redistributables?|runtimes?)\b/i.test(game.title))
+        .map((game, index) => {
+          const id = `installed-${game.launcher.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${game.appId || index}`;
+          return {
+            id,
+            title: game.title,
+            platform: (["Steam", "Epic", "Epic Games", "Xbox", "GOG", "Ubisoft Connect", "EA app"].includes(game.launcher) ? game.launcher : "Manual") as GameProfile["platform"],
+            executablePath: executableOverrides[id] || game.executablePath || "",
+            coverImage: game.launcher === 'Steam' && /^\d+$/.test(game.appId) ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg` : '',
+            processPriority: "Normal", cpuAffinity: "Todos", gpuPreference: "Alto Desempenho", powerProfile: "Equilibrado",
+            monitorFps: true, monitorTemps: true, boostEnabled: false,
+          };
+        });
+      const manual = loadManualGameProfiles().filter((profile) =>
+        !mapped.some((game) => game.executablePath && game.executablePath.toLowerCase() === profile.executablePath.toLowerCase())
+      );
+      setGames([...mapped, ...manual]);
     });
     return () => { cancelled = true; };
   }, [agentStatus.isConnected]);
@@ -602,6 +669,8 @@ export default function App() {
       return;
     }
 
+    const readFailures = res.readFailuresCount ?? 0;
+    const snapshotIsComplete = res.isComplete !== false && readFailures === 0;
     const snapItem: RestoreItem = {
       id: res.snapshotId || `snap-${Date.now()}`,
       snapshotFilePath: res.filePath,
@@ -613,14 +682,22 @@ export default function App() {
         ? `SHA-256: ${res.checksumSha256.substring(0, 16)}...`
         : 'Estado Original Capturado',
       newValue: `${res.capturedKeysCount ?? 0} chaves · ${res.fileSizeBytes ? (res.fileSizeBytes / 1024).toFixed(1) : '0'} KB`,
-      reversible: true,
+      reversible: snapshotIsComplete,
       userInitiated: true,
     };
     setRestoreItems((prev) => [snapItem, ...prev]);
-    setNotification({
-      type: 'success',
-      message: `${t.restoreCenter.snapshotCreatedSuccess}`,
-    });
+    if (res.isComplete === false || readFailures > 0) {
+      setNotification({
+        type: 'warning',
+        title: 'Backup criado, mas incompleto',
+        message: `O arquivo foi gravado e teve sua integridade verificada, mas ${readFailures} item(ns) não puderam ser lidos. Ele foi mantido, mas o agente bloqueará a restauração padrão desse backup incompleto por segurança.`,
+      });
+    } else {
+      setNotification({
+        type: 'success',
+        message: `${t.restoreCenter.snapshotCreatedSuccess}`,
+      });
+    }
   };
 
   // Apply diagnostic fix with verified registry execution and restore record
@@ -697,11 +774,156 @@ export default function App() {
     handleApplyAllLevel('balanced');
   };
 
+  const handleAddCustomGame = async (existingGameId?: string) => {
+    if (!nativeBridge.getStatus().isConnected) {
+      setNotification({
+        type: 'warning',
+        title: 'Agente Windows indisponível',
+        message: 'Abra o PC Control Ultimate instalado no Windows para selecionar um executável. A Preview do navegador não tem acesso ao seletor nativo.',
+      });
+      return;
+    }
+
+    const selected = await nativeBridge.pickExecutableFile();
+    if (!selected) return;
+
+    const normalizedPath = selected.path.trim();
+    const duplicate = games.find((game) =>
+      game.executablePath.trim().toLowerCase() === normalizedPath.toLowerCase()
+    );
+    const targetGame = existingGameId ? games.find((game) => game.id === existingGameId) : undefined;
+
+    if (targetGame) {
+      if (duplicate && duplicate.id !== targetGame.id) {
+        setNotification({
+          type: 'warning',
+          title: 'Executável já associado',
+          message: `Este arquivo já está associado a ${duplicate.title}. Escolha outro executável.`,
+        });
+        return;
+      }
+
+      const updatedGames = games.map((game) => game.id === targetGame.id
+        ? { ...game, executablePath: normalizedPath, approvalId: selected.approvalId }
+        : game);
+      setGames(updatedGames);
+
+      try {
+        if (!targetGame.id.startsWith('installed-')) {
+          const persistable = updatedGames
+            .filter((game) => game.platform === 'Manual' && game.id.startsWith('manual-'))
+            .map(({ approvalId: _approvalId, ...profile }) => profile);
+          localStorage.setItem(MANUAL_GAMES_STORAGE_KEY, JSON.stringify(persistable));
+        } else {
+          const overrides = loadGameExecutableOverrides();
+          overrides[targetGame.id] = normalizedPath;
+          localStorage.setItem(GAME_EXECUTABLE_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
+        }
+      } catch {
+        setNotification({
+          type: 'warning',
+          title: 'Executável autorizado nesta sessão',
+          message: 'O caminho não pôde ser salvo localmente. A autorização temporária continua disponível até fechar o aplicativo ou expirar.',
+        });
+        return;
+      }
+
+      setNotification({
+        type: 'success',
+        title: 'Executável associado e autorizado',
+        message: `${targetGame.title}: arquivo vinculado ao perfil. A autorização é temporária, de uso único e expira em 15 minutos.`,
+      });
+      return;
+    }
+
+    if (duplicate) {
+      setNotification({
+        type: 'warning',
+        title: 'Jogo já cadastrado',
+        message: `${duplicate.title} já está na biblioteca do Game Center.`,
+      });
+      return;
+    }
+
+    const profile: GameProfile = {
+      id: `manual-${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Date.now()}`,
+      title: selected.title,
+      platform: 'Manual',
+      executablePath: normalizedPath,
+      approvalId: selected.approvalId,
+      coverImage: '',
+      processPriority: 'Normal',
+      cpuAffinity: 'Todos',
+      gpuPreference: 'Alto Desempenho',
+      powerProfile: 'Equilibrado',
+      monitorFps: true,
+      monitorTemps: true,
+      boostEnabled: false,
+    };
+
+    const updatedManualProfiles = [...loadManualGameProfiles(), (({ approvalId: _approvalId, ...persistable }) => persistable)(profile)];
+    setGames((previous) => [...previous, profile]);
+    try {
+      localStorage.setItem(MANUAL_GAMES_STORAGE_KEY, JSON.stringify(updatedManualProfiles));
+      setNotification({
+        type: 'success',
+        title: 'Jogo cadastrado',
+        message: `${profile.title} foi adicionado. A autorização nativa é temporária (15 minutos) e de uso único; após iniciar, o Game Boost pode ajustar a prioridade do processo. Afinidade de CPU e preferências avançadas ainda não são aplicadas.`,
+      });
+    } catch {
+      setNotification({
+        type: 'warning',
+        title: 'Jogo adicionado nesta sessão',
+        message: 'Não foi possível salvar o cadastro localmente. Ele ficará disponível até fechar o aplicativo.',
+      });
+    }
+  };
+
+  const handleLaunchGame = async (game: GameProfile) => {
+    if (!game.approvalId) {
+      setNotification({ type: 'warning', title: 'Autorização necessária', message: 'Selecione novamente o executável pelo botão do jogo antes de iniciar. A autorização anterior expirou ou não existe nesta sessão.' });
+      return;
+    }
+    const result = await nativeBridge.launchGame(game.approvalId);
+    // Native approvals are one-time capabilities; never keep one after an attempt,
+    // including a timeout where the agent may already have consumed it.
+    setGames((previous) => previous.map((item) => item.id === game.id ? { ...item, approvalId: undefined } : item));
+    if (!result.success || !result.sessionId) {
+      setNotification({ type: 'error', title: 'Não foi possível iniciar o jogo', message: `${result.error || 'O agente Windows recusou a inicialização.'} Se necessário, selecione novamente o executável para emitir uma nova autorização.` });
+      return;
+    }
+    const sessions = await nativeBridge.getGameSessions();
+    if (sessions) setGameSessions(sessions);
+    setNotification({ type: 'success', title: 'Processo iniciado', message: `${game.title} iniciado pelo Windows (PID ${result.processId}).` });
+  };
+
+  const handleStopGame = async (sessionId: string) => {
+    const result = await nativeBridge.stopGame(sessionId);
+    if (!result.success) {
+      setNotification({ type: 'warning', title: 'Encerramento não confirmado', message: result.error || 'O jogo pode precisar ser fechado normalmente pela própria janela.' });
+      return;
+    }
+    const sessions = await nativeBridge.getGameSessions();
+    if (sessions) setGameSessions(sessions);
+    setNotification({ type: 'success', title: 'Solicitação enviada', message: 'O Windows recebeu o pedido de fechamento normal. O processo só sairá da lista quando o encerramento for confirmado.' });
+  };
+
+  const handleToggleGameBoost = async (sessionId: string, enabled: boolean) => {
+    const result = await nativeBridge.setGameBoost(sessionId, enabled);
+    if (!result.success) {
+      setNotification({ type: 'warning', title: 'Game Boost não aplicado', message: result.error || 'Não foi possível alterar a prioridade do processo.' });
+      return;
+    }
+    const sessions = await nativeBridge.getGameSessions();
+    if (sessions) setGameSessions(sessions);
+    setNotification({ type: 'success', title: enabled ? 'Game Boost ativado' : 'Game Boost desativado', message: enabled ? 'Prioridade temporária Acima do Normal aplicada. O valor original será restaurado ao desativar, encerrar o jogo ou fechar o aplicativo.' : 'Prioridade original restaurada.' });
+  };
+
   const handleSaveGameProfile = (updated: GameProfile) => {
-    setGames((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+    setGames((prev) => prev.map((g) => (g.id === updated.id ? { ...updated, approvalId: g.approvalId } : g)));
     setNotification({
-      type: 'success',
-      message: `${updated.title}: Perfil de afinidade e prioridade salvo com sucesso.`,
+      type: 'warning',
+      message: `${updated.title}: preferências do perfil salvas. Elas ainda não são aplicadas ao processo do jogo.`,
     });
   };
 
@@ -807,28 +1029,11 @@ export default function App() {
             <GameCenterView
               games={games}
               onOpenProfileModal={setGameProfileToEdit}
-              onToggleGameBoost={(id) => {
-                setGames((prev) =>
-                  prev.map((g) => (g.id === id ? { ...g, boostEnabled: !g.boostEnabled } : g))
-                );
-              }}
-              onAddCustomGame={() => {
-                const newGame: GameProfile = {
-                  id: `game-${Date.now()}`,
-                  title: 'Custom Game Process',
-                  platform: 'Manual',
-                  executablePath: 'C:\\Games\\Game.exe',
-                  coverImage: '',
-                  processPriority: 'Alta',
-                  cpuAffinity: 'P-Cores Apenas',
-                  gpuPreference: 'Alto Desempenho',
-                  powerProfile: 'Desempenho Máximo PC Control',
-                  monitorFps: true,
-                  monitorTemps: true,
-                  boostEnabled: true,
-                };
-                setGames((prev) => [newGame, ...prev]);
-              }}
+              onAddCustomGame={handleAddCustomGame}
+              onLaunchGame={handleLaunchGame}
+              onStopGame={handleStopGame}
+              onToggleGameBoost={handleToggleGameBoost}
+              gameSessions={gameSessions}
             />
           )}
 
@@ -841,7 +1046,7 @@ export default function App() {
           )}
 
           {currentTab === 'performance-lab' && (
-            <PerformanceLabView />
+            <PerformanceLabView telemetry={telemetry} />
           )}
 
           {currentTab === 'benchmarks' && (

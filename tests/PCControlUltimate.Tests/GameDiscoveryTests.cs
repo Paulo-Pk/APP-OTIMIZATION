@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using PCControlUltimate.Gaming.Network;
+using PCControlUltimate.Windows.Services;
 using Xunit;
 
 namespace PCControlUltimate.Tests;
@@ -407,6 +408,29 @@ public sealed class GameDiscoveryTests : IDisposable
     }
 
     [Theory]
+    [InlineData("Forza Horizon 6", false)]
+    [InlineData("Game Name - Expansion Pack", true)]
+    [InlineData("Game Name Season Pass", true)]
+    [InlineData("Game Name Original Soundtrack", true)]
+    [InlineData("Game Name Dedicated Server", true)]
+    [InlineData("Game Name DLC", true)]
+    [InlineData("Game Name - Add-on Pack", true)]
+    [InlineData("Game Name - Expansions", true)]
+    [InlineData("Game Name Workshop Tools", true)]
+    [InlineData("Game Name Dedicated Server Tools", true)]
+    [InlineData("Microsoft Visual C++ Redistributable", true)]
+    [InlineData("Steam Linux Runtime", true)]
+    public void GameCatalogFilter_ExcludesAddonsButKeepsBaseGames(string title, bool expectedExcluded)
+    {
+        MethodInfo filter = typeof(GameNetworkAcceleratorService).GetMethod(
+            "IsDlcOrNonGameCatalogEntry", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        bool excluded = (bool)filter.Invoke(null, new object[] { title })!;
+        Assert.Equal(expectedExcluded, excluded);
+    }
+
+
+    [Theory]
     [InlineData("PC Control Game DLC")]
     [InlineData("PC Control Game Expansion Pack")]
     [InlineData("PC Control Game Season Pass")]
@@ -453,4 +477,66 @@ public sealed class GameDiscoveryTests : IDisposable
         }
         catch { }
     }
+    [Fact]
+    public void GameExecutableApprovalStore_ConsumesNativeApprovalExactlyOnce()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"pccontrol-approval-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string executable = Path.Combine(directory, "approved-game.exe");
+        File.WriteAllText(executable, "test executable placeholder");
+
+        try
+        {
+            string approvalId = GameExecutableApprovalStore.Register(executable);
+
+            Assert.Matches("^[a-f0-9]{64}$", approvalId);
+            Assert.True(GameExecutableApprovalStore.TryConsume(approvalId, out string approvedPath));
+            Assert.Equal(Path.GetFullPath(executable), approvedPath);
+            Assert.False(GameExecutableApprovalStore.TryConsume(approvalId, out _));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void GameExecutableApprovalStore_RejectsExecutableChangedAfterApproval()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"pccontrol-approval-changed-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string executable = Path.Combine(directory, "approved-game.exe");
+        File.WriteAllText(executable, "original executable contents");
+
+        try
+        {
+            string approvalId = GameExecutableApprovalStore.Register(executable);
+            File.WriteAllText(executable, "replaced executable contents");
+
+            Assert.False(GameExecutableApprovalStore.TryConsume(approvalId, out _));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void GameExecutableApprovalStore_RejectsNonExecutableFiles()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"pccontrol-approval-invalid-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string textFile = Path.Combine(directory, "not-a-game.txt");
+        File.WriteAllText(textFile, "not executable");
+
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => GameExecutableApprovalStore.Register(textFile));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
 }

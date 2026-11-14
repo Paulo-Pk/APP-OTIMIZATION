@@ -12,6 +12,7 @@ using PCControlUltimate.Gaming.Network;
 using PCControlUltimate.Hardware;
 using PCControlUltimate.Infrastructure.Data;
 using PCControlUltimate.Infrastructure.Services;
+using PCControlUltimate.Security;
 using PCControlUltimate.Windows.Services;
 using Serilog;
 
@@ -26,6 +27,7 @@ public partial class App : Application
     private DatabaseService? _databaseService;
     private Mutex? _agentMutex;
     private bool _ownsAgentMutex;
+    private bool _ownsAgentServer;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -92,6 +94,7 @@ public partial class App : Application
                 {
                     _agentServer = new PrivilegedAgentServer(_hardwareMonitor, PrivilegedAgentServer.DefaultPort, networkDiagnosticsService);
                     _agentServer.Start();
+                    _ownsAgentServer = true;
                     inMemoryToken = _agentServer.SessionToken;
                     Log.Information("PrivilegedAgentServer started on 127.0.0.1:{Port}", PrivilegedAgentServer.DefaultPort);
                 }
@@ -103,6 +106,14 @@ public partial class App : Application
             else
             {
                 Log.Information("Existing PrivilegedAgentServer instance detected via Mutex; connecting via DPAPI token.");
+            }
+
+            // A secondary UI instance may reuse the existing agent's DPAPI-protected
+            // session token. It must not issue native picker approvals because the
+            // in-memory approval store belongs to the process that owns the server.
+            if (string.IsNullOrWhiteSpace(inMemoryToken))
+            {
+                inMemoryToken = IntegrityVerifier.ReadProtectedSessionToken(PrivilegedAgentServer.ProtectedTokenFilePath);
             }
 
             _agentClient = new AgentClientService(inMemoryToken);
@@ -169,7 +180,7 @@ public partial class App : Application
             services.AddTransient<RestoreCenterView>();
             services.AddTransient<AiAssistantView>();
 
-            services.AddSingleton<MainWindow>();
+            services.AddSingleton<MainWindow>(_ => new MainWindow(inMemoryToken ?? string.Empty, _ownsAgentServer));
 
             _serviceProvider = services.BuildServiceProvider();
 

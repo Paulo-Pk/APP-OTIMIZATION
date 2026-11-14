@@ -25,7 +25,10 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
   );
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
 
-  const hasGpuSensors = gpu.temperature > 0 && gpu.hotspot > 0;
+  const hasGpuCoreTemperature = gpu.temperatureAvailable ?? (gpu.temperature > 0);
+  const hasGpuHotspotTemperature = gpu.hotspotAvailable ?? (gpu.hotspot > 0);
+  const hasGpuMemoryTemperature = gpu.memoryTempAvailable ?? (gpu.memoryTemp > 0);
+  const hasGpuSensors = hasGpuCoreTemperature && hasGpuHotspotTemperature;
   const deltaT = hasGpuSensors ? gpu.hotspot - gpu.temperature : 0;
   const isDeltaElevated = hasGpuSensors && deltaT > 22;
 
@@ -145,7 +148,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
               </span>
               {hasGpuSensors && (
                 <span className="text-xs text-slate-400 font-mono">
-                  (Hotspot {gpu.hotspot}°C - Core {gpu.temperature}°C)
+                  (Hotspot {gpu.hotspot}°C - Temperatura da GPU {gpu.temperature}°C)
                 </span>
               )}
             </div>
@@ -272,12 +275,12 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
               <div className="text-purple-400 font-bold">========================================================</div>
               <div>• GPU: {gpu.name} ({gpu.vendor})</div>
               <div>
-                • Core Temp:{' '}
-                {gpu.temperature > 0 ? `${gpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
+                • Temperatura da GPU:{' '}
+                {hasGpuCoreTemperature ? `${gpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </div>
               <div>
-                • Hotspot Temp:{' '}
-                {gpu.hotspot > 0 ? `${gpu.hotspot.toFixed(1)}°C` : t.common.sensorNotAvailable}
+                • Hotspot:{' '}
+                {hasGpuHotspotTemperature ? `${gpu.hotspot.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </div>
               <div>
                 • Thermal Delta (ΔT):{' '}
@@ -285,7 +288,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
               </div>
               <div>
                 • Memory Temp:{' '}
-                {gpu.memoryTemp > 0 ? `${gpu.memoryTemp.toFixed(1)}°C` : t.common.sensorNotAvailable}
+                {hasGpuMemoryTemperature ? `${gpu.memoryTemp.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </div>
               <div>
                 • VRAM Usage:{' '}

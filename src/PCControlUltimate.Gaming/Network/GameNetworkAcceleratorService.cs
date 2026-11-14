@@ -22,7 +22,8 @@ public record InstalledGameEntry(
     string InstallLocation,
     string AppId,
     string? ExecutablePath,
-    bool IsInstalled
+    bool IsInstalled,
+    string? CoverImageUrl = null
 );
 
 public record DetectedGameConnection(
@@ -155,10 +156,10 @@ public static class GameNetworkAcceleratorService
         new(
             DestinationIpSelectiveRoutingSupported: true,
             KernelWfpProcessSplitTunnelEnabled: false,
-            ActiveMechanism: "Policy-Based Destination CIDR Routing (WireGuard AllowedIPs per Game Server Subnet)",
-            AntiCheatSafetyGuarantee: "Zero DLL injection, zero user-mode socket hooks, zero memory manipulation, zero unsigned kernel drivers (reduces anti-cheat conflict surface without promising absolute immunity from third-party policies).",
-            WfpLimitationExplanationPt: "Roteamento Seletivo por Sub-rede de Destino (AllowedIPs) está ATIVO: apenas o tráfego destinado aos IPs dos servidores do jogo é encaminhado pelo túnel, preservando a rota padrão do Windows para os demais aplicativos. O redirecionamento exclusivo por PID/executável via Driver Kernel WFP (Windows Filtering Platform Callout Driver) permanece DESATIVADO nesta versão para evitar hooks invasivos e reduzir o risco de conflito com sistemas anti-cheat (Vanguard, Ricochet, EAC, BattlEye), sem prometer imunidade absoluta frente a políticas externas de terceiros.",
-            WfpLimitationExplanationEn: "Destination-Subnet Selective Routing (AllowedIPs) is ACTIVE: only traffic addressed to the game server IP ranges is routed through the tunnel, preserving the Windows default route for all other apps. Per-process PID split-tunneling via a custom WFP Kernel Callout Driver remains DISABLED in this version to avoid invasive hooks and reduce conflict risk with anti-cheat systems (Vanguard, Ricochet, EAC, BattlEye), without promising absolute immunity from third-party policies."
+            ActiveMechanism: "Not active by default — validated WireGuard AllowedIPs configuration is required",
+            AntiCheatSafetyGuarantee: "No DLL injection, user-mode socket hooks, memory manipulation, or custom unsigned kernel driver is used by the configuration audit. This reduces invasive integration, but does not guarantee compatibility with every anti-cheat policy.",
+            WfpLimitationExplanationPt: "O roteamento seletivo por sub-rede só fica ativo quando um túnel WireGuard com AllowedIPs validados é instalado e confirmado em execução. Esta versão não presume que exista túnel ativo e não altera rotas automaticamente. O redirecionamento exclusivo por PID/executável via Driver Kernel WFP permanece DESATIVADO.",
+            WfpLimitationExplanationEn: "Destination-subnet routing becomes active only after a WireGuard tunnel with validated AllowedIPs is installed and confirmed running. This version does not assume a tunnel is active and does not change routes automatically. Per-process PID/executable routing through a custom WFP kernel callout driver remains DISABLED."
         );
 
     public static (bool success, string errorReason, RelayNodeCandidate? node) RegisterOrUpdateRelayNode(
@@ -187,9 +188,15 @@ public static class GameNetworkAcceleratorService
         }
 
         var cidrs = (gameTargetCidrs ?? Array.Empty<string>())
-            .Select(c => c.Trim())
             .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        if (cidrs.Count == 0)
+        {
+            return (false, "EMPTY_GAME_TARGET_CIDRS: Informe ao menos uma sub-rede de destino do jogo para registrar o nó.", null);
+        }
 
         foreach (var cidr in cidrs)
         {
@@ -197,6 +204,11 @@ public static class GameNetworkAcceleratorService
             {
                 return (false, $"INVALID_CIDR_BLOCK: O bloco CIDR '{cidr}' não é uma sub-rede IPv4/IPv6 válida.", null);
             }
+        }
+
+        if (!WireGuardTunnelManager.IsValidWireGuardKey(publicKey))
+        {
+            return (false, "INVALID_RELAY_PUBLIC_KEY: A chave pública WireGuard do nó está ausente ou fora do formato Curve25519 Base64.", null);
         }
 
         var candidate = new RelayNodeCandidate(
@@ -225,7 +237,8 @@ public static class GameNetworkAcceleratorService
         string trimmed = hostOrIp.Trim();
         if (!SafeHostOrIpRegex.IsMatch(trimmed)) return false;
         if (trimmed.Contains("..") || trimmed.StartsWith('-') || trimmed.EndsWith('-')) return false;
-        return true;
+        if (IPAddress.TryParse(trimmed, out _)) return true;
+        return !trimmed.Contains(':') && Uri.CheckHostName(trimmed) == UriHostNameType.Dns;
     }
 
     private static bool IsMainGameTitle(string? title)
@@ -247,8 +260,27 @@ public static class GameNetworkAcceleratorService
         var games = new Dictionary<string, InstalledGameEntry>(StringComparer.OrdinalIgnoreCase);
         void Add(InstalledGameEntry game)
         {
-            if (IsMainGameTitle(game.Title) && !string.IsNullOrWhiteSpace(game.InstallLocation))
-                games[game.Launcher + ":" + game.AppId] = game;
+            if (string.IsNullOrWhiteSpace(game.Title) || string.IsNullOrWhiteSpace(game.InstallLocation))
+                return;
+
+            // Launcher catalogs may include DLC apps, expansion packs, soundtracks,
+            // dedicated servers and tools alongside the base games. Keep the library
+            // focused on standalone playable titles.
+            if (IsDlcOrNonGameCatalogEntry(game.Title))
+                return;
+
+            // Steam exposes official library artwork by AppID. Other launchers do not
+            // provide a common public artwork URL in their local install catalogs.
+            if (string.Equals(game.Launcher, "Steam", StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(game.AppId, @"^\d+$"))
+            {
+                game = game with
+                {
+                    CoverImageUrl = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.AppId}/library_600x900.jpg"
+                };
+            }
+
+            games[game.Launcher + ":" + game.AppId] = game;
         }
 
         try
@@ -384,7 +416,25 @@ public static class GameNetworkAcceleratorService
         AddMicrosoftStoreGames(games);
         AddXboxGamesFolderGames(games);
 
-        return games.Values.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+        return games.Values
+            .Where(game => !IsDlcOrNonGameCatalogEntry(game.Title))
+            .Select(game =>
+                string.Equals(game.Launcher, "Steam", StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(game.AppId, @"^\d+$") &&
+                string.IsNullOrWhiteSpace(game.CoverImageUrl)
+                    ? game with { CoverImageUrl = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.AppId}/library_600x900.jpg" }
+                    : game)
+            .OrderBy(game => game.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsDlcOrNonGameCatalogEntry(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return true;
+        return Regex.IsMatch(
+            title,
+            @"\b(DLCs?|Expansions?(?:\s+Pack)?|Season\s+Pass|Add[- ]?ons?|Soundtracks?|Original\s+Soundtrack|Dedicated\s+Server|Server\s+Tools|Workshop\s+Tools|Test\s+Server|Public\s+Test|Test\s+Application|SDK|Editor|Mod\s+Tools|Redistributables?|Runtimes?)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static void AddXboxGamesFolderGames(Dictionary<string, InstalledGameEntry> games)
@@ -475,7 +525,11 @@ public static class GameNetworkAcceleratorService
             Task<string> errorTask = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(15000))
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+                try { process.WaitForExit(5000); } catch { }
+                // Observe both redirected-stream tasks after terminating a timed-out
+                // PowerShell process so no background reads are left unobserved.
+                try { Task.WhenAll(outputTask, errorTask).GetAwaiter().GetResult(); } catch { }
                 return;
             }
 
@@ -700,9 +754,14 @@ public static class GameNetworkAcceleratorService
             }
 
             // Parse active OS socket table via netstat -ano without touching the game process
+            if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(Environment.SystemDirectory))
+                return results;
+
             var psi = new ProcessStartInfo
             {
-                FileName = "netstat",
+                // Use the Windows system binary explicitly; never resolve netstat through
+                // the current directory or a potentially modified PATH.
+                FileName = Path.Combine(Environment.SystemDirectory, "netstat.exe"),
                 Arguments = "-ano",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -712,9 +771,42 @@ public static class GameNetworkAcceleratorService
             using var netstatProc = Process.Start(psi);
             if (netstatProc != null)
             {
-                string output = netstatProc.StandardOutput.ReadToEnd();
-                netstatProc.WaitForExit(2000);
+                // Drain stdout asynchronously while enforcing a hard process lifetime.
+                // ReadToEnd() before a timeout can otherwise wait forever if netstat stalls.
+                Task<string> outputTask = netstatProc.StandardOutput.ReadToEndAsync();
+                if (!netstatProc.WaitForExit(2000))
+                {
+                    try
+                    {
+                        if (!netstatProc.HasExited)
+                            netstatProc.Kill(entireProcessTree: true);
+                    }
+                    catch { }
 
+                    // Do not wait on a redirected stream if the process could not be
+                    // terminated; a failed kill must not turn this timeout into a hang.
+                    try
+                    {
+                        if (!netstatProc.WaitForExit(1000))
+                            return results;
+                    }
+                    catch
+                    {
+                        return results;
+                    }
+                }
+
+                string output;
+                try
+                {
+                    // The process has exited, so its redirected stdout should be closed.
+                    // Keep a final bound in case an unexpected handle owner keeps the pipe open.
+                    output = outputTask.WaitAsync(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult();
+                }
+                catch
+                {
+                    return results;
+                }
                 var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (var line in lines)
                 {
@@ -1235,10 +1327,11 @@ public static class GameNetworkAcceleratorService
         double? currentPacketLossPercent = null,
         CancellationToken cancellationToken = default)
     {
-        string nicName = "Adaptador Padrão";
-        string nicType = "Ethernet";
+        string nicName = "Não detectado";
+        string nicType = "Indisponível";
         bool isWifi = false;
-        long speedMbps = 1000;
+        bool interfaceDetected = false;
+        long speedMbps = 0;
         long rxBytes = 0;
         long txBytes = 0;
 
@@ -1252,6 +1345,7 @@ public static class GameNetworkAcceleratorService
 
             if (activeNic != null)
             {
+                interfaceDetected = true;
                 nicName = activeNic.Description;
                 nicType = activeNic.NetworkInterfaceType.ToString();
                 isWifi = activeNic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 ||
@@ -1263,38 +1357,78 @@ public static class GameNetworkAcceleratorService
                 txBytes = stats.BytesSent;
             }
         }
-        catch { }
+        catch
+        {
+            interfaceDetected = false;
+            nicName = "Não detectado";
+            nicType = "Indisponível";
+            speedMbps = 0;
+            rxBytes = 0;
+            txBytes = 0;
+        }
 
         double? dnsMs = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var sw = Stopwatch.StartNew();
             await Dns.GetHostAddressesAsync("steampowered.com", cancellationToken);
             sw.Stop();
             dnsMs = Math.Round(sw.Elapsed.TotalMilliseconds, 1);
         }
-        catch { }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // DNS measurement is optional; absence is reported as unavailable.
+        }
 
-        bool congestion = (currentJitterMs ?? 0) >= 12.0 || (currentPacketLossPercent ?? 0) >= 1.5;
+        bool hasJitterMeasurement = currentJitterMs.HasValue &&
+                                    double.IsFinite(currentJitterMs.Value) &&
+                                    currentJitterMs.Value >= 0;
+        bool hasPacketLossMeasurement = currentPacketLossPercent.HasValue &&
+                                        double.IsFinite(currentPacketLossPercent.Value) &&
+                                        currentPacketLossPercent.Value >= 0;
+        bool congestion = (hasJitterMeasurement && currentJitterMs!.Value >= 12.0) ||
+                          (hasPacketLossMeasurement && currentPacketLossPercent!.Value >= 1.5);
 
         AcceleratorOperatingMode mode;
         string justification;
-        if (isWifi || congestion)
+        if (!interfaceDetected)
+        {
+            mode = AcceleratorOperatingMode.Automatico;
+            justification = "Nenhuma interface de rede ativa pôde ser confirmada. A recomendação de modo foi mantida neutra; verifique a conexão e tente novamente.";
+        }
+        else if (isWifi)
         {
             mode = AcceleratorOperatingMode.Estabilidade;
-            justification = isWifi
-                ? $"Conexão sem fio (Wi-Fi) detectada em '{nicName}'. Modo Estabilidade recomendado para mitigar jitter de radiofrequência."
-                : $"Oscilação de rede detectada (Jitter: {currentJitterMs ?? 0:F1} ms). Modo Estabilidade prioriza consistência de entrega.";
+            justification = $"Conexão sem fio (Wi-Fi) detectada em '{nicName}'. Modo Estabilidade recomendado para reduzir oscilações típicas do enlace sem fio; isso não garante redução de ping.";
         }
-        else if (speedMbps >= 500 && (currentJitterMs ?? 0) < 4.0)
+        else if (congestion)
+        {
+            mode = AcceleratorOperatingMode.Estabilidade;
+            string evidence = hasJitterMeasurement && currentJitterMs!.Value >= 12.0
+                ? $"jitter medido de {currentJitterMs.Value:F1} ms"
+                : $"perda de pacotes medida de {currentPacketLossPercent!.Value:F1}%";
+            justification = $"Sinal de instabilidade detectado ({evidence}). Modo Estabilidade recomendado para priorizar consistência.";
+        }
+        else if (speedMbps >= 500 && hasJitterMeasurement && currentJitterMs!.Value < 4.0)
         {
             mode = AcceleratorOperatingMode.BaixaLatencia;
-            justification = $"Link Ethernet de alta velocidade ({speedMbps} Mbps) com baixo jitter. Modo Baixa Latência otimiza o caminho direto.";
+            justification = $"Link de alta velocidade ({speedMbps} Mbps) e jitter medido baixo ({currentJitterMs.Value:F1} ms). Modo Baixa Latência recomendado; o resultado depende também do servidor e da rota do jogo.";
         }
         else
         {
             mode = AcceleratorOperatingMode.Gaming;
-            justification = $"Conexão cabeada estável ({speedMbps} Mbps). Modo Gaming mantém priorização MMCSS e rota direta verificada.";
+            string link = speedMbps > 0
+                ? $"Interface '{nicName}' negociada a {speedMbps} Mbps"
+                : $"Interface '{nicName}' detectada, mas a velocidade negociada não foi informada";
+            string jitter = hasJitterMeasurement
+                ? $" Jitter medido: {currentJitterMs!.Value:F1} ms."
+                : " Jitter não medido nesta análise.";
+            justification = $"{link}.{jitter} Não há evidência suficiente para recomendar uma rota alternativa; mantenha a rota direta.";
         }
 
         return new AcceleratorNetworkEnvironmentAnalysis(

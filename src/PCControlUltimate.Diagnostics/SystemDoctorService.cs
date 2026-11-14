@@ -89,11 +89,11 @@ public class SystemDoctorService
                         {
                             findings.Add(new SystemDoctorFinding(
                                 Category: "Armazenamento",
-                                Title: $"Pouco espaço livre no disco {drive.Model} ({freePct:F1}%)",
+                                Title: $"Pouco espaço livre em {drive.Model} ({freePct:F1}%)",
                                 Severity: DiagnosticSeverityLevel.Alto,
                                 Evidence: $"Apenas {drive.FreeSpaceGb.Value:F1} GB livres de {drive.CapacityGb.Value:F1} GB ({freePct:F1}%).",
-                                ProbableCause: "O disco está quase cheio. Arquivos temporários, atualizações e jogos podem ocupar boa parte do espaço.",
-                                RecommendedAction: "Execute uma simulação Dry-Run no módulo Debloat & Cleaner para liberar espaço com segurança.",
+                                ProbableCause: "Arquivos temporários, atualizações antigas ou jogos ocupando muito espaço.",
+                                RecommendedAction: "Abra Limpeza do PC, confira os arquivos que podem ser removidos e escolha o que deseja limpar.",
                                 RequiresAdminForRepair: false
                             ));
                         }
@@ -104,8 +104,8 @@ public class SystemDoctorService
                                 Title: $"Espaço livre adequado em {drive.Model}",
                                 Severity: DiagnosticSeverityLevel.Informativo,
                                 Evidence: $"{drive.FreeSpaceGb.Value:F1} GB livres de {drive.CapacityGb.Value:F1} GB ({freePct:F1}%).",
-                                ProbableCause: "Há espaço livre suficiente para o Windows e os programas funcionarem com mais tranquilidade.",
-                                RecommendedAction: "Nenhuma ação necessária.",
+                                ProbableCause: "A unidade tem espaço livre suficiente neste momento.",
+                                RecommendedAction: "Não é necessário fazer nada agora.",
                                 RequiresAdminForRepair: false
                             ));
                         }
@@ -123,11 +123,11 @@ public class SystemDoctorService
             {
                 findings.Add(new SystemDoctorFinding(
                     Category: "Memória RAM",
-                    Title: $"Memória RAM quase cheia ({ramPct:F1}%)",
+                    Title: $"A memória do computador está quase cheia ({ramPct:F1}%)",
                     Severity: DiagnosticSeverityLevel.Moderado,
                     Evidence: $"{snapshot.RamUsedGb.Value:F1} GB em uso de {snapshot.RamTotalGb.Value:F1} GB totais.",
-                    ProbableCause: "Muitos programas estão abertos ao mesmo tempo ou algum deles está usando memória demais.",
-                    RecommendedAction: "Feche aplicativos ociosos em segundo plano ou revise itens de inicialização.",
+                    ProbableCause: "Muitos programas estão abertos ou algum aplicativo está usando muita memória.",
+                    RecommendedAction: "Feche programas que não está usando e confira quais abrem junto com o Windows.",
                     RequiresAdminForRepair: false
                 ));
             }
@@ -140,23 +140,34 @@ public class SystemDoctorService
                 Category: "Temperaturas",
                 Title: $"O processador está muito quente ({snapshot.CpuPackageTemp.Value:F1}°C)",
                 Severity: snapshot.CpuPackageTemp.Value >= 95f ? DiagnosticSeverityLevel.Critico : DiagnosticSeverityLevel.Alto,
-                Evidence: $"CPU {snapshot.CpuModelName ?? "Detectada"} operando a {snapshot.CpuPackageTemp.Value:F1}°C.",
-                ProbableCause: "A refrigeração pode estar insuficiente, com poeira, ventoinha lenta ou configuração de energia muito agressiva.",
-                RecommendedAction: "Verifique a rotação do cooler da CPU e o perfil térmico no Hardware Monitor.",
+                Evidence: $"O processador {snapshot.CpuModelName ?? "detectado"} está marcando {snapshot.CpuPackageTemp.Value:F1}°C.",
+                ProbableCause: "Pode haver poeira, pouca ventilação ou ventoinha trabalhando abaixo do necessário.",
+                RecommendedAction: "Confira se o cooler está girando e se as entradas de ar do gabinete estão livres.",
                 RequiresAdminForRepair: false
             ));
         }
 
         var gpuAudit = _gpuThermalAuditor.EvaluateGpuThermals(snapshot);
-        if (!gpuAudit.IsHealthy)
+        bool gpuDetected = !string.IsNullOrWhiteSpace(snapshot.GpuModelName) ||
+                           (snapshot.GpuAdapters?.Count ?? 0) > 0;
+        if (gpuDetected && (!gpuAudit.IsHealthy || gpuAudit.IsEvaluationLimited))
         {
+            bool sensorUnavailable = gpuAudit.IsHealthy && gpuAudit.IsEvaluationLimited;
             findings.Add(new SystemDoctorFinding(
                 Category: "Temperaturas GPU",
-                Title: "A placa de vídeo está aquecendo acima do recomendado",
-                Severity: gpuAudit.Severity == "Critical" ? DiagnosticSeverityLevel.Critico : DiagnosticSeverityLevel.Moderado,
+                Title: sensorUnavailable
+                    ? "Não foi possível concluir a avaliação térmica da placa de vídeo"
+                    : "A placa de vídeo está aquecendo mais do que o esperado",
+                Severity: sensorUnavailable
+                    ? DiagnosticSeverityLevel.Informativo
+                    : gpuAudit.Severity == "Critical" ? DiagnosticSeverityLevel.Critico : DiagnosticSeverityLevel.Moderado,
                 Evidence: gpuAudit.Recommendation,
-                ProbableCause: "A diferença entre a temperatura principal e o ponto mais quente pode estar alta, ou a refrigeração pode não estar dando conta.",
-                RecommendedAction: "Inspecione a curva de ventoinhas no GPU Health Lab.",
+                ProbableCause: sensorUnavailable
+                    ? "O hardware ou driver não disponibilizou os sensores necessários para uma avaliação térmica completa."
+                    : "A diferença entre as temperaturas da placa ou a ventilação pode estar fora do esperado.",
+                RecommendedAction: sensorUnavailable
+                    ? "Confira se o driver da placa de vídeo está instalado corretamente. A ausência do sensor não significa, por si só, superaquecimento."
+                    : "Confira a temperatura, as ventoinhas e a ventilação da placa de vídeo.",
                 RequiresAdminForRepair: false
             ));
         }
@@ -173,19 +184,13 @@ public class SystemDoctorService
 
                 findings.Add(new SystemDoctorFinding(
                     Category: "Eventos Críticos do Windows",
-                    Title: ev.EventId == 4101
-                        ? "O driver de vídeo parou de responder e foi reiniciado"
-                        : ev.EventId == 41
-                            ? "O Windows registrou um desligamento inesperado"
-                            : ev.Source.Contains("WHEA", StringComparison.OrdinalIgnoreCase)
-                                ? "O Windows registrou um possível erro de hardware"
-                                : "O Windows registrou uma falha importante",
+                    Title: "O Windows registrou uma falha importante",
                     Severity: sev,
-                    Evidence: $"{ev.TimestampUtc:yyyy-MM-dd HH:mm} UTC — {ev.Message}",
+                    Evidence: "Foi registrada uma falha no histórico do Windows. Consulte os detalhes técnicos somente se precisar investigar mais a fundo.",
                     ProbableCause: ev.EventId == 4101
-                        ? "Timeout e recuperação do driver de vídeo (TDR)."
-                        : "Desligamento inesperado ou erro corrigido/não-corrigido de hardware.",
-                    RecommendedAction: "Execute a verificação de integridade DISM CheckHealth e SFC /scannow no System Doctor.",
+                        ? "O driver de vídeo parou de responder e o Windows tentou recuperá-lo."
+                        : "O computador desligou inesperadamente ou algum componente informou um erro.",
+                    RecommendedAction: "Faça uma verificação dos arquivos do Windows. Se o problema voltar, procure suporte técnico.",
                     RequiresAdminForRepair: true,
                     RepairCommandId: "dism-checkhealth"
                 ));
@@ -195,11 +200,11 @@ public class SystemDoctorService
         {
             findings.Add(new SystemDoctorFinding(
                 Category: "Integridade do Windows",
-                Title: "Nenhuma falha crítica recente encontrada",
+                Title: "Nenhuma falha grave foi encontrada nos últimos 7 dias",
                 Severity: DiagnosticSeverityLevel.Informativo,
-                Evidence: "O Windows foi consultado e não apresentou registros críticos nos últimos sete dias.",
-                ProbableCause: "Subsistema de kernel e energia operando com estabilidade.",
-                RecommendedAction: "Verificação preventiva DISM CheckHealth disponível a qualquer momento.",
+                Evidence: "O histórico do Windows foi conferido e não mostrou falhas graves recentes.",
+                ProbableCause: "O Windows não apresentou sinais de instabilidade nesse período.",
+                RecommendedAction: "Você pode fazer uma verificação preventiva dos arquivos do Windows quando quiser.",
                 RequiresAdminForRepair: true,
                 RepairCommandId: "dism-checkhealth"
             ));
@@ -216,8 +221,8 @@ public class SystemDoctorService
 
         int score = Math.Clamp(100 - penalty, 10, 100);
         string summary = isAdmin
-            ? $"Diagnóstico concluído. Saúde do PC: {score}/100. Foram analisados {findings.Count} pontos. Nenhuma configuração foi alterada; reparos só serão executados mediante sua confirmação."
-            : $"Diagnóstico concluído em modo de leitura. Saúde do PC: {score}/100. Foram analisados {findings.Count} pontos e nenhuma configuração foi alterada. Para reparos do Windows, será solicitada autorização de administrador.";
+            ? $"Verificação completa concluída. Resultado geral: {score}/100, com {findings.Count} itens conferidos."
+            : $"Verificação concluída sem alterar o computador. Resultado geral: {score}/100. Algumas correções precisam de autorização do Windows.";
 
         return new SystemDoctorReport(
             AuditedAtUtc: DateTime.UtcNow,
@@ -246,13 +251,15 @@ public class SystemDoctorService
             );
         }
 
+        // Target the actual Windows system volume instead of assuming Windows is installed on C:.
+        string systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
         var (fileName, args, description) = repairCommandId.ToLowerInvariant() switch
         {
             "dism-checkhealth" => ("dism.exe", "/Online /Cleanup-Image /CheckHealth", "Verificação rápida de integridade do repositório de componentes (DISM CheckHealth)"),
             "dism-scanhealth" => ("dism.exe", "/Online /Cleanup-Image /ScanHealth", "Varredura profunda de corrupção na imagem do Windows (DISM ScanHealth)"),
             "sfc-verifyonly" => ("sfc.exe", "/verifyonly", "Verificação de integridade de arquivos protegidos do sistema sem alteração (SFC VerifyOnly)"),
             "sfc-scannow" => ("sfc.exe", "/scannow", "Verificação e reparo de arquivos protegidos do Windows (SFC ScanNow)"),
-            "chkdsk-readonly" => ("chkdsk.exe", "C:", "Inspeção somente-leitura do sistema de arquivos NTFS (CHKDSK)"),
+            "chkdsk-readonly" => ("chkdsk.exe", systemDrive, "Inspeção somente-leitura do volume do Windows (CHKDSK)"),
             _ => (string.Empty, string.Empty, string.Empty)
         };
 
@@ -319,9 +326,34 @@ public class SystemDoctorService
             );
         }
 
-        string stdOut = await proc.StandardOutput.ReadToEndAsync(cancellationToken);
-        string stdErr = await proc.StandardError.ReadToEndAsync(cancellationToken);
-        await proc.WaitForExitAsync(cancellationToken);
+        // Drain both redirected streams concurrently to prevent a child process from
+        // blocking when either OS pipe buffer fills (DISM/SFC can be very verbose).
+        // Keep draining both pipes independently of the caller token. If the caller
+        // cancels, the process is terminated first and the readers are observed with
+        // bounded waits so a broken child pipe cannot hang shutdown indefinitely.
+        Task<string> stdOutTask = proc.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        Task<string> stdErrTask = proc.StandardError.ReadToEndAsync(CancellationToken.None);
+
+        try
+        {
+            await proc.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+            try
+            {
+                await proc.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            }
+            catch { }
+            try { await stdOutTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); } catch { }
+            try { await stdErrTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); } catch { }
+            throw;
+        }
+
+        await Task.WhenAll(stdOutTask, stdErrTask).ConfigureAwait(false);
+        string stdOut = await stdOutTask.ConfigureAwait(false);
+        string stdErr = await stdErrTask.ConfigureAwait(false);
 
         string output = string.IsNullOrWhiteSpace(stdErr) ? stdOut.Trim() : $"{stdOut.Trim()}\n{stdErr.Trim()}";
         return new SystemRepairExecutionResult(

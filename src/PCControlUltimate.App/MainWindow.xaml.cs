@@ -1,9 +1,12 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
+using PCControlUltimate.Windows.Services;
 
 namespace PCControlUltimate.App;
 
@@ -11,11 +14,13 @@ public partial class MainWindow : Window
 {
     private const string AppHost = "app.pccontrol.local";
     private readonly string _agentSessionToken;
+    private readonly bool _canUseNativeGameLaunch;
 
-    public MainWindow(string agentSessionToken)
+    public MainWindow(string agentSessionToken, bool canUseNativeGameLaunch)
     {
         InitializeComponent();
         _agentSessionToken = agentSessionToken ?? string.Empty;
+        _canUseNativeGameLaunch = canUseNativeGameLaunch;
         Loaded += async (_, _) => await InitializeWebViewAsync();
     }
 
@@ -63,6 +68,106 @@ public partial class MainWindow : Window
             string tokenLiteral = JsonSerializer.Serialize(_agentSessionToken);
             await AppWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 $"window.__PCCONTROL_AGENT_TOKEN__ = {tokenLiteral};");
+
+            // Expose only a narrowly scoped native executable picker to the trusted bundled UI.
+            // The browser never supplies a path; the user chooses the file in the Windows dialog.
+            AppWebView.CoreWebView2.WebMessageReceived += (_, args) =>
+            {
+                string? requestId = null;
+                try
+                {
+                    if (!Uri.TryCreate(args.Source, UriKind.Absolute, out var source) ||
+                        !string.Equals(source.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(source.Host, AppHost, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+
+                    string message = args.TryGetWebMessageAsString();
+                    using var messageDocument = JsonDocument.Parse(message);
+                    var root = messageDocument.RootElement;
+                    if (!root.TryGetProperty("type", out var typeElement) ||
+                        typeElement.GetString() != "pccontrol:pick-executable" ||
+                        !root.TryGetProperty("requestId", out var requestElement))
+                    {
+                        return;
+                    }
+
+                    requestId = requestElement.GetString() ?? string.Empty;
+                    if (requestId.Length is < 8 or > 80 ||
+                        requestId.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
+                    {
+                        return;
+                    }
+
+                    if (!_canUseNativeGameLaunch)
+                    {
+                        AppWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                        {
+                            type = "pccontrol:pick-executable-result",
+                            requestId,
+                            path = (string?)null,
+                            title = (string?)null,
+                            approvalId = (string?)null
+                        }));
+                        return;
+                    }
+
+                    var dialog = new OpenFileDialog
+                    {
+                        Title = "Selecione o executável do jogo",
+                        Filter = "Aplicativos Windows (*.exe)|*.exe",
+                        CheckFileExists = true,
+                        CheckPathExists = true,
+                        Multiselect = false,
+                        DereferenceLinks = true
+                    };
+
+                    string? selectedPath = dialog.ShowDialog(this) == true
+                        ? Path.GetFullPath(dialog.FileName)
+                        : null;
+                    if (!string.IsNullOrWhiteSpace(selectedPath) &&
+                        (!File.Exists(selectedPath) ||
+                         !string.Equals(Path.GetExtension(selectedPath), ".exe", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        selectedPath = null;
+                    }
+
+                    string? title = selectedPath == null ? null : Path.GetFileNameWithoutExtension(selectedPath);
+                    // The one-time approval is held in the in-process agent, not in browser storage.
+                    // React receives an opaque capability; it never chooses the path sent to launch.
+                    string? approvalId = selectedPath == null ? null : GameExecutableApprovalStore.Register(selectedPath);
+                    string response = JsonSerializer.Serialize(new
+                    {
+                        type = "pccontrol:pick-executable-result",
+                        requestId,
+                        path = selectedPath,
+                        title,
+                        approvalId
+                    });
+                    AppWebView.CoreWebView2.PostWebMessageAsJson(response);
+                }
+                catch
+                {
+                    // Complete a valid pending picker request even when file hashing or
+                    // native dialog handling fails; otherwise React would wait for 120 seconds.
+                    if (!string.IsNullOrWhiteSpace(requestId))
+                    {
+                        try
+                        {
+                            AppWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                            {
+                                type = "pccontrol:pick-executable-result",
+                                requestId,
+                                path = (string?)null,
+                                title = (string?)null,
+                                approvalId = (string?)null
+                            }));
+                        }
+                        catch { }
+                    }
+                }
+            };
 
             AppWebView.CoreWebView2.ProcessFailed += (_, _) =>
                 Dispatcher.Invoke(() => ShowStartupError("A interface foi interrompida pelo WebView2. Feche e abra o PC Control Ultimate novamente."));

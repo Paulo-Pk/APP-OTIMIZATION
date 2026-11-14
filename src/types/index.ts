@@ -74,13 +74,18 @@ export interface GpuTelemetry {
   name: string;
   vendor: 'NVIDIA' | 'AMD' | 'Intel' | 'Outro';
   temperature: number;
+  temperatureAvailable?: boolean;
   hotspot: number;
+  hotspotAvailable?: boolean;
   memoryTemp: number;
+  memoryTempAvailable?: boolean;
   clockMHz: number;
   memoryClockMHz: number;
   utilization: number;
   vramUsedMB: number;
+  vramUsedAvailable?: boolean;
   vramTotalMB: number;
+  vramTotalAvailable?: boolean;
   powerWatts: number;
   fansRPM: number;
   fanSpeedPercent: number;
@@ -92,14 +97,15 @@ export interface GpuTelemetry {
 export interface CpuCore {
   coreId: number;
   load: number;
-  temp: number;
-  frequencyGHz: number;
+  temp: number | null;
+  frequencyGHz: number | null;
 }
 
 export interface CpuTelemetry {
   name: string;
   socket: string;
   temperature: number;
+  temperatureAvailable?: boolean;
   load: number;
   frequencyGHz: number;
   cores: number;
@@ -130,6 +136,7 @@ export interface DiskDrive {
   readSpeedMBs: number;
   writeSpeedMBs: number;
   smartStatus: 'OK' | 'Atenção' | 'Crítico' | 'N/D';
+  isSystemDisk?: boolean;
 }
 
 export interface MotherboardTelemetry {
@@ -140,6 +147,9 @@ export interface MotherboardTelemetry {
     system: number;
     vrm: number;
     chipset: number;
+    systemAvailable?: boolean;
+    vrmAvailable?: boolean;
+    chipsetAvailable?: boolean;
   };
   voltages: {
     v12: number;
@@ -182,6 +192,8 @@ export interface GameProfile {
   lastPlayed?: string;
   averageFps?: number;
   boostEnabled: boolean;
+  /** Short-lived native picker approval; never persist this value. */
+  approvalId?: string;
 }
 
 export interface PresentMonSession {
@@ -192,13 +204,13 @@ export interface PresentMonSession {
   avgFps: number;
   minFps: number;
   onePercentLow: number;
-  pointOnePercentLow: number;
+  pointOnePercentLow: number | null;
   frametimeAvgMs: number;
   frametimeStDevMs: number;
-  cpuLoadAvg: number;
-  gpuLoadAvg: number;
-  cpuTempAvg: number;
-  gpuTempAvg: number;
+  cpuLoadAvg: number | null;
+  gpuLoadAvg: number | null;
+  cpuTempAvg: number | null;
+  gpuTempAvg: number | null;
   isOptimized: boolean;
 }
 

@@ -28,11 +28,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     telemetry.cpu.cores > 0 ||
     telemetry.cpu.load > 0 ||
     telemetry.gpu.utilization > 0 ||
-    telemetry.ram.totalGB > 0;
+    telemetry.ram.totalGB > 0 ||
+    (telemetry.sensors?.some((sensor) => sensor.isAvailable && sensor.value !== null) ?? false);
+
+  // A zero load can be a valid idle reading. Prefer the sensor availability
+  // metadata so an unavailable CPU/GPU load is not displayed as a measured 0%.
+  const hasCpuLoad = telemetry.sensors
+    ? telemetry.sensors.some(
+        (sensor) =>
+          sensor.hardwareType.toLowerCase() === 'cpu' &&
+          sensor.sensorType.toLowerCase() === 'load' &&
+          /total/i.test(sensor.name) &&
+          sensor.isAvailable
+      )
+    : telemetry.cpu.load > 0;
+
+  const hasGpuLoad = telemetry.sensors
+    ? telemetry.sensors.some(
+        (sensor) =>
+          /^gpu/i.test(sensor.hardwareType) &&
+          sensor.sensorType.toLowerCase() === 'load' &&
+          /core/i.test(sensor.name) &&
+          sensor.isAvailable
+      )
+    : telemetry.gpu.utilization > 0;
 
   // Live historical telemetry points recorded strictly from real incoming telemetry
   const [history, setHistory] = useState<
-    { time: number; cpuLoad: number; gpuLoad: number; cpuTemp: number; gpuTemp: number }[]
+    { time: number; cpuLoad: number | null; gpuLoad: number | null; cpuTemp: number | null; gpuTemp: number | null }[]
   >([]);
 
   useEffect(() => {
@@ -44,10 +67,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setHistory((prev) => {
       const nextPoint = {
         time: Date.now(),
-        cpuLoad: Math.min(100, Math.max(0, telemetry.cpu.load)),
-        gpuLoad: Math.min(100, Math.max(0, telemetry.gpu.utilization)),
-        cpuTemp: Math.min(110, Math.max(0, telemetry.cpu.temperature)),
-        gpuTemp: Math.min(110, Math.max(0, telemetry.gpu.temperature)),
+        // Missing sensors stay null; an unavailable reading must not become a
+        // false 0% load or 0°C line in the historical chart.
+        cpuLoad: hasCpuLoad ? Math.min(100, Math.max(0, telemetry.cpu.load)) : null,
+        gpuLoad: hasGpuLoad ? Math.min(100, Math.max(0, telemetry.gpu.utilization)) : null,
+        cpuTemp: (telemetry.cpu.temperatureAvailable ?? (telemetry.cpu.temperature > 0))
+          ? Math.min(110, Math.max(0, telemetry.cpu.temperature))
+          : null,
+        gpuTemp: (telemetry.gpu.temperatureAvailable ?? (telemetry.gpu.temperature > 0))
+          ? Math.min(110, Math.max(0, telemetry.gpu.temperature))
+          : null,
       };
       return [...prev.slice(-29), nextPoint];
     });
@@ -57,12 +86,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     telemetry.gpu.utilization,
     telemetry.cpu.temperature,
     telemetry.gpu.temperature,
+    hasCpuLoad,
+    hasGpuLoad,
   ]);
 
-  const hasGpuTemps = telemetry.gpu.temperature > 0 && telemetry.gpu.hotspot > 0;
+  const hasGpuCoreTemperature = telemetry.gpu.temperatureAvailable ?? telemetry.gpu.temperature > 0;
+  const hasGpuHotspotTemperature = telemetry.gpu.hotspotAvailable ?? (telemetry.gpu.hotspot > 0);
+  const hasGpuTemps = hasGpuCoreTemperature && hasGpuHotspotTemperature;
+  const gpuLoadPercent = Math.min(100, Math.max(0, telemetry.gpu.utilization));
+  const hasVramUsed = telemetry.gpu.vramUsedAvailable ?? (telemetry.gpu.vramUsedMB > 0);
+  const hasVramTotal = telemetry.gpu.vramTotalAvailable ?? (telemetry.gpu.vramTotalMB > 0);
   const hotspotDelta = hasGpuTemps
     ? (telemetry.gpu.hotspot - telemetry.gpu.temperature).toFixed(1)
     : null;
+
+  // Physical storage sensor entries may not include volume capacity/free space.
+  // Prefer a mounted volume for capacity metrics and keep physical temperature
+  // as a separate fallback when the volume itself has no temperature sensor.
+  const primaryDisk = telemetry.disks.find((disk) => disk.isSystemDisk && disk.capacityGB > 0)
+    ?? telemetry.disks.find((disk) => disk.capacityGB > 0)
+    ?? telemetry.disks[0];
+  // Never borrow a temperature from a different physical drive than the one shown in this card.
+  // A logical system volume may have no direct thermal sensor; in that case show unavailable.
+  const diskTemperature = primaryDisk?.temperature || 0;
+  const diskUsagePercent = primaryDisk && primaryDisk.capacityGB > 0
+    ? Math.min(100, Math.max(0, ((primaryDisk.capacityGB - primaryDisk.freeSpaceGB) / primaryDisk.capacityGB) * 100))
+    : 0;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -144,7 +193,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <span className="text-xs font-mono font-bold text-purple-300">
-              {isTelemetryAvailable ? `${telemetry.cpu.load}%` : t.common.sensorNotAvailable}
+              {hasCpuLoad ? `${telemetry.cpu.load}%` : t.common.sensorNotAvailable}
             </span>
           </div>
 
@@ -154,9 +203,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
-              <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
+              <span className="text-slate-500 block text-[10px]">CPU · sensor térmico principal</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.cpu.temperature > 0
+                {(telemetry.cpu.temperatureAvailable ?? (telemetry.cpu.temperature > 0))
                   ? `${telemetry.cpu.temperature.toFixed(1)}°C`
                   : t.common.sensorNotAvailable}
               </span>
@@ -205,7 +254,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <span className="text-xs font-mono font-bold text-rose-300">
-              {isTelemetryAvailable ? `${telemetry.gpu.utilization}%` : t.common.sensorNotAvailable}
+              {hasGpuLoad ? `${telemetry.gpu.utilization}%` : t.common.sensorNotAvailable}
             </span>
           </div>
 
@@ -217,9 +266,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.coreHotspot}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.gpu.temperature > 0 ? `${telemetry.gpu.temperature.toFixed(0)}°C` : '--'} /{' '}
+                {hasGpuCoreTemperature ? `${telemetry.gpu.temperature.toFixed(0)}°C` : '--'} /{' '}
                 <span className="text-amber-400">
-                  {telemetry.gpu.hotspot > 0
+                  {hasGpuHotspotTemperature
                     ? `${telemetry.gpu.hotspot.toFixed(0)}°C`
                     : t.common.sensorNotAvailable}
                 </span>
@@ -240,7 +289,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.vramAllocated}</span>
               <span className="font-mono text-slate-200">
-                {telemetry.gpu.vramTotalMB > 0
+                {hasVramUsed && hasVramTotal && telemetry.gpu.vramTotalMB > 0
                   ? `${(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} / ${(telemetry.gpu.vramTotalMB / 1024).toFixed(0)} GB`
                   : t.common.sensorNotAvailable}
               </span>
@@ -250,7 +299,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
             <div
               className="bg-gradient-to-r from-rose-500 to-purple-500 h-full transition-all duration-500"
-              style={{ width: `${telemetry.gpu.utilization}%` }}
+              style={{ width: `${gpuLoadPercent}%` }}
             />
           </div>
         </div>
@@ -324,41 +373,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <span className="text-xs font-mono font-bold text-emerald-300">
-              {telemetry.disks[0]?.smartStatus || t.common.sensorNotAvailable}
+              {primaryDisk?.smartStatus && primaryDisk.smartStatus !== 'N/D' ? primaryDisk.smartStatus : t.common.sensorNotAvailable}
             </span>
           </div>
 
-          <div className="text-sm font-bold text-white truncate" title={telemetry.disks[0]?.model}>
-            {telemetry.disks[0]?.model || t.common.sensorNotAvailable}
+          <div className="text-sm font-bold text-white truncate" title={primaryDisk?.model}>
+            {primaryDisk?.model || t.common.sensorNotAvailable}
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.freeSpace}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.disks[0] ? `${telemetry.disks[0].freeSpaceGB} GB` : t.common.sensorNotAvailable}
+                {primaryDisk && primaryDisk.capacityGB > 0 ? `${primaryDisk.freeSpaceGB.toFixed(1)} GB` : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
               <span className="font-mono font-semibold text-slate-200">
-                {telemetry.disks[0]?.temperature
-                  ? `${telemetry.disks[0].temperature}°C`
-                  : t.common.sensorNotAvailable}
+                {diskTemperature > 0 ? `${diskTemperature}°C` : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.nandHealth}</span>
               <span className="font-mono text-emerald-400">
-                {telemetry.disks[0]
-                  ? `${telemetry.disks[0].healthPercent}%`
+                {primaryDisk && primaryDisk.smartStatus !== 'N/D' && primaryDisk.healthPercent > 0
+                  ? `${primaryDisk.healthPercent}%`
                   : t.common.sensorNotAvailable}
               </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.interface}</span>
               <span className="font-mono text-slate-200">
-                {telemetry.disks[0]?.interface || t.common.sensorNotAvailable}
+                {primaryDisk?.interface || t.common.sensorNotAvailable}
               </span>
             </div>
           </div>
@@ -366,15 +413,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
             <div
               className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full transition-all duration-500"
-              style={{
-                width: `${
-                  telemetry.disks[0] && telemetry.disks[0].capacityGB > 0
-                    ? ((telemetry.disks[0].capacityGB - telemetry.disks[0].freeSpaceGB) /
-                        telemetry.disks[0].capacityGB) *
-                      100
-                    : 0
-                }%`,
-              }}
+              style={{ width: `${diskUsagePercent}%` }}
             />
           </div>
         </div>
@@ -417,7 +456,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   stroke="#a855f7"
                   strokeWidth="2"
                   points={history
-                    .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.cpuLoad / 100) * 140}`)
+                    .map((pt, i) => pt.cpuLoad === null
+                      ? null
+                      : `${(i / (history.length - 1)) * 500},${150 - (pt.cpuLoad / 100) * 140}`)
+                    .filter((point): point is string => point !== null)
                     .join(' ')}
                 />
 
@@ -426,7 +468,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   stroke="#f43f5e"
                   strokeWidth="2"
                   points={history
-                    .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.gpuLoad / 100) * 140}`)
+                    .map((pt, i) => pt.gpuLoad === null
+                      ? null
+                      : `${(i / (history.length - 1)) * 500},${150 - (pt.gpuLoad / 100) * 140}`)
+                    .filter((point): point is string => point !== null)
                     .join(' ')}
                 />
 
@@ -436,7 +481,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   strokeWidth="1.5"
                   strokeDasharray="4 2"
                   points={history
-                    .map((pt, i) => `${(i / (history.length - 1)) * 500},${150 - (pt.cpuTemp / 100) * 140}`)
+                    .map((pt, i) => pt.cpuTemp === null
+                      ? null
+                      : `${(i / (history.length - 1)) * 500},${150 - (pt.cpuTemp / 100) * 140}`)
+                    .filter((point): point is string => point !== null)
                     .join(' ')}
                 />
               </svg>
@@ -509,16 +557,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.vrmTemp}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.temperatures.vrm
-                ? `${telemetry.motherboard.temperatures.vrm}°C`
+              {(telemetry.motherboard.temperatures.vrmAvailable ?? (telemetry.motherboard.temperatures.vrm > 0))
+                ? `${telemetry.motherboard.temperatures.vrm.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
           </div>
           <div>
             <span className="text-slate-500 block text-[10px]">{t.dashboard.chipsetTemp}</span>
             <span className="font-mono font-semibold text-slate-200">
-              {telemetry.motherboard.temperatures.chipset
-                ? `${telemetry.motherboard.temperatures.chipset}°C`
+              {(telemetry.motherboard.temperatures.chipsetAvailable ?? (telemetry.motherboard.temperatures.chipset > 0))
+                ? `${telemetry.motherboard.temperatures.chipset.toFixed(1)}°C`
                 : t.common.sensorNotAvailable}
             </span>
           </div>

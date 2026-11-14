@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -17,16 +18,269 @@ using PCControlUltimate.Security;
 
 namespace PCControlUltimate.Windows.Services;
 
+
+/// <summary>
+/// Holds one-time approvals created only by the trusted native Windows file picker.
+/// Approval IDs expire and are consumed atomically by the launch endpoint.
+/// </summary>
+public static class GameExecutableApprovalStore
+{
+    private sealed record Approval(string Path, string Sha256, long Length, DateTime LastWriteTimeUtc, DateTimeOffset ExpiresAt);
+    private static readonly ConcurrentDictionary<string, Approval> Approvals = new(StringComparer.Ordinal);
+
+    public static string Register(string executablePath)
+    {
+        string fullPath = Path.GetFullPath(executablePath);
+        if (!File.Exists(fullPath) ||
+            !string.Equals(Path.GetExtension(fullPath), ".exe", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("O executável selecionado não existe ou não é um arquivo .exe.");
+
+        var fileInfo = new FileInfo(fullPath);
+        string sha256;
+        using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            sha256 = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+
+        PruneExpired();
+        string id = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        if (!Approvals.TryAdd(id, new Approval(fullPath, sha256, fileInfo.Length, fileInfo.LastWriteTimeUtc, DateTimeOffset.UtcNow.AddMinutes(15))))
+            throw new InvalidOperationException("Não foi possível registrar a aprovação do executável.");
+        return id;
+    }
+
+    public static bool TryConsume(string? approvalId, out string executablePath)
+    {
+        PruneExpired();
+        executablePath = string.Empty;
+        if (string.IsNullOrWhiteSpace(approvalId) || approvalId.Length != 64 ||
+            !approvalId.All(Uri.IsHexDigit) || !Approvals.TryRemove(approvalId, out var approval))
+            return false;
+        if (approval.ExpiresAt <= DateTimeOffset.UtcNow || !File.Exists(approval.Path))
+            return false;
+
+        try
+        {
+            var fileInfo = new FileInfo(approval.Path);
+            if (fileInfo.Length != approval.Length || fileInfo.LastWriteTimeUtc != approval.LastWriteTimeUtc)
+                return false;
+
+            string currentHash;
+            using (var stream = new FileStream(approval.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                currentHash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+
+            if (!CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(currentHash),
+                Convert.FromHexString(approval.Sha256)))
+                return false;
+        }
+        catch
+        {
+            return false;
+        }
+
+        executablePath = approval.Path;
+        return true;
+    }
+
+    private static void PruneExpired()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        foreach (var item in Approvals)
+            if (item.Value.ExpiresAt <= now)
+                Approvals.TryRemove(item.Key, out _);
+    }
+}
+
+/// <summary>
+/// Tracks only process instances created by this application. It never searches by
+/// process name and never force-kills a process it did not start.
+/// </summary>
+internal sealed class GameProcessSessionManager : IDisposable
+{
+    private sealed class Session
+    {
+        public required string Id { get; init; }
+        public required string Title { get; init; }
+        public required string ExecutablePath { get; init; }
+        public required Process Process { get; init; }
+        public ProcessPriorityClass? OriginalPriority { get; set; }
+        public bool BoostEnabled { get; set; }
+    }
+
+    private readonly ConcurrentDictionary<string, Session> _sessions = new(StringComparer.Ordinal);
+
+    public (bool Success, string? SessionId, int? ProcessId, string? Error) Launch(string executablePath)
+    {
+        try
+        {
+            string fullPath = Path.GetFullPath(executablePath);
+            if (!File.Exists(fullPath) ||
+                !string.Equals(Path.GetExtension(fullPath), ".exe", StringComparison.OrdinalIgnoreCase))
+                return (false, null, null, "O executável não existe ou não é um .exe válido.");
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fullPath,
+                WorkingDirectory = Path.GetDirectoryName(fullPath) ?? Environment.CurrentDirectory,
+                UseShellExecute = false,
+                CreateNoWindow = false
+            };
+            Process? process = Process.Start(startInfo);
+            if (process == null) return (false, null, null, "O Windows não retornou uma instância de processo.");
+
+            string id = Guid.NewGuid().ToString("N");
+            _sessions[id] = new Session
+            {
+                Id = id,
+                Title = Path.GetFileNameWithoutExtension(fullPath),
+                ExecutablePath = fullPath,
+                Process = process
+            };
+            return (true, id, process.Id, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, null, ex.Message);
+        }
+    }
+
+    public IReadOnlyList<object> GetSessions()
+    {
+        var result = new List<object>();
+        foreach (var pair in _sessions.ToArray())
+        {
+            Session session = pair.Value;
+            try
+            {
+                if (session.Process.HasExited)
+                {
+                    RestorePriority(session);
+                    _sessions.TryRemove(pair.Key, out _);
+                    session.Process.Dispose();
+                    continue;
+                }
+                result.Add(new
+                {
+                    sessionId = session.Id,
+                    title = session.Title,
+                    executablePath = session.ExecutablePath,
+                    processId = session.Process.Id,
+                    isRunning = true,
+                    boostEnabled = session.BoostEnabled
+                });
+            }
+            catch
+            {
+                _sessions.TryRemove(pair.Key, out _);
+                try { session.Process.Dispose(); } catch { }
+            }
+        }
+        return result;
+    }
+
+    public (bool Success, string? Error) SetBoost(string sessionId, bool enabled)
+    {
+        if (!_sessions.TryGetValue(sessionId, out Session? session))
+            return (false, "Sessão não encontrada ou já encerrada.");
+        try
+        {
+            if (session.Process.HasExited) return (false, "O jogo já foi encerrado.");
+            if (enabled)
+            {
+                if (!session.OriginalPriority.HasValue)
+                    session.OriginalPriority = session.Process.PriorityClass;
+                session.Process.PriorityClass = ProcessPriorityClass.AboveNormal;
+                session.BoostEnabled = true;
+            }
+            else
+            {
+                if (!RestorePriority(session))
+                    return (false, "Não foi possível restaurar a prioridade original. O agente tentará novamente ao encerrar.");
+            }
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"O Windows não permitiu alterar/restaurar a prioridade: {ex.Message}");
+        }
+    }
+
+    public (bool Success, string? Error) Stop(string sessionId)
+    {
+        if (!_sessions.TryGetValue(sessionId, out Session? session))
+            return (false, "Sessão não encontrada ou já encerrada.");
+        try
+        {
+            if (session.Process.HasExited)
+            {
+                _sessions.TryRemove(sessionId, out _);
+                RestorePriority(session);
+                session.Process.Dispose();
+                return (true, null);
+            }
+
+            // Graceful close only. No Process.Kill and no process-name lookup.
+            bool closeRequested = session.Process.CloseMainWindow();
+            if (!closeRequested)
+                return (false, "O processo não possui uma janela principal fechável. Feche o jogo normalmente pelo próprio jogo.");
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    private static bool RestorePriority(Session session)
+    {
+        if (!session.OriginalPriority.HasValue) return true;
+        try
+        {
+            if (!session.Process.HasExited)
+                session.Process.PriorityClass = session.OriginalPriority.Value;
+            session.OriginalPriority = null;
+            session.BoostEnabled = false;
+            return true;
+        }
+        catch
+        {
+            // Keep the original value so a later disable or application shutdown can retry.
+            return false;
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var pair in _sessions.ToArray())
+        {
+            Session session = pair.Value;
+            RestorePriority(session);
+            try { session.Process.Dispose(); } catch { }
+        }
+        _sessions.Clear();
+    }
+}
+
 public class PrivilegedAgentServer : IDisposable
 {
+    private sealed class RequestBodyTooLargeException : Exception
+    {
+        public RequestBodyTooLargeException() : base("Request body exceeds maximum allowed size of 64 KB.") { }
+    }
+
     private readonly HttpListener _listener;
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
     private readonly WingetSoftwareCenterService _softwareCenter = new();
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
+    private readonly GameProcessSessionManager _gameProcessSessions = new();
+    // Bound concurrent handlers so loopback clients cannot create an unbounded
+    // number of fire-and-forget request tasks.
+    private readonly SemaphoreSlim _requestSlots = new(32, 32);
     private readonly ConcurrentQueue<DateTime> _requestTimestamps = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedNonces = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _recentAuditEvents = new();
+    private readonly object _lifecycleLock = new();
+    private readonly object _rateLimitLock = new();
     private CancellationTokenSource? _cts;
     private bool _disposed;
 
@@ -96,11 +350,17 @@ public class PrivilegedAgentServer : IDisposable
 
     public void Start()
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(PrivilegedAgentServer));
-        _cts = new CancellationTokenSource();
-        _listener.Start();
-        WriteAuditLog("SERVER_START", $"Listening exclusively on http://127.0.0.1:{Port}/");
-        Task.Run(() => ListenLoopAsync(_cts.Token));
+        lock (_lifecycleLock)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(PrivilegedAgentServer));
+            if (_listener.IsListening) return;
+
+            var cts = new CancellationTokenSource();
+            _listener.Start();
+            _cts = cts;
+            WriteAuditLog("SERVER_START", $"Listening exclusively on http://127.0.0.1:{Port}/");
+            _ = Task.Run(() => ListenLoopAsync(cts.Token));
+        }
     }
 
     private async Task ListenLoopAsync(CancellationToken token)
@@ -110,7 +370,38 @@ public class PrivilegedAgentServer : IDisposable
             try
             {
                 var context = await _listener.GetContextAsync();
-                _ = Task.Run(() => HandleRequestWithTimeoutAsync(context, token), token);
+
+                try
+                {
+                    // Stop accepting additional requests while all handler slots
+                    // are occupied. This keeps queued work bounded by HttpListener
+                    // instead of allocating an unbounded number of managed tasks.
+                    await _requestSlots.WaitAsync(token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    try { context.Response.Abort(); } catch { }
+                    break;
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await HandleRequestWithTimeoutAsync(context, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Observe unexpected handler failures and release the
+                        // connection without leaking an unobserved task exception.
+                        WriteAuditLog("REQUEST_HANDLER_FAILURE", ex.GetType().Name);
+                        try { context.Response.Abort(); } catch { }
+                    }
+                    finally
+                    {
+                        _requestSlots.Release();
+                    }
+                }, CancellationToken.None);
             }
             catch (Exception)
             {
@@ -122,7 +413,19 @@ public class PrivilegedAgentServer : IDisposable
     private async Task HandleRequestWithTimeoutAsync(HttpListenerContext context, CancellationToken serverToken)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(serverToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        // Long-running operations need endpoint-specific limits. PresentMon captures
+        // can run for 120 seconds plus parser cleanup; winget installs can take several
+        // minutes while downloading and configuring packages. Keep ordinary API requests short.
+        string requestPath = context.Request.Url?.AbsolutePath ?? string.Empty;
+        TimeSpan requestTimeout =
+            string.Equals(requestPath, "/api/presentmon/capture", StringComparison.OrdinalIgnoreCase)
+                ? TimeSpan.FromSeconds(135)
+                : string.Equals(requestPath, "/api/software/install", StringComparison.OrdinalIgnoreCase)
+                    ? TimeSpan.FromMinutes(5)
+                    : TimeSpan.FromSeconds(15);
+
+        timeoutCts.CancelAfter(requestTimeout);
         await HandleRequestAsync(context, timeoutCts.Token);
     }
 
@@ -294,6 +597,16 @@ public class PrivilegedAgentServer : IDisposable
         DateTimeOffset requestTime;
         if (long.TryParse(timestampHeader.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long unixSeconds))
         {
+            // FromUnixTimeSeconds throws for values outside DateTimeOffset's
+            // supported range. Treat hostile/out-of-range headers as invalid
+            // input instead of allowing an exception to escape validation.
+            if (unixSeconds < DateTimeOffset.MinValue.ToUnixTimeSeconds() ||
+                unixSeconds > DateTimeOffset.MaxValue.ToUnixTimeSeconds())
+            {
+                errorCode = "INVALID_TIMESTAMP_FORMAT";
+                return false;
+            }
+
             requestTime = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
         }
         else if (!DateTimeOffset.TryParse(timestampHeader.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out requestTime))
@@ -534,7 +847,9 @@ public class PrivilegedAgentServer : IDisposable
                 var tempUser = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
                 var softDist = DiskCleanerEngine.SimulateCategoryDryRun("update-cache");
                 var prefetch = DiskCleanerEngine.SimulateCategoryDryRun("temp-prefetch");
-                var deliveryOptimization = DiskCleanerEngine.SimulateCategoryDryRun("temp-delivery-optimization");
+                var deliveryOptimization = DiskCleanerEngine.SimulateCategoryDryRun("cache-delivery-optimization");
+                var werQueue = DiskCleanerEngine.SimulateCategoryDryRun("wer-report-queue");
+                var werArchive = DiskCleanerEngine.SimulateCategoryDryRun("wer-report-archive");
 
                 await SendJsonAsync(res, new
                 {
@@ -545,7 +860,9 @@ public class PrivilegedAgentServer : IDisposable
                     softwareDistributionBytes = softDist.EstimatedBytes,
                     prefetchBytes = prefetch.EstimatedBytes,
                     deliveryOptimizationBytes = deliveryOptimization.EstimatedBytes,
-                    categories = new[] { d3d, tempWin, tempUser, softDist, prefetch, deliveryOptimization }
+                    werQueueBytes = werQueue.EstimatedBytes,
+                    werArchiveBytes = werArchive.EstimatedBytes,
+                    categories = new[] { d3d, tempWin, tempUser, softDist, prefetch, deliveryOptimization, werQueue, werArchive }
                 });
                 return;
             }
@@ -595,7 +912,23 @@ public class PrivilegedAgentServer : IDisposable
                 }
 
                 var (isValid, checksum, err) = RegistrySnapshotEngine.VerifyBackupIntegrity(targetPath);
-                await SendJsonAsync(res, new { success = true, isValid, checksum, error = err });
+                await SendJsonAsync(res, new { success = isValid, isValid, checksum, error = err }, isValid ? 200 : 422);
+                return;
+            }
+
+            if (path == "/api/wireguard/status" && req.HttpMethod == "GET")
+            {
+                var tunnelStatus = await WireGuardTunnelManager.QueryTunnelStatusAsync(
+                    "PCControlGameTunnel",
+                    cancellationToken
+                );
+                await SendJsonAsync(res, tunnelStatus);
+                return;
+            }
+
+            if (path == "/api/games/sessions" && req.HttpMethod == "GET")
+            {
+                await SendJsonAsync(res, new { success = true, sessions = _gameProcessSessions.GetSessions() });
                 return;
             }
 
@@ -746,6 +1079,53 @@ public class PrivilegedAgentServer : IDisposable
                         return;
                     }
 
+                    if (path == "/api/games/launch")
+                    {
+                        string approvalId = doc.RootElement.TryGetProperty("approvalId", out var approvalEl)
+                            ? (approvalEl.GetString() ?? string.Empty)
+                            : string.Empty;
+                        if (!GameExecutableApprovalStore.TryConsume(approvalId, out string approvedPath))
+                        {
+                            await SendJsonAsync(res, new { success = false, error = "EXECUTABLE_APPROVAL_INVALID", message = "A aprovação do executável expirou ou já foi utilizada. Selecione o arquivo novamente pelo botão Adicionar jogo." }, 400);
+                            return;
+                        }
+
+                        var launch = _gameProcessSessions.Launch(approvedPath);
+                        WriteAuditLog("GAME_LAUNCH", $"Success={launch.Success} PID={launch.ProcessId?.ToString() ?? "N/D"}");
+                        await SendJsonAsync(res, new
+                        {
+                            success = launch.Success,
+                            sessionId = launch.SessionId,
+                            processId = launch.ProcessId,
+                            error = launch.Error
+                        }, launch.Success ? 200 : 400);
+                        return;
+                    }
+
+                    if (path == "/api/games/stop")
+                    {
+                        string sessionId = doc.RootElement.TryGetProperty("sessionId", out var sessionEl)
+                            ? (sessionEl.GetString() ?? string.Empty)
+                            : string.Empty;
+                        var stop = _gameProcessSessions.Stop(sessionId);
+                        WriteAuditLog("GAME_STOP_REQUEST", $"Session={sessionId} Success={stop.Success}");
+                        await SendJsonAsync(res, new { success = stop.Success, error = stop.Error }, stop.Success ? 200 : 400);
+                        return;
+                    }
+
+                    if (path == "/api/games/boost")
+                    {
+                        string sessionId = doc.RootElement.TryGetProperty("sessionId", out var sessionEl)
+                            ? (sessionEl.GetString() ?? string.Empty)
+                            : string.Empty;
+                        bool enabled = doc.RootElement.TryGetProperty("enabled", out var enabledEl)
+                            && enabledEl.ValueKind == JsonValueKind.True;
+                        var boost = _gameProcessSessions.SetBoost(sessionId, enabled);
+                        WriteAuditLog("GAME_PRIORITY_BOOST", $"Session={sessionId} Enabled={enabled} Success={boost.Success}");
+                        await SendJsonAsync(res, new { success = boost.Success, enabled = boost.Success && enabled, error = boost.Error }, boost.Success ? 200 : 400);
+                        return;
+                    }
+
                     // CRITICAL SECURITY FIX: /api/tweaks/apply ONLY accepts a cataloged tweakId!
                     if (path == "/api/tweaks/apply")
                     {
@@ -827,7 +1207,10 @@ public class PrivilegedAgentServer : IDisposable
                             return;
                         }
 
-                        var restoreRes = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource(tweakId, operationId, snapshotId);
+                        bool confirmIncompleteBackup = doc.RootElement.TryGetProperty("confirmIncompleteBackup", out var cibEl) &&
+                            cibEl.ValueKind == JsonValueKind.True;
+                        var restoreRes = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource(
+                            tweakId, operationId, snapshotId, confirmIncompleteBackup);
                         WriteAuditLog("TWEAK_RESTORE", $"Tweak={tweakId} OpId={restoreRes.OperationId ?? operationId} Success={restoreRes.Success} Verified={restoreRes.VerifiedValue}");
 
                         await SendJsonAsync(res, new
@@ -848,8 +1231,18 @@ public class PrivilegedAgentServer : IDisposable
                             ? dEl.GetString()!
                             : "Backup dos Ajustes Suportados pelo Aplicativo";
                         var snapshotResult = RegistrySnapshotEngine.CreateBackup(desc);
-                        WriteAuditLog("SNAPSHOT_CREATE", "Registry backup snapshot created and verified on disk.");
-                        await SendJsonAsync(res, snapshotResult);
+                        bool snapshotSuccess = false;
+                        try
+                        {
+                            using var snapshotJson = JsonDocument.Parse(JsonSerializer.Serialize(snapshotResult));
+                            snapshotSuccess = snapshotJson.RootElement.TryGetProperty("success", out var successElement) &&
+                                successElement.ValueKind == JsonValueKind.True;
+                        }
+                        catch (JsonException) { }
+
+                        WriteAuditLog("SNAPSHOT_CREATE",
+                            $"Registry backup creation completed. Success={snapshotSuccess}.");
+                        await SendJsonAsync(res, snapshotResult, snapshotSuccess ? 200 : 500);
                         return;
                     }
 
@@ -858,9 +1251,9 @@ public class PrivilegedAgentServer : IDisposable
                         string filePath = doc.RootElement.TryGetProperty("filePath", out var fpEl)
                             ? (fpEl.GetString() ?? "")
                             : (doc.RootElement.TryGetProperty("snapshotId", out var idEl) ? (idEl.GetString() ?? "") : "");
-                        bool confirmIncomplete = doc.RootElement.TryGetProperty("confirmIncompleteBackup", out var ciEl) && ciEl.GetBoolean();
+                        bool confirmIncomplete = doc.RootElement.TryGetProperty("confirmIncompleteBackup", out var ciEl) && ciEl.ValueKind == JsonValueKind.True;
                         string? singleTweakId = doc.RootElement.TryGetProperty("tweakId", out var stEl) ? stEl.GetString() : null;
-                        bool rollbackOnFail = doc.RootElement.TryGetProperty("rollbackOnPartialFailure", out var rbEl) && rbEl.GetBoolean();
+                        bool rollbackOnFail = doc.RootElement.TryGetProperty("rollbackOnPartialFailure", out var rbEl) && rbEl.ValueKind == JsonValueKind.True;
 
                         var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(
                             filePath,
@@ -880,15 +1273,15 @@ public class PrivilegedAgentServer : IDisposable
                             failedKeysCount = report.FailedCount,
                             itemReports = report.ItemReports,
                             error = report.ErrorMessage
-                        });
+                        }, report.Success ? 200 : report.PartialSuccess ? 207 : 400);
                         return;
                     }
 
                     if (path == "/api/debloat/purge")
                     {
                         string categoryKey = doc.RootElement.TryGetProperty("categoryKey", out var ckEl) ? (ckEl.GetString() ?? "") : "";
-                        bool confirmUpdate = doc.RootElement.TryGetProperty("confirmUpdateCache", out var cuEl) && cuEl.GetBoolean();
-                        var purgeReport = DiskCleanerEngine.PurgeCategoryWithReport(categoryKey, confirmUpdate);
+                        bool confirmUpdateCache = doc.RootElement.TryGetProperty("confirmUpdateCache", out var cuEl) && cuEl.ValueKind == JsonValueKind.True;
+                        var purgeReport = DiskCleanerEngine.PurgeCategoryWithReport(categoryKey, confirmUpdateCache);
 
                         WriteAuditLog("DEBLOAT_PURGE", $"Category={categoryKey} FreedBytes={purgeReport.FreedBytes} DeletedFiles={purgeReport.DeletedFilesCount}");
 
@@ -952,9 +1345,24 @@ public class PrivilegedAgentServer : IDisposable
 
             await SendJsonAsync(res, new { error = "ROUTE_NOT_FOUND" }, 404);
         }
+        catch (RequestBodyTooLargeException)
+        {
+            await SendJsonAsync(res, new
+            {
+                error = "PAYLOAD_TOO_LARGE",
+                message = "Payload exceeds 64 KB limit."
+            }, 413);
+        }
         catch (JsonException)
         {
             await SendJsonAsync(res, new { error = "MALFORMED_JSON_PAYLOAD" }, 400);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Request timeout or server shutdown is an expected cancellation path.
+            // Do not misreport it as an internal server error or attempt to write
+            // a response after the listener/request has already been aborted.
+            try { res.Abort(); } catch { }
         }
         catch (Exception ex)
         {
@@ -965,17 +1373,20 @@ public class PrivilegedAgentServer : IDisposable
 
     private bool CheckRateLimit()
     {
-        var now = DateTime.UtcNow;
-        while (_requestTimestamps.TryPeek(out var oldest) && (now - oldest).TotalSeconds > 60)
+        lock (_rateLimitLock)
         {
-            _requestTimestamps.TryDequeue(out _);
+            var now = DateTime.UtcNow;
+            while (_requestTimestamps.TryPeek(out var oldest) && (now - oldest).TotalSeconds > 60)
+            {
+                _requestTimestamps.TryDequeue(out _);
+            }
+
+            if (_requestTimestamps.Count >= MaxRequestsPerMinute)
+                return false;
+
+            _requestTimestamps.Enqueue(now);
+            return true;
         }
-
-        if (_requestTimestamps.Count >= MaxRequestsPerMinute)
-            return false;
-
-        _requestTimestamps.Enqueue(now);
-        return true;
     }
 
     private static async Task<string> ReadBoundedBodyAsync(HttpListenerRequest req, CancellationToken token)
@@ -991,7 +1402,7 @@ public class PrivilegedAgentServer : IDisposable
 
             totalRead += read;
             if (totalRead > MaxRequestBodyBytes)
-                throw new InvalidOperationException("Request body exceeds maximum allowed size of 64 KB.");
+                throw new RequestBodyTooLargeException();
 
             ms.Write(buffer, 0, read);
         }
@@ -1064,26 +1475,42 @@ public class PrivilegedAgentServer : IDisposable
 
     public void Stop()
     {
-        if (_disposed) return;
-        try
+        lock (_lifecycleLock)
         {
-            _cts?.Cancel();
-            if (_listener.IsListening)
+            if (_disposed) return;
+            try
             {
-                _listener.Stop();
+                _cts?.Cancel();
+                if (_listener.IsListening)
+                {
+                    _listener.Stop();
+                }
+                WriteAuditLog("SERVER_STOP", "PrivilegedAgentServer stopped cleanly.");
             }
-            WriteAuditLog("SERVER_STOP", "PrivilegedAgentServer stopped cleanly.");
+            catch { }
         }
-        catch { }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
-        Stop();
-        _disposed = true;
-        _listener.Close();
-        _mutationLock.Dispose();
-        _cts?.Dispose();
+        lock (_lifecycleLock)
+        {
+            if (_disposed) return;
+            try
+            {
+                _cts?.Cancel();
+                if (_listener.IsListening) _listener.Stop();
+            }
+            catch { }
+
+            _disposed = true;
+            _gameProcessSessions.Dispose();
+            _listener.Close();
+            WriteAuditLog("SERVER_DISPOSE", "PrivilegedAgentServer disposed.");
+            // Request handlers may still be unwinding and releasing/waiting on these
+            // shared synchronization primitives. Do not dispose them while requests
+            // are in flight; the server and its managed primitives can be collected
+            // together after the outstanding handlers complete.
+        }
     }
 }

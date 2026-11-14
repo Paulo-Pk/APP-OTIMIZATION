@@ -17,7 +17,7 @@ const officialBrandIcons: Record<string, string> = {
   'sw-ea': 'https://cdn.simpleicons.org/ea/FFFFFF',
   'sw-ubisoft': 'https://cdn.simpleicons.org/ubisoft/FFFFFF',
   'sw-xbox': 'https://cdn.simpleicons.org/xbox/107C10',
-  'sw-opera-gx': 'https://cdn.simpleicons.org/operagx/FA1E4E',
+  'sw-operagx': 'https://cdn.simpleicons.org/operagx/FA1E4E',
 };
 
 const officialWingetIds: Record<string, string> = {
@@ -27,8 +27,8 @@ const officialWingetIds: Record<string, string> = {
   'sw-ea': 'ElectronicArts.EADesktop',
   'sw-ubisoft': 'Ubisoft.Connect',
   'sw-gog': 'GOG.Galaxy',
-  'sw-xbox': 'Microsoft.GamingApp',
-  'sw-opera-gx': 'Opera.OperaGX',
+  'sw-xbox': '9MV0B5HZVK9Z',
+  'sw-operagx': 'Opera.OperaGX',
   'sw-vlc': 'VideoLAN.VLC',
   'sw-firefox': 'Mozilla.Firefox',
   'sw-chrome': 'Google.Chrome',
@@ -36,6 +36,11 @@ const officialWingetIds: Record<string, string> = {
   'sw-cpuz': 'CPUID.CPU-Z',
   'sw-gpuz': 'TechPowerUp.GPU-Z',
   'sw-hwinfo': 'REALiX.HWiNFO',
+  'sw-7zip': '7zip.7zip',
+  'sw-powertoys': 'Microsoft.PowerToys',
+  'sw-fancontrol': 'Rem0o.FanControl',
+  'sw-sharex': 'ShareX.ShareX',
+  'sw-notepadpp': 'Notepad++.Notepad++',
 };
 
 export const SoftwareHubView: React.FC = () => {

@@ -13,7 +13,9 @@ public class DiskCleanerTests
     [InlineData("temp-user")]
     [InlineData("update-cache")]
     [InlineData("temp-prefetch")]
-    [InlineData("temp-delivery-optimization")]
+    [InlineData("cache-delivery-optimization")]
+    [InlineData("wer-report-queue")]
+    [InlineData("wer-report-archive")]
     public void AllowedCategories_ShouldResolveToNonEmptyPath(string categoryKey)
     {
         string? path = DiskCleanerEngine.GetCategoryPath(categoryKey);
@@ -38,6 +40,7 @@ public class DiskCleanerTests
         string sys32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        string downloads = string.IsNullOrWhiteSpace(userProfile) ? string.Empty : Path.Combine(userProfile, "Downloads");
 
         Assert.False(DiskCleanerEngine.IsPathSafe(winDir));
         Assert.False(DiskCleanerEngine.IsPathSafe(sys32));
@@ -45,6 +48,11 @@ public class DiskCleanerTests
         if (!string.IsNullOrWhiteSpace(documents))
         {
             Assert.False(DiskCleanerEngine.IsPathSafe(documents));
+        }
+        if (!string.IsNullOrWhiteSpace(downloads))
+        {
+            Assert.False(DiskCleanerEngine.IsPathSafe(downloads));
+            Assert.False(DiskCleanerEngine.IsPathSafe(Path.Combine(downloads, "Temp")));
         }
     }
 
@@ -82,7 +90,7 @@ public class DiskCleanerTests
     [Fact]
     public void PurgeCategoryWithReport_UpdateCacheWithoutConfirmation_IsBlocked()
     {
-        var report = DiskCleanerEngine.PurgeCategoryWithReport("update-cache", confirmServiceStop: false);
+        var report = DiskCleanerEngine.PurgeCategoryWithReport("update-cache", confirmUpdateCache: false);
         Assert.False(report.Success);
         Assert.Equal(0, report.BytesFreed);
     }
@@ -215,6 +223,87 @@ public class DiskCleanerTests
         var report = DiskCleanerEngine.SimulateDirectoryDryRunForTesting("temp-user", missing);
         Assert.False(report.Success);
         Assert.NotEmpty(report.Errors!);
+    }
+
+    [Fact]
+    public void PurgeDirectoryForTesting_SkipsFileSymlinkAndPreservesExternalTarget()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), $"pccontrol_symlink_{Guid.NewGuid():N}");
+        string outsideDir = Path.Combine(Path.GetTempPath(), $"pccontrol_outside_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(outsideDir);
+        string externalFile = Path.Combine(outsideDir, "keep.txt");
+        string linkPath = Path.Combine(tempDir, "external-link.txt");
+        File.WriteAllText(externalFile, "must remain untouched");
+        File.WriteAllText(Path.Combine(tempDir, "inside.txt"), "safe to remove");
+
+        try
+        {
+            try
+            {
+                File.CreateSymbolicLink(linkPath, externalFile);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException ||
+                                       ex is PlatformNotSupportedException || ex is NotSupportedException)
+            {
+                // Symlink creation can be unavailable on Windows without Developer Mode/admin rights.
+                return;
+            }
+
+            var report = DiskCleanerEngine.PurgeDirectoryForTesting("temp-user", tempDir);
+
+            Assert.True(report.Success);
+            Assert.True(report.PartialSuccess);
+            Assert.Equal(1, report.DeletedFilesCount);
+            Assert.Equal(1, report.SkippedSymlinksCount);
+            Assert.False(File.Exists(Path.Combine(tempDir, "inside.txt")));
+            Assert.True(File.Exists(externalFile));
+            Assert.True(File.Exists(linkPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+            if (Directory.Exists(outsideDir)) Directory.Delete(outsideDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SimulateDirectoryDryRunForTesting_SkipsDirectorySymlinkAndDoesNotCountExternalFiles()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), $"pccontrol_dry_symlink_{Guid.NewGuid():N}");
+        string outsideDir = Path.Combine(Path.GetTempPath(), $"pccontrol_dry_outside_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(outsideDir);
+        string externalFile = Path.Combine(outsideDir, "outside.txt");
+        string linkPath = Path.Combine(tempDir, "external-dir");
+        File.WriteAllText(externalFile, "outside");
+        File.WriteAllText(Path.Combine(tempDir, "inside.txt"), "inside");
+
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(linkPath, outsideDir);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException ||
+                                       ex is PlatformNotSupportedException || ex is NotSupportedException)
+            {
+                return;
+            }
+
+            var report = DiskCleanerEngine.SimulateDirectoryDryRunForTesting("temp-user", tempDir);
+
+            Assert.True(report.Success);
+            Assert.Equal(1, report.EstimatedFilesCount);
+            Assert.Equal(6, report.EstimatedBytes);
+            Assert.Equal(1, report.SkippedSymlinksCount);
+            Assert.True(File.Exists(externalFile));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+            if (Directory.Exists(outsideDir)) Directory.Delete(outsideDir, recursive: true);
+        }
     }
 
 }

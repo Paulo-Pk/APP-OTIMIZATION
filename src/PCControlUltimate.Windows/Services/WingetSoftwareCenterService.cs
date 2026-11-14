@@ -193,6 +193,7 @@ public class WingetSoftwareCenterService
         new("ElectronicArts.EADesktop", "EA app", "Electronic Arts", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial para instalar e atualizar jogos da Electronic Arts.", "winget", true),
         new("Ubisoft.Connect", "Ubisoft Connect", "Ubisoft", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial da Ubisoft para biblioteca, atualizações e serviços dos jogos.", "winget", true),
         new("GOG.Galaxy", "GOG GALAXY", "GOG", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial para organizar e instalar jogos da biblioteca GOG.", "winget", true),
+        new("9MV0B5HZVK9Z", "Xbox para PC", "Microsoft / Xbox", SoftwarePackageCategory.Gaming, "Gaming", "Aplicativo oficial Xbox para jogos de PC e Game Pass, distribuído pela Microsoft Store.", "msstore", false),
         new("Rem0o.FanControl", "Fan Control", "Rem0o", SoftwarePackageCategory.Hardware, "Hardware", "Controle de ventoinhas com curvas personalizadas em hardware compatível.", "winget", true),
         new("ShareX.ShareX", "ShareX", "ShareX Team", SoftwarePackageCategory.FerramentasDeSistema, "Ferramentas de Sistema", "Captura de tela e gravação de área de trabalho.", "winget", false)
     ];
@@ -690,7 +691,11 @@ public class WingetSoftwareCenterService
             cancellationToken
         );
 
-        bool installed = exitCode == 0 && output.Contains(packageId.Trim(), StringComparison.OrdinalIgnoreCase);
+        bool installed = exitCode == 0 && ParseWingetTableOutput(output, isInstalledList: true)
+            .Any(package => string.Equals(package.PackageId, packageId.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        // "winget list" confirms presence and package identity only; it does not
+        // cryptographically verify the installed binary or prove its current signature.
         return new WingetOperationProgress(
             packageId.Trim(),
             "Verify",
@@ -699,7 +704,7 @@ public class WingetSoftwareCenterService
             installed,
             output,
             DateTime.UtcNow,
-            installed ? SignatureVerificationState.VerifiedOfficialWingetRepository : SignatureVerificationState.NotVerifiedYet
+            SignatureVerificationState.NotVerifiedYet
         );
     }
 
@@ -748,6 +753,22 @@ public class WingetSoftwareCenterService
                 false,
                 $"Pacote '{packageId}' não pertence ao catálogo oficial verificado.",
                 DateTime.UtcNow
+            );
+        }
+
+        // The source is part of the reviewed package metadata (for example, Xbox uses msstore).
+        source = catalogPkg.OfficialSource;
+        if (!IsTrustedSourceOrigin(source))
+        {
+            return new WingetOperationProgress(
+                catalogPkg.PackageId,
+                "Install",
+                "UntrustedSourceRejected",
+                -1,
+                false,
+                $"Origem '{source}' rejeitada. Apenas repositórios oficiais ('winget', 'msstore') são permitidos.",
+                DateTime.UtcNow,
+                SignatureVerificationState.UnsignedOrInvalid
             );
         }
 
@@ -816,7 +837,7 @@ public class WingetSoftwareCenterService
 
         progress?.Report($"Atualizando {pkg.Name} ({pkg.PackageId})...");
         var (exitCode, output) = await RunWingetCommandAsync(
-            $"upgrade --id \"{pkg.PackageId}\" --exact --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity",
+            $"upgrade --id \"{pkg.PackageId}\" --exact --source {pkg.OfficialSource} --accept-package-agreements --accept-source-agreements --disable-interactivity",
             progress,
             cancellationToken
         );
@@ -912,31 +933,70 @@ public class WingetSoftwareCenterService
             StandardErrorEncoding = Encoding.UTF8
         };
 
+        ct.ThrowIfCancellationRequested();
         using var process = Process.Start(psi);
         if (process == null)
             return (-1, "Não foi possível iniciar o processo winget.exe.");
 
-        var sb = new StringBuilder();
-        while (!process.StandardOutput.EndOfStream)
+        // Drain stderr concurrently with stdout. Reading one redirected stream to
+        // completion before touching the other can deadlock when its OS pipe fills.
+        var standardErrorTask = process.StandardError.ReadToEndAsync(ct);
+        var output = new StringBuilder();
+
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            string? line = await process.StandardOutput.ReadLineAsync(ct);
-            if (!string.IsNullOrWhiteSpace(line))
+            while (true)
             {
-                sb.AppendLine(line);
-                progress?.Report(line.Trim());
+                ct.ThrowIfCancellationRequested();
+                string? line = await process.StandardOutput.ReadLineAsync(ct);
+                if (line == null) break;
+
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    output.AppendLine(line);
+                    progress?.Report(line.Trim());
+                }
             }
+
+            await process.WaitForExitAsync(ct);
+            string standardError = await standardErrorTask;
+            if (!string.IsNullOrWhiteSpace(standardError))
+                output.AppendLine(standardError.Trim());
+
+            return (process.ExitCode, output.ToString().Trim());
         }
-
-        string stdErr = await process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-
-        if (!string.IsNullOrWhiteSpace(stdErr))
+        catch (OperationCanceledException)
         {
-            sb.AppendLine(stdErr.Trim());
-        }
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Preserve the original cancellation result if the process already exited.
+            }
 
-        return (process.ExitCode, sb.ToString().Trim());
+            // Bound process shutdown and stderr draining as well. If termination fails
+            // or a descendant keeps the redirected pipe open, cancellation must not hang.
+            try
+            {
+                await process.WaitForExitAsync(CancellationToken.None)
+                    .WaitAsync(TimeSpan.FromSeconds(5))
+                    .ConfigureAwait(false);
+            }
+            catch { }
+
+            try
+            {
+                await standardErrorTask
+                    .WaitAsync(TimeSpan.FromSeconds(1))
+                    .ConfigureAwait(false);
+            }
+            catch { }
+
+            throw;
+        }
     }
 
     private static bool CheckIsAdministrator()

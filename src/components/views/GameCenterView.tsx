@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import {
   Gamepad2,
-  Zap,
   SlidersHorizontal,
   Plus,
-  Play,
   ShieldCheck,
 } from 'lucide-react';
 import { GameProfile } from '../../types';
@@ -13,32 +11,52 @@ import { useI18n } from '../../i18n';
 interface GameCenterViewProps {
   games: GameProfile[];
   onOpenProfileModal: (game: GameProfile) => void;
-  onToggleGameBoost: (gameId: string) => void;
-  onAddCustomGame: () => void;
+  onAddCustomGame: (gameId?: string) => void;
+  onLaunchGame: (game: GameProfile) => void;
+  onStopGame: (sessionId: string) => void;
+  onToggleGameBoost: (sessionId: string, enabled: boolean) => void;
+  gameSessions: Array<{ sessionId: string; title: string; executablePath: string; processId: number; isRunning: boolean; boostEnabled: boolean }>;
 }
 
 export const GameCenterView: React.FC<GameCenterViewProps> = ({
   games,
   onOpenProfileModal,
-  onToggleGameBoost,
   onAddCustomGame,
+  onLaunchGame,
+  onStopGame,
+  onToggleGameBoost,
+  gameSessions,
 }) => {
   const { t } = useI18n();
   const [activePlatformFilter, setActivePlatformFilter] = useState<string>('all');
-  const [runningGameId, setRunningGameId] = useState<string | null>(null);
 
-  const filteredGames = games.filter((g) => {
-    if (activePlatformFilter === 'all') return true;
-    return g.platform.toLowerCase() === activePlatformFilter.toLowerCase();
-  });
-
-  const handleLaunchGame = (game: GameProfile) => {
-    setRunningGameId(game.id);
+  // Storefront labels vary between discovery providers (for example, "Epic"
+  // and "Epic Games"). Normalize aliases before filtering to avoid split lists.
+  const normalizePlatform = (platform: string) => {
+    const value = platform.trim().toLowerCase();
+    if (value === 'epic' || value === 'epic games' || value === 'epicgames') return 'epic';
+    if (value === 'ea' || value === 'ea app' || value === 'origin') return 'ea app';
+    if (value === 'ubisoft' || value === 'ubisoft connect' || value === 'uplay') return 'ubisoft connect';
+    if (value === 'xbox' || value === 'microsoft store' || value === 'pc game pass') return 'xbox';
+    if (value === 'manual' || value === 'custom') return 'manual';
+    return value;
   };
 
-  const handleStopGame = () => {
-    setRunningGameId(null);
-  };
+  const platformFilters = [
+    { id: 'all', label: t.gameCenter.allGames },
+    { id: 'steam', label: 'Steam' },
+    { id: 'epic', label: 'Epic Games' },
+    { id: 'xbox', label: 'Xbox' },
+    { id: 'gog', label: 'GOG' },
+    { id: 'ubisoft connect', label: 'Ubisoft Connect' },
+    { id: 'ea app', label: 'EA app' },
+    { id: 'manual', label: 'Manual' },
+  ];
+
+  const filteredGames = games.filter((game) =>
+    activePlatformFilter === 'all' || normalizePlatform(game.platform) === activePlatformFilter
+  );
+
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -56,7 +74,7 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
 
         <div className="flex items-center gap-3">
           <button
-            onClick={onAddCustomGame}
+            onClick={() => onAddCustomGame()}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#141724] hover:bg-[#1b2033] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4 text-purple-400" />
@@ -66,22 +84,22 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
       </div>
 
       {/* Platform Filter Tabs */}
-      <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-[#0f121b] border border-slate-800">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-[#0f121b] border border-slate-800">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-slate-400 font-semibold mr-1">{t.gameCenter.platformLabel}</span>
-          {['all', 'Steam', 'Epic', 'Epic Games', 'Xbox', 'GOG', 'Ubisoft Connect', 'EA app', 'Manual'].map((platform) => {
-            const isActive = activePlatformFilter === platform;
+          {platformFilters.map((platform) => {
+            const isActive = activePlatformFilter === platform.id;
             return (
               <button
-                key={platform}
-                onClick={() => setActivePlatformFilter(platform)}
+                key={platform.id}
+                onClick={() => setActivePlatformFilter(platform.id)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   isActive
                     ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 border border-purple-400/40'
                     : 'bg-[#151926] text-slate-400 hover:text-slate-200 hover:bg-[#1a2030] border border-slate-800'
                 }`}
               >
-                {platform === 'all' ? t.gameCenter.allGames : platform}
+                {platform.label}
               </button>
             );
           })}
@@ -103,16 +121,10 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
           </div>
         )}
         {filteredGames.map((game) => {
-          const isRunning = runningGameId === game.id;
-
           return (
             <div
               key={game.id}
-              className={`rounded-xl overflow-hidden border transition-all flex flex-col justify-between ${
-                isRunning
-                  ? 'bg-[#141829] border-purple-500 shadow-lg shadow-purple-900/30'
-                  : 'bg-[#0f121b] border-slate-800 hover:border-purple-600/40'
-              }`}
+              className="rounded-xl overflow-hidden border transition-all flex flex-col justify-between bg-[#0f121b] border-slate-800 hover:border-purple-600/40"
             >
               {/* Cover Image */}
               <div className="relative h-40 bg-slate-900 overflow-hidden group">
@@ -129,25 +141,7 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
                   {game.platform}
                 </div>
 
-                {game.boostEnabled && (
-                  <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded bg-purple-600/80 backdrop-blur-md text-[10px] font-bold text-white border border-purple-400/40 flex items-center gap-1">
-                    <Zap className="w-3 h-3 fill-current" /> {t.gameCenter.boostActive}
-                  </div>
-                )}
 
-                {isRunning && (
-                  <div className="absolute inset-0 bg-purple-950/80 backdrop-blur-xs flex items-center justify-center flex-col gap-2 p-3 text-center">
-                    <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" /> {t.gameCenter.gameRunning}
-                    </span>
-                    <button
-                      onClick={handleStopGame}
-                      className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer transition-colors"
-                    >
-                      {t.gameCenter.stopSession}
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* Body */}
@@ -181,24 +175,58 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
                   </div>
                 )}
 
-                {/* Actions: Iniciar / Perfil */}
-                <div className="flex items-center gap-2 pt-2 border-t border-slate-800/60">
-                  <button
-                    onClick={() => onOpenProfileModal(game)}
-                    className="p-2 rounded-lg bg-[#141724] hover:bg-[#1a2032] border border-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                    title={t.gameCenter.editProfile}
-                  >
-                    <SlidersHorizontal className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    onClick={() => handleLaunchGame(game)}
-                    className="flex-1 py-2 px-3 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border border-purple-400/30 flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>{t.gameCenter.gameBoost}</span>
-                  </button>
-                </div>
+                {/* Native process session controls */}
+                {(() => {
+                  const runningSession = gameSessions.find((session) =>
+                    session.isRunning && session.executablePath.toLowerCase() === game.executablePath.toLowerCase()
+                  );
+                  return (
+                    <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => onOpenProfileModal(game)}
+                          className="p-2 rounded-lg bg-[#141724] hover:bg-[#1a2032] border border-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                          title={t.gameCenter.editProfile}
+                        >
+                          <SlidersHorizontal className="w-4 h-4" />
+                        </button>
+                        {runningSession ? (
+                          <button
+                            onClick={() => onStopGame(runningSession.sessionId)}
+                            className="flex-1 py-2 px-3 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-rose-200 text-xs font-bold border border-rose-800"
+                          >
+                            Solicitar fechamento · PID {runningSession.processId}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onLaunchGame(game)}
+                            disabled={!game.approvalId}
+                            title={!game.approvalId ? "Selecione novamente o executável para autorizar a inicialização nesta sessão." : "Iniciar o executável aprovado pelo seletor nativo do Windows."}
+                            className="flex-1 py-2 px-3 rounded-lg bg-purple-700 hover:bg-purple-600 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-bold border border-purple-500/40 disabled:border-slate-700 disabled:cursor-not-allowed"
+                          >
+                            {game.approvalId ? "Iniciar jogo" : "Autorizar executável"}
+                          </button>
+                        )}
+                      </div>
+                      {runningSession && (
+                        <button
+                          onClick={() => onToggleGameBoost(runningSession.sessionId, !runningSession.boostEnabled)}
+                          className="w-full py-2 px-3 rounded-lg bg-[#141724] hover:bg-[#1a2032] border border-slate-700 text-xs font-semibold text-slate-200"
+                        >
+                          {runningSession.boostEnabled ? "Desativar Game Boost · restaurar prioridade" : "Ativar Game Boost · Acima do Normal"}
+                        </button>
+                      )}
+                      {!runningSession && !game.approvalId && (
+                        <button
+                          onClick={() => onAddCustomGame(game.id)}
+                          className="w-full text-[10px] text-purple-300 hover:text-purple-200 underline"
+                        >
+                          Selecionar executável novamente para autorizar
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           );

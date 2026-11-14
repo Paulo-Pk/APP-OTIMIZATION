@@ -302,7 +302,63 @@ public class RegistrySnapshotTests
 
             Assert.False(report.Success);
             Assert.Equal(0, report.RestoredCount);
-            Assert.Contains(report.Errors, e => e.Contains("incompleto", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(report.Errors, e => e.Contains("confirmação explícita", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    public void RestoreCatalogTweakFromTrustedSource_IncompleteSnapshotWithoutExplicitConfirmation_IsBlocked()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 13, 12, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-incomplete-per-tweak", "2.1", createdUtc,
+                "Incomplete per-tweak restore test", entries);
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-incomplete-per-tweak",
+                FormatVersion = "2.1",
+                CreatedUtc = createdUtc,
+                Description = "Incomplete per-tweak restore test",
+                TotalKeysCaptured = 1,
+                ReadFailuresCount = 1,
+                UnreadableItems = new List<RegistrySnapshotReadFailure>
+                {
+                    new("perf-win32-priority", "HKLM", @"SYSTEM\CurrentControlSet\Control\PriorityControl", "Win32PrioritySeparation", "Access Denied")
+                },
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var result = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource(
+                "perf-game-dvr", snapshotIdOrPath: tempFile);
+
+            Assert.False(result.Success);
+            Assert.Contains("confirmação explícita", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -491,4 +547,204 @@ public class RegistrySnapshotTests
             if (File.Exists(tempFile)) File.Delete(tempFile);
         }
     }
+    [Theory]
+    [InlineData("9.9", "CatalogRegistrySnapshot")]
+    [InlineData("2.1", "UnknownSnapshotType")]
+    public void VerifyBackupIntegrity_UnsupportedSchema_IsRejected(string formatVersion, string snapshotType)
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-unsupported-schema",
+                FormatVersion = formatVersion,
+                SnapshotType = snapshotType,
+                Entries = new List<RegistryValueEntry>()
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var (isValid, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+
+            Assert.False(isValid);
+            Assert.Contains("não suportad", error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void VerifyBackupIntegrity_Version22_BindsCompletenessMetadataToChecksum()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 13, 12, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+            var failures = new List<RegistryReadFailure>
+            {
+                new RegistryReadFailure("perf-win32-priority",
+                    @"HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl",
+                    "Win32PrioritySeparation", "Access denied")
+            };
+            const string snapshotId = "snap-v22-completeness";
+            const string description = "Version 2.2 completeness test";
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "2.2",
+                snapshotId,
+                createdUtc.ToString("O"),
+                description,
+                entries,
+                readFailuresCount: 1,
+                totalKeysCaptured: entries.Count,
+                unreadableItems: failures,
+                snapshotType: "CatalogRegistrySnapshot");
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                FormatVersion = "2.2",
+                SnapshotId = snapshotId,
+                CreatedUtc = createdUtc,
+                Description = description,
+                TotalKeysCaptured = entries.Count,
+                ReadFailuresCount = 1,
+                UnreadableItems = failures,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+            var (validBeforeTampering, _, _) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+            Assert.True(validBeforeTampering);
+
+            // Simulate editing the JSON to hide a failed read while retaining the old checksum.
+            snapshot.ReadFailuresCount = 0;
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var (validAfterTampering, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+            Assert.False(validAfterTampering);
+            Assert.Contains("Checksum mismatch", error ?? string.Empty);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void RestoreFromBackupWithReport_LegacyCompleteBackupWithoutConfirmation_MustBeBlocked()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 13, 13, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+            const string snapshotId = "snap-legacy-confirmation";
+            const string description = "Legacy backup confirmation test";
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "2.1", snapshotId, createdUtc.ToString("O"), description, entries);
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                FormatVersion = "2.1",
+                SnapshotId = snapshotId,
+                CreatedUtc = createdUtc,
+                Description = description,
+                TotalKeysCaptured = entries.Count,
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(
+                tempFile, allowIncompleteBackup: false);
+
+            Assert.False(report.Success);
+            Assert.Equal(0, report.RestoredCount);
+            Assert.Contains("formato legado", report.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void VerifyBackupIntegrity_Version22_RejectsInconsistentCompletenessCounters()
+    {
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 13, 14, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+            const string snapshotId = "snap-v22-inconsistent-counts";
+            const string description = "Inconsistent counters test";
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "2.2", snapshotId, createdUtc.ToString("O"), description, entries,
+                readFailuresCount: 0, totalKeysCaptured: 0,
+                unreadableItems: new List<RegistryReadFailure>());
+
+            var snapshot = new RegistrySnapshotFile
+            {
+                FormatVersion = "2.2",
+                SnapshotId = snapshotId,
+                CreatedUtc = createdUtc,
+                Description = description,
+                TotalKeysCaptured = 0,
+                ReadFailuresCount = 0,
+                UnreadableItems = new List<RegistryReadFailure>(),
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var (isValid, _, error) = RegistrySnapshotEngine.VerifyBackupIntegrity(tempFile);
+
+            Assert.False(isValid);
+            Assert.Contains("Metadados de completude inconsistentes", error ?? string.Empty);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
 }

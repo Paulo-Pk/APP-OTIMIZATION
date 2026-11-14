@@ -55,7 +55,9 @@ public static class DiskCleanerEngine
         "temp-user",
         "update-cache",
         "temp-prefetch",
-        "temp-delivery-optimization"
+        "cache-delivery-optimization",
+        "wer-report-queue",
+        "wer-report-archive"
     };
 
     public static IReadOnlyList<CleanerCategoryMetadata> GetAuthorizedCategories()
@@ -72,8 +74,12 @@ public static class DiskCleanerEngine
                 GetCategoryPath("update-cache") ?? "", true, true),
             new("temp-prefetch", "Cache de inicialização do Windows (Prefetch)", "Windows Prefetch cache",
                 GetCategoryPath("temp-prefetch") ?? "", true, true),
-            new("temp-delivery-optimization", "Cache de Entrega do Windows", "Windows Delivery Optimization cache",
-                GetCategoryPath("temp-delivery-optimization") ?? "", true, true)
+            new("cache-delivery-optimization", "Cache de otimização de entrega", "Delivery Optimization cache",
+                GetCategoryPath("cache-delivery-optimization") ?? "", true, true),
+            new("wer-report-queue", "Relatórios de erro pendentes do Windows", "Windows Error Reporting queue",
+                GetCategoryPath("wer-report-queue") ?? "", true, true),
+            new("wer-report-archive", "Relatórios antigos de erro do Windows", "Windows Error Reporting archive",
+                GetCategoryPath("wer-report-archive") ?? "", true, true)
         };
     }
 
@@ -86,12 +92,35 @@ public static class DiskCleanerEngine
         {
             "cache-dx-shaders" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "D3DSCache"),
             "temp-windows" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp"),
-            "temp-user" => Path.GetTempPath(),
+            // GetTempPath can be redirected by environment variables. Only accept a
+            // directory actually named "Temp" so a malformed TEMP value cannot turn
+            // this category into a broad AppData/profile directory purge.
+            "temp-user" => GetValidatedUserTempPath(),
             "update-cache" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SoftwareDistribution", "Download"),
             "temp-prefetch" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch"),
-            "temp-delivery-optimization" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
+            "cache-delivery-optimization" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "ServiceProfiles", "NetworkService", "AppData", "Local", "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
+            "wer-report-queue" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "WER", "ReportQueue"),
+            "wer-report-archive" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "WER", "ReportArchive"),
             _ => null
         };
+    }
+
+    private static string? GetValidatedUserTempPath()
+    {
+        try
+        {
+            string tempPath = Path.GetFullPath(Path.GetTempPath())
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.IsNullOrWhiteSpace(tempPath) ||
+                !string.Equals(Path.GetFileName(tempPath), "Temp", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return tempPath;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public static bool IsPathSafe(string? targetDir)
@@ -133,13 +162,19 @@ public static class DiskCleanerEngine
             }
 
             // Block any personal directory subtree
+            string userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string downloadsPath = string.IsNullOrWhiteSpace(userProfilePath)
+                ? string.Empty
+                : Path.Combine(userProfilePath, "Downloads");
+
             var personalSubtrees = new[]
             {
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
                 Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
-                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                downloadsPath
             };
 
             foreach (var personal in personalSubtrees)
@@ -274,7 +309,7 @@ public static class DiskCleanerEngine
         }
     }
 
-    public static DiskPurgeReport PurgeCategoryWithReport(string categoryKey, bool confirmServiceStop = false)
+    public static DiskPurgeReport PurgeCategoryWithReport(string categoryKey, bool confirmUpdateCache = false)
     {
         var errors = new List<string>();
         var affectedItems = new List<string>();
@@ -286,7 +321,7 @@ public static class DiskCleanerEngine
             return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
-        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) && !confirmServiceStop)
+        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) && !confirmUpdateCache)
         {
             errors.Add("A limpeza do cache do Windows Update exige confirmação explícita do usuário.");
             return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
@@ -392,6 +427,14 @@ public static class DiskCleanerEngine
     {
         try
         {
+            // Re-check every directory immediately before traversing it. This prevents
+            // following a junction/symlink introduced after the initial dry-run/root check.
+            if (IsReparsePointOrSymlink(currentDir))
+            {
+                skippedSymlinks++;
+                return;
+            }
+
             string currentCanonical = Path.GetFullPath(currentDir.FullName);
             string relativePath = Path.GetRelativePath(canonicalRoot, currentCanonical);
             if (Path.IsPathRooted(relativePath) ||
@@ -407,6 +450,8 @@ public static class DiskCleanerEngine
             {
                 try
                 {
+                    // Re-read attributes at the point of deletion rather than relying
+                    // only on the earlier directory enumeration.
                     if (IsReparsePointOrSymlink(file))
                     {
                         skippedSymlinks++;
@@ -485,7 +530,7 @@ public static class DiskCleanerEngine
 
     public static long PurgeCategory(string categoryKey)
     {
-        var report = PurgeCategoryWithReport(categoryKey, confirmServiceStop: false);
+        var report = PurgeCategoryWithReport(categoryKey, confirmUpdateCache: false);
         return report.FreedBytes;
     }
 }

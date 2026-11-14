@@ -43,7 +43,9 @@ public record VerifiedSoftwareItem(
     string Publisher,
     string CommandLine,
     string Description,
-    string IconUrl = ""
+    string IconUrl = "",
+    string Source = "winget",
+    bool RequiresAdminUac = false
 );
 
 public class RelayCommand : ICommand
@@ -353,11 +355,14 @@ public class MainViewModel : INotifyPropertyChanged
     private double _ramUsagePercent;
     private string _gpuHotspotDeltaText = "N/D";
     private string _overallHealthScore = "N/D";
-    private string _benchmarkResultSummary = "Execute o teste para medir CPU e memória. GPU e armazenamento ainda não são medidos por este módulo.";
-    private string _softwareInstallStatusText = "Escolha um aplicativo do catálogo para instalar.";
+    private string _benchmarkResultSummary = "Execute os testes de CPU, memória e placa de vídeo separadamente.";
     private string _benchmarkCpuScoreText = "—";
     private string _benchmarkCpuTimeText = "—";
     private string _benchmarkMemoryBandwidthText = "—";
+    private string _benchmarkGpuScoreText = "Ainda não testada";
+    private string _benchmarkGpuStatusText = "Teste Direct3D do Windows disponível quando o WinSAT estiver instalado.";
+    private string _softwareInstallStatusText = "Escolha um aplicativo e confirme antes de instalar.";
+    private string _driverScanStatusText = "Ainda não foi realizada uma leitura de drivers.";
     private string _peripheralCadenceSummary = "Clique na área de teste para conferir as teclas e os botões do mouse.";
     private int _peripheralKeyPressCount;
     private string _peripheralLastKey = "—";
@@ -379,7 +384,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _primaryDiskTotalSpaceText = "N/D";
     private double _primaryDiskUsagePercent;
 
-    private readonly List<(double CpuLoad, double GpuLoad, double CpuTemp)> _telemetryHistory = new();
+    private readonly List<(double CpuLoad, double GpuLoad, double? CpuTemp)> _telemetryHistory = new();
     private PointCollection _cpuLoadChartPoints = new();
     private PointCollection _gpuLoadChartPoints = new();
     private PointCollection _cpuTempChartPoints = new();
@@ -493,6 +498,10 @@ public class MainViewModel : INotifyPropertyChanged
     public string BenchmarkCpuScoreText { get => _benchmarkCpuScoreText; set { _benchmarkCpuScoreText = value; OnPropertyChanged(); } }
     public string BenchmarkCpuTimeText { get => _benchmarkCpuTimeText; set { _benchmarkCpuTimeText = value; OnPropertyChanged(); } }
     public string BenchmarkMemoryBandwidthText { get => _benchmarkMemoryBandwidthText; set { _benchmarkMemoryBandwidthText = value; OnPropertyChanged(); } }
+    public string BenchmarkGpuScoreText { get => _benchmarkGpuScoreText; set { _benchmarkGpuScoreText = value; OnPropertyChanged(); } }
+    public string BenchmarkGpuStatusText { get => _benchmarkGpuStatusText; set { _benchmarkGpuStatusText = value; OnPropertyChanged(); } }
+    public string SoftwareInstallStatusText { get => _softwareInstallStatusText; set { _softwareInstallStatusText = value; OnPropertyChanged(); } }
+    public string DriverScanStatusText { get => _driverScanStatusText; set { _driverScanStatusText = value; OnPropertyChanged(); } }
     public string PeripheralCadenceSummary { get => _peripheralCadenceSummary; set { _peripheralCadenceSummary = value; OnPropertyChanged(); } }
     public int PeripheralKeyPressCount { get => _peripheralKeyPressCount; private set { _peripheralKeyPressCount = value; OnPropertyChanged(); } }
     public string PeripheralLastKey { get => _peripheralLastKey; private set { _peripheralLastKey = value; OnPropertyChanged(); } }
@@ -813,9 +822,41 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RegisterSampleVpsNodeCommand { get; }
     public ICommand ApplySafeBoostProfileCommand { get; }
     public ICommand RunBenchmarkCommand { get; }
+    public ICommand RunGpuBenchmarkCommand { get; }
     public ICommand InstallSoftwareCommand { get; }
     public ICommand MeasureInputCadenceCommand { get; }
     public ICommand GenerateDiagnosticInsightsCommand { get; }
+
+    private static string? GetFriendlyTweakName(string tweakId)
+    {
+        return tweakId switch
+        {
+            "perf-mmcss" => "Ajustar prioridade de tarefas de áudio e vídeo",
+            "perf-game-dvr" => "Desligar gravação automática de jogos",
+            "perf-hpet" => "Ajustar resposta do processador",
+            "perf-tcp-nagle" => "Ajustar envio de pequenos dados pela rede",
+            "start-fast-boot" => "Desligar inicialização rápida do Windows",
+            "start-edge-preload" => "Evitar que o Edge carregue antes de abrir",
+            "bg-telemetry" => "Reduzir dados de diagnóstico enviados",
+            "bg-cortana-news" => "Ocultar notícias da barra de tarefas",
+            "power-ultimate-plan" => "Usar plano de energia de alto desempenho",
+            "power-pcie-link" => "Ajustar economia de energia da placa PCIe",
+            "serv-sysmain" => "Mudar o serviço de pré-carregamento para manual",
+            "serv-spooler" => "Mudar o serviço de impressão para manual",
+            "mem-standby-clean" => "Ajustar o uso da memória em espera",
+            "mem-lock-executive" => "Manter partes do Windows na memória",
+            "game-hags" => "Agendamento de tarefas da placa de vídeo",
+            "game-fso-override" => "Ajustar compatibilidade de tela cheia",
+            "sys-delivery-p2p" => "Impedir compartilhamento de atualizações",
+            "sys-transparency" => "Desligar efeitos de transparência",
+            "perf-fso-flags" => "Ajustar compatibilidade de tela cheia",
+            "storage-ntfs-lastaccess" => "Reduzir registros de último acesso a arquivos",
+            "net-tcp-autotuning" => "Ajustar controle automático da conexão",
+            "priv-advertising-id" => "Desativar identificador de anúncios",
+            "maint-startup-delay" => "Reduzir atraso ao abrir programas",
+            _ => null
+        };
+    }
 
     private async Task RefreshAllTweakStatesAsync()
     {
@@ -981,9 +1022,9 @@ public class MainViewModel : INotifyPropertyChanged
             CatalogTweaks.Add(new TweakItemViewModel
             {
                 TweakId = def.TweakId,
-                NamePt = def.Description,
+                NamePt = GetFriendlyTweakName(def.TweakId) ?? def.Description,
                 NameEn = def.DescriptionEn,
-                Name = Loc.CurrentCulture == "pt-BR" ? def.Description : def.DescriptionEn,
+                Name = Loc.CurrentCulture == "pt-BR" ? (GetFriendlyTweakName(def.TweakId) ?? def.Description) : def.DescriptionEn,
                 Category = def.Category,
                 RegistryPath = $"{def.Hive}\\{def.SubKeyPath}",
                 ValueName = def.ValueName,
@@ -1523,18 +1564,47 @@ public class MainViewModel : INotifyPropertyChanged
             PresentMonStatusText = $"Capturando '{ManualProcessName}' por {CaptureDurationSeconds}s...";
             try
             {
-                var response = await PresentMonSessionParser.CaptureProcessSessionAsync(
+                var telemetrySamples = new List<HardwareSnapshot>();
+                Task<PresentMonCaptureResponse> captureTask = PresentMonSessionParser.CaptureProcessSessionAsync(
                     ManualProcessName,
                     CaptureDurationSeconds,
                     _presentMonCts.Token
                 );
 
+                // Sample real hardware telemetry while PresentMon records frame times.
+                while (!captureTask.IsCompleted)
+                {
+                    if (_hardwareMonitor != null)
+                    {
+                        try { telemetrySamples.Add(await _hardwareMonitor.CaptureSnapshotAsync()); }
+                        catch { /* FPS capture remains valid even if a sensor read is temporarily unavailable. */ }
+                    }
+                    await Task.Delay(1000, _presentMonCts.Token);
+                }
+
+                var response = await captureTask;
+
                 if (response.Success && response.Summary != null)
                 {
+                    double? AverageSensorValue(IEnumerable<float?> values)
+                    {
+                        var valid = values.Where(value => value.HasValue && !float.IsNaN(value.Value) && !float.IsInfinity(value.Value))
+                            .Select(value => (double)value!.Value)
+                            .ToArray();
+                        return valid.Length > 0 ? valid.Average() : null;
+                    }
+
+                    double? avgCpuLoad = AverageSensorValue(telemetrySamples.Select(sample => sample.CpuTotalLoad));
+                    double? avgGpuLoad = AverageSensorValue(telemetrySamples.Select(sample => sample.GpuLoadPercent));
+                    double? avgCpuTemp = AverageSensorValue(telemetrySamples.Select(sample => sample.CpuPackageTemp));
+                    double? avgGpuTemp = AverageSensorValue(telemetrySamples.Select(sample => sample.GpuCoreTemp));
+
                     PresentMonStatusText = $"Captura concluída! CSV salvo em: {response.CsvFilePath}";
                     PresentMonMetricsSummary =
                         $"FPS Médio: {response.Summary.AverageFps:F1} | 1% Low: {response.Summary.OnePercentLowFps:F1} | " +
                         $"Frametime Médio: {response.Summary.AverageFrametimeMs:F2} ms (σ={response.Summary.FrametimeStandardDeviationMs:F2} ms) | " +
+                        $"CPU: {(avgCpuLoad.HasValue ? avgCpuLoad.Value.ToString("F0") + "%" : "N/D")} / {(avgCpuTemp.HasValue ? avgCpuTemp.Value.ToString("F1") + "°C" : "N/D")} | " +
+                        $"GPU: {(avgGpuLoad.HasValue ? avgGpuLoad.Value.ToString("F0") + "%" : "N/D")} / {(avgGpuTemp.HasValue ? avgGpuTemp.Value.ToString("F1") + "°C" : "N/D")} | " +
                         $"Quadros: {response.Summary.TotalFramesCount}";
 
                     RecentFrametimeSamples.Clear();
@@ -1557,6 +1627,12 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     PresentMonStatusText = $"Captura não produziu métricas: {response.ErrorMessage}";
                 }
+            }
+            catch (OperationCanceledException) when (_presentMonCts?.IsCancellationRequested == true)
+            {
+                // The sampling delay is cancellable too; handle it here so the
+                // WPF async command does not leak an unhandled cancellation.
+                PresentMonStatusText = "Captura cancelada pelo usuário.";
             }
             finally
             {
@@ -1896,11 +1972,113 @@ public class MainViewModel : INotifyPropertyChanged
             });
 
             BenchmarkResultSummary = Loc.CurrentCulture == "pt-BR"
-                ? $"CPU: {result.iterationsPerSecond:N0} iterações/s ({result.cpuMs} ms) · Escrita sequencial em RAM: {result.memBandwidthGbS:F2} GB/s · Teste concluído."
-                : $"CPU: {result.iterationsPerSecond:N0} iterations/s ({result.cpuMs} ms) · Sequential RAM write: {result.memBandwidthGbS:F2} GB/s · Test completed.";
+                ? $"CPU: {result.iterationsPerSecond:N0} iterações/s ({result.cpuMs} ms) · Taxa de escrita do buffer de 32 MiB: {result.memBandwidthGbS:F2} GB/s · Não representa a largura de banda física da RAM."
+                : $"CPU: {result.iterationsPerSecond:N0} iterations/s ({result.cpuMs} ms) · 32 MiB buffer write rate: {result.memBandwidthGbS:F2} GB/s · Not a measurement of physical RAM bandwidth.";
             BenchmarkCpuScoreText = result.iterationsPerSecond.ToString("N0") + " it/s";
             BenchmarkCpuTimeText = result.cpuMs.ToString("N0") + " ms";
             BenchmarkMemoryBandwidthText = result.memBandwidthGbS.ToString("F2") + " GB/s";
+        });
+
+        RunGpuBenchmarkCommand = new RelayCommand(async _ =>
+        {
+            BenchmarkGpuStatusText = "Executando teste gráfico Direct3D do Windows...";
+            BenchmarkGpuScoreText = "Em andamento";
+            try
+            {
+                string winsatPath = System.IO.Path.Combine(Environment.SystemDirectory, "winsat.exe");
+                if (!System.IO.File.Exists(winsatPath))
+                    throw new FileNotFoundException("O componente de avaliação gráfica do Windows (WinSAT) não foi encontrado.");
+
+                var startInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = winsatPath,
+                    Arguments = "graphics -d3d",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+                if (!process.Start())
+                    throw new InvalidOperationException("O Windows não iniciou o teste gráfico.");
+
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+                Task<string> errorTask = process.StandardError.ReadToEndAsync();
+                try
+                {
+                    await process.WaitForExitAsync(timeout.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+                    throw;
+                }
+                string output = await outputTask;
+                string error = await errorTask;
+                string combined = output + Environment.NewLine + error;
+
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(error)
+                        ? $"O teste gráfico terminou com código {process.ExitCode}."
+                        : error.Trim());
+
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    combined,
+                    @"D3D\s+Batch\s+Performance\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*([^\r\n]*)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                BenchmarkGpuScoreText = match.Success
+                    ? $"{match.Groups[1].Value} {match.Groups[2].Value.Trim()}".Trim()
+                    : "Concluído";
+
+                BenchmarkGpuStatusText = match.Success
+                    ? "Teste Direct3D concluído pelo WinSAT. Resultado sintético; compare somente testes feitos nas mesmas condições."
+                    : "O WinSAT concluiu o teste Direct3D, mas não forneceu uma pontuação reconhecida. Nenhuma pontuação foi inventada.";
+            }
+            catch (OperationCanceledException)
+            {
+                BenchmarkGpuScoreText = "Tempo esgotado";
+                BenchmarkGpuStatusText = "O teste gráfico ultrapassou 60 segundos e foi interrompido.";
+            }
+            catch (Exception ex)
+            {
+                BenchmarkGpuScoreText = "Indisponível";
+                BenchmarkGpuStatusText = $"Não foi possível testar a placa de vídeo: {ex.Message}";
+            }
+        });
+
+        InstallSoftwareCommand = new RelayCommand(async parameter =>
+        {
+            if (parameter is not VerifiedSoftwareItem package) return;
+
+            MessageBoxResult confirmation = MessageBox.Show(
+                $"Deseja instalar {package.AppName} agora?\n\nOrigem: {package.Source}\nPublicador: {package.Publisher}\n\nO instalador oficial será iniciado pelo WinGet.",
+                "Confirmar instalação",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirmation != MessageBoxResult.Yes) return;
+
+            SoftwareInstallStatusText = $"Preparando instalação de {package.AppName}...";
+            try
+            {
+                var progress = new Progress<string>(message => SoftwareInstallStatusText = message);
+                var result = await new WingetSoftwareCenterService().InstallPackageAsync(
+                    package.WingetId,
+                    userConfirmed: true,
+                    source: package.Source,
+                    progress: progress);
+
+                SoftwareInstallStatusText = result.Success
+                    ? $"{package.AppName} foi instalado. Confirme no menu Iniciar."
+                    : $"Não foi possível instalar {package.AppName}: {result.Status}. {result.OutputLog}";
+            }
+            catch (Exception ex)
+            {
+                SoftwareInstallStatusText = $"Falha ao instalar {package.AppName}: {ex.Message}";
+            }
         });
 
         MeasureInputCadenceCommand = new RelayCommand(_ =>
@@ -1947,28 +2125,32 @@ public class MainViewModel : INotifyPropertyChanged
 
     private static string ResolveSoftwareIconUrl(string packageId)
     {
-        string? slug = packageId switch
+        string domain = packageId switch
         {
-            "Discord.Discord" => "discord/5865F2",
-            "Valve.Steam" => "steam/FFFFFF",
-            "EpicGames.EpicGamesLauncher" => "epicgames/FFFFFF",
-            "ElectronicArts.EADesktop" => "ea/FFFFFF",
-            "Ubisoft.Connect" => "ubisoft/FFFFFF",
-            "GOG.Galaxy" => "gogdotcom/FFFFFF",
-            "Microsoft.GamingApp" => "xbox/107C10",
-            "Opera.OperaGX" => "operagx/FA1E4E",
-            "Mozilla.Firefox" => "firefox/FF7139",
-            "Google.Chrome" => "googlechrome/FFFFFF",
-            "Brave.Brave" => "brave/FB542B",
-            "OBSProject.OBSStudio" => "obsstudio/FFFFFF",
-            "REALiX.HWiNFO" => "hwinfo/FFFFFF",
-            "Intel.PresentMon" => "intel/0071C5",
-            "CPUID.CPU-Z" => "https://www.google.com/s2/favicons?domain=cpuid.com&sz=64",
-            "TechPowerUp.GPU-Z" => "https://www.google.com/s2/favicons?domain=techpowerup.com&sz=64",
-            _ => null
+            "Discord.Discord" => "discord.com",
+            "Valve.Steam" => "store.steampowered.com",
+            "EpicGames.EpicGamesLauncher" => "epicgames.com",
+            "GOG.Galaxy" => "gog.com",
+            "ElectronicArts.EADesktop" => "ea.com",
+            "Ubisoft.Connect" => "ubisoft.com",
+            "Opera.OperaGX" => "opera.com",
+            "9MV0B5HZVK9Z" => "xbox.com",
+            "Mozilla.Firefox" => "mozilla.org",
+            "Google.Chrome" => "google.com",
+            "Brave.Brave" => "brave.com",
+            "Telegram.TelegramDesktop" => "telegram.org",
+            "OBSProject.OBSStudio" => "obsproject.com",
+            "VideoLAN.VLC" => "videolan.org",
+            "REALiX.HWiNFO" => "hwinfo.com",
+            "Intel.PresentMon" => "intel.com",
+            "TechPowerUp.GPU-Z" => "techpowerup.com",
+            "CPUID.CPU-Z" => "cpuid.com",
+            "Playnite.Playnite" => "playnite.link",
+            "Microsoft.PowerToys" => "learn.microsoft.com",
+            "WireGuard.WireGuard" => "wireguard.com",
+            _ => string.Empty
         };
-
-        return string.IsNullOrEmpty(slug) ? string.Empty : (slug.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? slug : $"https://cdn.simpleicons.org/{slug}");
+        return string.IsNullOrWhiteSpace(domain) ? string.Empty : $"https://www.google.com/s2/favicons?domain={domain}&sz=64";
     }
 
     private void InitializeVerifiedSoftwareCatalog()
@@ -1981,9 +2163,11 @@ public class MainViewModel : INotifyPropertyChanged
                 pkg.CategoryDisplayName,
                 pkg.PackageId,
                 pkg.Publisher,
-                $"winget install --id \"{pkg.PackageId}\" --exact --source winget --accept-package-agreements --accept-source-agreements",
+                $"winget install --id \"{pkg.PackageId}\" --exact --source {pkg.OfficialSource} --accept-package-agreements --accept-source-agreements",
                 pkg.Description,
-                ResolveSoftwareIconUrl(pkg.PackageId)
+                ResolveSoftwareIconUrl(pkg.PackageId),
+                pkg.OfficialSource,
+                pkg.RequiresAdminUac
             ));
         }
     }
@@ -2034,10 +2218,10 @@ public class MainViewModel : INotifyPropertyChanged
     private void RefreshAssistantInsights()
     {
         AssistantDiagnosticInsights.Clear();
-        AssistantDiagnosticInsights.Add($"[GPU & Térmica Universal] Modelo prioritário: {GpuModel} | Core: {GpuTemp} | Hotspot: {GpuHotspot} ({GpuThermalDiagnosisText})");
-        AssistantDiagnosticInsights.Add($"[Roteamento & Rede] {RouteVerdictText}");
-        AssistantDiagnosticInsights.Add($"[Segurança & Backups] {SecurityPostureText} | Último Snapshot: {LastBackupStatus}");
-        AssistantDiagnosticInsights.Add("[Política Operacional] Todas as otimizações exigem catálogo fechado, snapshot SHA-256 e registro prévio no Ledger DPAPI+HMAC. Nenhum driver, voltagem ou proteção do Windows é alterado automaticamente.");
+        AssistantDiagnosticInsights.Add($"Placa de vídeo: {GpuModel} | Temperatura da GPU: {GpuTemp} | Hotspot: {GpuHotspot}. {GpuThermalDiagnosisText}");
+        AssistantDiagnosticInsights.Add($"Conexão de jogos: {RouteVerdictText}");
+        AssistantDiagnosticInsights.Add($"Segurança e restauração: {SecurityPostureText} Última cópia de segurança: {LastBackupStatus}");
+        AssistantDiagnosticInsights.Add("O PC Control não altera drivers, voltagem ou proteções importantes do Windows automaticamente. As mudanças disponíveis podem ser conferidas e restauradas quando há histórico seguro.");
     }
 
     private void InitializeModuleCapabilityMatrix()
@@ -2051,7 +2235,7 @@ public class MainViewModel : INotifyPropertyChanged
             new ModuleCapabilityMatrixItem(4, "Boost Center", "Funcional (Perfis)", "RegistryOptimizer + CompatibilityEngine", "SQLite + Ledger DPAPI", "Aplica perfis reversíveis com verificação de compatibilidade e backup SHA-256."),
             new ModuleCapabilityMatrixItem(5, "Game Center", "Funcional (biblioteca + processos)", "GameNetworkAcceleratorService", "Sessão", "Descobre jogos por catálogos Steam, Epic, GOG, Ubisoft, EA e Xbox/Microsoft Store; identifica processos e conexões TCP/UDP em execução."),
             new ModuleCapabilityMatrixItem(6, "Performance Lab", "Funcional", "PresentMonSessionParser", "Arquivos CSV", "Captura frametimes reais (Média, 1% Low, 0.1% Low) via Intel PresentMon CLI."),
-            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Parcial (CPU e memória)", "Benchmark local da MainViewModel", "Sessão", "Mede operações de CPU e largura de banda de memória; ainda não executa benchmarks reais de GPU nem de armazenamento."),
+            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Parcial (CPU e buffer de memória)", "Benchmark local da MainViewModel", "Sessão", "Mede operações aritméticas de CPU e taxa de escrita de um buffer de 32 MiB; não mede a largura de banda física da RAM e ainda não executa benchmarks dedicados de GPU nem de armazenamento."),
             new ModuleCapabilityMatrixItem(8, "Diagnostics / System Doctor", "Funcional (auditoria em leitura)", "SystemDoctorService + IntegrityVerifier", "Registro + EventLog + sessão", "Executa auditoria abrangente sob demanda, apresenta evidências e ações recomendadas; a verificação não altera configurações do Windows."),
             new ModuleCapabilityMatrixItem(9, "Windows Tweaks", "Funcional (leitura, aplicação e reversão)", "RegistryOptimizer + Agente Privilegiado", "Ledger DPAPI+HMAC + SQLite", "Consulta estados reais dos 23 ajustes, permite atualizar a leitura sem gravar no Registro e exibe explicações curtas em português, com aplicação e reversão verificadas pelo agente."),
             new ModuleCapabilityMatrixItem(10, "Debloat & Cleaner", "Funcional (6 categorias)", "DiskCleanerEngine", "Relatório de Sessão", "Faz varredura e exclusão real em seis áreas autorizadas, incluindo Prefetch e cache de Entrega do Windows; arquivos em uso são preservados."),
@@ -2159,11 +2343,11 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 InstalledDrivers.Clear();
                 foreach (var driver in drivers) InstalledDrivers.Add(driver);
-                StatusMessage = DriverScannerService.LastError is { Length: > 0 } error
-                    ? $"Leitura parcial do Windows: {InstalledDrivers.Count} driver(s) encontrados. {error}"
+                DriverScanStatusText = !string.IsNullOrWhiteSpace(DriverScannerService.LastScanError)
+                    ? $"A leitura de drivers não foi concluída: {DriverScannerService.LastScanError}"
                     : InstalledDrivers.Count > 0
-                        ? $"Inventário concluído: {InstalledDrivers.Count} driver(s) encontrados no Windows."
-                        : "O Windows não retornou drivers. Verifique se o serviço de Instrumentação de Gerenciamento do Windows (WMI) está ativo e tente novamente.";
+                        ? $"Escaneamento concluído: {InstalledDrivers.Count} driver(s) instalados encontrados no Windows. O status informa assinatura, não atualização."
+                        : "O Windows não retornou drivers nesta consulta. Verifique o serviço WMI e tente novamente.";
             });
         }
         catch (Exception ex)
@@ -2171,7 +2355,7 @@ public class MainViewModel : INotifyPropertyChanged
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 InstalledDrivers.Clear();
-                StatusMessage = $"Não foi possível consultar os drivers instalados: {ex.Message}";
+                DriverScanStatusText = $"Não foi possível consultar os drivers instalados: {ex.Message}";
             });
         }
     }
@@ -2183,6 +2367,18 @@ public class MainViewModel : INotifyPropertyChanged
         {
             AuditLogs.Add(log);
         }
+    }
+
+    private static int GetCpuTemperaturePriority(string sensorName)
+    {
+        if (sensorName.Contains("Tctl/Tdie", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (sensorName.Contains("Tdie", StringComparison.OrdinalIgnoreCase)) return 95;
+        if (sensorName.Contains("Tctl", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (sensorName.Contains("Package", StringComparison.OrdinalIgnoreCase)) return 85;
+        if (sensorName.Contains("CCD", StringComparison.OrdinalIgnoreCase)) return 80;
+        if (sensorName.Contains("Core", StringComparison.OrdinalIgnoreCase)) return 70;
+        if (sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase)) return 60;
+        return 1;
     }
 
     public async Task RefreshTelemetryAndStatusAsync()
@@ -2200,9 +2396,11 @@ public class MainViewModel : INotifyPropertyChanged
             ? (IsAdmin ? Loc["AgentConnectedAdmin"] : Loc["AgentConnectedStandard"])
             : Loc["AgentDisconnected"];
 
-        SecurityPostureText =
-            $"Agente Autenticado: {IsAgentConnected} | DPAPI Aplicado: {_agentClient.IsTokenDpapiProtected} | " +
-            $"ACL NTFS Restrita ao Usuário: {_agentClient.IsTokenAclRestricted} | Assinatura HMAC-SHA256: Ativa | Administrador (UAC): {IsAdmin}";
+        SecurityPostureText = !IsAgentConnected
+            ? "O serviço local do PC Control não está conectado. Abra o agente do Windows para consultar o computador e aplicar correções."
+            : IsAdmin
+                ? "Conexão segura ativa. O Windows autorizou as tarefas que precisam de administrador."
+                : "Conexão segura ativa. Algumas tarefas podem pedir autorização do Windows.";
 
         // Update Display Settings via real Win32 P/Invoke
         var dispObj = DisplaySettingsService.GetPrimaryDisplayInfo();
@@ -2251,11 +2449,33 @@ public class MainViewModel : INotifyPropertyChanged
                 }
 
                 string notSupported = Loc["SensorStatusNotSupported"];
+                string cpuSensorUnavailable = IsAdmin ? notSupported : "Leitura indisponível. Tente abrir o PC Control como administrador para acessar os sensores.";
+                // Some motherboard/CPU combinations expose valid values only in the raw sensor inventory.
+                // Fall back to those real readings before reporting that temperature or clock is unavailable.
+                float? cpuTemperatureReading = snap.CpuPackageTemp ??
+                    snap.Sensors
+                        .Where(sensor => sensor.IsAvailable &&
+                            string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase) &&
+                            sensor.Value.HasValue && sensor.Value.Value > 0)
+                        .OrderByDescending(sensor => GetCpuTemperaturePriority(sensor.Name))
+                        .Select(sensor => sensor.Value)
+                        .FirstOrDefault();
+
+                float? cpuClockReading = snap.CpuClockMhz ??
+                    snap.Sensors
+                        .Where(sensor => sensor.IsAvailable &&
+                            string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(sensor.SensorType, "Clock", StringComparison.OrdinalIgnoreCase) &&
+                            sensor.Value.HasValue && sensor.Value.Value > 0)
+                        .Select(sensor => sensor.Value)
+                        .Max();
+
                 CpuModel = !string.IsNullOrWhiteSpace(snap.CpuModelName) ? snap.CpuModelName : unavailable;
-                CpuTemp = snap.CpuPackageTemp.HasValue ? $"{snap.CpuPackageTemp.Value:F1} °C" : notSupported;
+                CpuTemp = cpuTemperatureReading.HasValue ? $"{cpuTemperatureReading.Value:F1} °C" : cpuSensorUnavailable;
                 CpuLoad = snap.CpuTotalLoad.HasValue ? $"{snap.CpuTotalLoad.Value:F0} %" : notSupported;
                 CpuLoadPercent = snap.CpuTotalLoad ?? 0;
-                CpuClock = snap.CpuClockMhz.HasValue ? $"{snap.CpuClockMhz.Value:F0} MHz" : notSupported;
+                CpuClock = cpuClockReading.HasValue ? $"{cpuClockReading.Value:F0} MHz" : cpuSensorUnavailable;
                 CpuPower = snap.CpuPowerWatts.HasValue ? $"{snap.CpuPowerWatts.Value:F1} W" : notSupported;
 
                 GpuModel = !string.IsNullOrWhiteSpace(snap.GpuModelName) ? snap.GpuModelName : unavailable;
@@ -2315,7 +2535,7 @@ public class MainViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(RamUsageWithPercent));
 
                 UpdatePrimaryDiskAndProfileTelemetry(snap.GpuModelName, snap.RamTotalGb);
-                AppendTelemetryChartSample(snap.CpuTotalLoad ?? 0, snap.GpuLoadPercent ?? 0, snap.CpuPackageTemp ?? 0);
+                AppendTelemetryChartSample(snap.CpuTotalLoad ?? 0, snap.GpuLoadPercent ?? 0, cpuTemperatureReading);
 
                 RefreshAssistantInsights();
                 return;
@@ -2400,9 +2620,12 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void AppendTelemetryChartSample(double cpuLoad, double gpuLoad, double cpuTemp)
+    private void AppendTelemetryChartSample(double cpuLoad, double gpuLoad, double? cpuTemp)
     {
-        _telemetryHistory.Add((Math.Clamp(cpuLoad, 0, 100), Math.Clamp(gpuLoad, 0, 100), Math.Clamp(cpuTemp, 0, 110)));
+        double? validCpuTemp = cpuTemp.HasValue && double.IsFinite(cpuTemp.Value)
+            ? Math.Clamp(cpuTemp.Value, 0, 110)
+            : null;
+        _telemetryHistory.Add((Math.Clamp(cpuLoad, 0, 100), Math.Clamp(gpuLoad, 0, 100), validCpuTemp));
         if (_telemetryHistory.Count > 30)
         {
             _telemetryHistory.RemoveAt(0);
@@ -2420,11 +2643,16 @@ public class MainViewModel : INotifyPropertyChanged
             double x = count == 1 ? chartWidth : (i * (chartWidth / Math.Max(1, count - 1)));
             double cpuY = chartHeight - (_telemetryHistory[i].CpuLoad / 100.0 * (chartHeight - 16.0)) - 8.0;
             double gpuY = chartHeight - (_telemetryHistory[i].GpuLoad / 100.0 * (chartHeight - 16.0)) - 8.0;
-            double tempY = chartHeight - (_telemetryHistory[i].CpuTemp / 110.0 * (chartHeight - 16.0)) - 8.0;
-
             cpuPts.Add(new Point(Math.Round(x, 1), Math.Round(cpuY, 1)));
             gpuPts.Add(new Point(Math.Round(x, 1), Math.Round(gpuY, 1)));
-            tempPts.Add(new Point(Math.Round(x, 1), Math.Round(tempY, 1)));
+
+            // Missing CPU temperature is not a 0 °C reading. Leave a gap in
+            // the temperature series while keeping CPU/GPU load history intact.
+            if (_telemetryHistory[i].CpuTemp is double cpuTempValue)
+            {
+                double tempY = chartHeight - (cpuTempValue / 110.0 * (chartHeight - 16.0)) - 8.0;
+                tempPts.Add(new Point(Math.Round(x, 1), Math.Round(tempY, 1)));
+            }
         }
 
         CpuLoadChartPoints = cpuPts;
