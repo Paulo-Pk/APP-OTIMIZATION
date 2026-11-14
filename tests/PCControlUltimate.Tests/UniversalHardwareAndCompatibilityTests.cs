@@ -47,6 +47,20 @@ public class UniversalHardwareAndCompatibilityTests
     }
 
     [Theory]
+    [InlineData("GPU Hot Spot", true)]
+    [InlineData("GPU Hotspot", true)]
+    [InlineData("GPU Junction", true)]
+    [InlineData("Memory Junction", false)]
+    [InlineData("GPU Memory Junction", false)]
+    [InlineData("VRAM Hotspot", false)]
+    [InlineData("GPU Core", false)]
+    [InlineData(null, false)]
+    public void GpuHotspotSensorClassification_NeverTreatsMemoryJunctionAsGpuDieHotspot(string? sensorName, bool expected)
+    {
+        Assert.Equal(expected, LibreHardwareMonitorWrapper.IsGpuHotspotTemperatureSensor(sensorName));
+    }
+
+    [Theory]
     [InlineData(null, 0, 55f, 68, true)]
     [InlineData(82f, 68, 71f, 68, false)]
     [InlineData(62f, 68, 74f, 68, true)]
