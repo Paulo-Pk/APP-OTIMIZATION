@@ -49,6 +49,7 @@ public static class GameExecutableApprovalStore
 
     public static bool TryConsume(string? approvalId, out string executablePath)
     {
+        PruneExpired();
         executablePath = string.Empty;
         if (string.IsNullOrWhiteSpace(approvalId) || approvalId.Length != 64 ||
             !approvalId.All(Uri.IsHexDigit) || !Approvals.TryRemove(approvalId, out var approval))
