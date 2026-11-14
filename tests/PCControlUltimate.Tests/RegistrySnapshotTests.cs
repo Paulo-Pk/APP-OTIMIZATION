@@ -311,6 +311,62 @@ public class RegistrySnapshotTests
     }
 
     [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    public void RestoreCatalogTweakFromTrustedSource_IncompleteSnapshotWithoutExplicitConfirmation_IsBlocked()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            var createdUtc = new DateTime(2026, 11, 13, 12, 0, 0, DateTimeKind.Utc);
+            var entries = new List<RegistryValueEntry>
+            {
+                new RegistryValueEntry
+                {
+                    TweakId = "perf-game-dvr",
+                    Hive = "HKCU",
+                    SubKey = @"System\\GameConfigStore",
+                    ValueName = "GameDVR_Enabled",
+                    ValueKind = "DWord",
+                    RawValue = "1",
+                    WasInitiallyAbsent = false
+                }
+            };
+
+            string canonicalPayload = RegistrySnapshotEngine.BuildCanonicalPayload(
+                "snap-incomplete-per-tweak", "2.1", createdUtc,
+                "Incomplete per-tweak restore test", entries);
+            var snapshot = new RegistrySnapshotFile
+            {
+                SnapshotId = "snap-incomplete-per-tweak",
+                FormatVersion = "2.1",
+                CreatedUtc = createdUtc,
+                Description = "Incomplete per-tweak restore test",
+                TotalKeysCaptured = 1,
+                ReadFailuresCount = 1,
+                UnreadableItems = new List<RegistrySnapshotReadFailure>
+                {
+                    new("perf-win32-priority", "HKLM", @"SYSTEM\\CurrentControlSet\\Control\\PriorityControl", "Win32PrioritySeparation", "Access Denied")
+                },
+                Entries = entries,
+                ChecksumSha256 = IntegrityVerifier.ComputeCanonicalSha256(canonicalPayload)
+            };
+            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot), Encoding.UTF8);
+
+            var result = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource(
+                "perf-game-dvr", snapshotIdOrPath: tempFile);
+
+            Assert.False(result.Success);
+            Assert.Contains("incompleto", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void RestoreFromBackupWithReport_PartialFailureInMultiItemRestore_NeverReportsFullSuccess()
     {
         string tempFile = Path.GetTempFileName();
