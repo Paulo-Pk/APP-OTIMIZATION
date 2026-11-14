@@ -825,11 +825,13 @@ export default function App() {
       return;
     }
     const result = await nativeBridge.launchGame(game.approvalId);
+    // Native approvals are one-time capabilities; never keep one after an attempt,
+    // including a timeout where the agent may already have consumed it.
+    setGames((previous) => previous.map((item) => item.id === game.id ? { ...item, approvalId: undefined } : item));
     if (!result.success || !result.sessionId) {
-      setNotification({ type: 'error', title: 'Não foi possível iniciar o jogo', message: result.error || 'O agente Windows recusou a inicialização.' });
+      setNotification({ type: 'error', title: 'Não foi possível iniciar o jogo', message: `${result.error || 'O agente Windows recusou a inicialização.'} Se necessário, selecione novamente o executável para emitir uma nova autorização.` });
       return;
     }
-    setGames((previous) => previous.map((item) => item.id === game.id ? { ...item, approvalId: undefined } : item));
     const sessions = await nativeBridge.getGameSessions();
     if (sessions) setGameSessions(sessions);
     setNotification({ type: 'success', title: 'Processo iniciado', message: `${game.title} iniciado pelo Windows (PID ${result.processId}).` });
