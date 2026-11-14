@@ -197,6 +197,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                 float? driveTemp = null;
                 float? adapterCoreTemp = null;
+                float? adapterFallbackCoreTemp = null;
                 float? adapterHotspot = null;
                 float? adapterLoad = null;
                 float? adapterClock = null;
@@ -272,19 +273,25 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                     {
                         if (sensor.SensorType == SensorType.Temperature)
                         {
-                            if (sensor.Name.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase) ||
-                                sensor.Name.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
-                                sensor.Name.Contains("Junction", StringComparison.OrdinalIgnoreCase))
+                            // Memory Junction is a VRAM temperature, not the GPU die hotspot.
+                            // Keep it available in the raw sensor list for the dedicated VRAM card.
+                            bool isMemoryTemperature = sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase) ||
+                                sensor.Name.Contains("VRAM", StringComparison.OrdinalIgnoreCase);
+                            if (!isMemoryTemperature &&
+                                (sensor.Name.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase) ||
+                                 sensor.Name.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
+                                 sensor.Name.Contains("Junction", StringComparison.OrdinalIgnoreCase)))
                             {
                                 adapterHotspot ??= sensor.Value;
                             }
-                            else if ((sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
-                                      sensor.Name.Equals("GPU", StringComparison.OrdinalIgnoreCase) ||
-                                      sensor.Name.Equals("GPU Temperature", StringComparison.OrdinalIgnoreCase)) &&
-                                     !sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase) &&
-                                     !sensor.Name.Contains("SoC", StringComparison.OrdinalIgnoreCase))
+                            else if (!isMemoryTemperature && !sensor.Name.Contains("SoC", StringComparison.OrdinalIgnoreCase))
                             {
-                                adapterCoreTemp ??= sensor.Value;
+                                if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
+                                    sensor.Name.Equals("GPU", StringComparison.OrdinalIgnoreCase) ||
+                                    sensor.Name.Equals("GPU Temperature", StringComparison.OrdinalIgnoreCase))
+                                    adapterCoreTemp ??= sensor.Value;
+                                else
+                                    adapterFallbackCoreTemp ??= sensor.Value;
                             }
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
@@ -347,6 +354,9 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                 if (isGpuHardware)
                 {
+                    // Some GPU drivers expose the die temperature under a generic "Temperature" label.
+                    // Use that only when no explicitly named core sensor was found.
+                    adapterCoreTemp ??= adapterFallbackCoreTemp;
                     adapterVramUsed ??= adapterDedicatedVramUsed;
                     adapterVramTotal ??= adapterDedicatedVramTotal;
 
