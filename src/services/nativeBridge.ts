@@ -453,7 +453,7 @@ class NativeBridgeService {
     }
   }
 
-  public async pickExecutableFile(): Promise<{ path: string; title: string } | null> {
+  public async pickExecutableFile(): Promise<{ path: string; title: string; approvalId: string } | null> {
     const webview = (window as unknown as {
       chrome?: {
         webview?: {
@@ -489,7 +489,11 @@ class NativeBridgeService {
 
         if (typeof data.path === 'string' && data.path.trim() &&
             typeof data.title === 'string' && data.title.trim()) {
-          finish({ path: data.path, title: data.title });
+          if (typeof data.approvalId === 'string' && /^[a-f0-9]{64}$/i.test(data.approvalId)) {
+            finish({ path: data.path, title: data.title, approvalId: data.approvalId });
+          } else {
+            finish(null);
+          }
         } else {
           finish(null);
         }
@@ -506,6 +510,65 @@ class NativeBridgeService {
         finish(null);
       }
     });
+  }
+
+  public async launchGame(approvalId: string): Promise<{ success: boolean; sessionId?: string; processId?: number; error?: string }> {
+    if (!this.agentStatus.isConnected) return { success: false, error: 'AGENT_DISCONNECTED' };
+    if (!/^[a-f0-9]{64}$/i.test(approvalId)) return { success: false, error: 'Aprovação de executável inválida.' };
+    try {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/games/launch`, {
+        method: 'POST', headers: this.getAuthHeaders(), body: JSON.stringify({ approvalId }),
+      });
+      const data = await res.json();
+      return { success: res.ok && data.success === true, sessionId: data.sessionId, processId: data.processId, error: data.error || data.message };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Falha ao iniciar o jogo.' };
+    }
+  }
+
+  public async stopGame(sessionId: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.agentStatus.isConnected) return { success: false, error: 'AGENT_DISCONNECTED' };
+    try {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/games/stop`, {
+        method: 'POST', headers: this.getAuthHeaders(), body: JSON.stringify({ sessionId }),
+      });
+      const data = await res.json();
+      return { success: res.ok && data.success === true, error: data.error || data.message };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Falha ao solicitar encerramento do jogo.' };
+    }
+  }
+
+  public async setGameBoost(sessionId: string, enabled: boolean): Promise<{ success: boolean; enabled?: boolean; error?: string }> {
+    if (!this.agentStatus.isConnected) return { success: false, error: 'AGENT_DISCONNECTED' };
+    try {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/games/boost`, {
+        method: 'POST', headers: this.getAuthHeaders(), body: JSON.stringify({ sessionId, enabled }),
+      });
+      const data = await res.json();
+      return { success: res.ok && data.success === true, enabled: data.enabled === true, error: data.error || data.message };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Falha ao alterar prioridade do jogo.' };
+    }
+  }
+
+  public async getGameSessions(): Promise<Array<{ sessionId: string; title: string; processId: number; isRunning: boolean; boostEnabled: boolean }> | null> {
+    if (!this.agentStatus.isConnected) return null;
+    try {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/games/sessions`, { headers: this.getAuthHeaders() });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const raw = Array.isArray(data.sessions) ? data.sessions : [];
+      return raw.map((item: any) => ({
+        sessionId: String(item.sessionId ?? item.SessionId ?? ''),
+        title: String(item.title ?? item.Title ?? ''),
+        processId: Number(item.processId ?? item.ProcessId ?? 0),
+        isRunning: Boolean(item.isRunning ?? item.IsRunning),
+        boostEnabled: Boolean(item.boostEnabled ?? item.BoostEnabled),
+      })).filter((item: any) => item.sessionId && item.processId > 0);
+    } catch {
+      return null;
+    }
   }
 
   public async discoverInstalledGames(): Promise<Array<{ title: string; launcher: string; installLocation: string; appId: string; executablePath: string | null; isInstalled: boolean }> | null> {
