@@ -277,10 +277,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             // Keep it available in the raw sensor list for the dedicated VRAM card.
                             bool isMemoryTemperature = sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase) ||
                                 sensor.Name.Contains("VRAM", StringComparison.OrdinalIgnoreCase);
-                            if (!isMemoryTemperature &&
-                                (sensor.Name.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase) ||
-                                 sensor.Name.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
-                                 sensor.Name.Contains("Junction", StringComparison.OrdinalIgnoreCase)))
+                            if (IsGpuHotspotTemperatureSensor(sensor.Name))
                             {
                                 adapterHotspot ??= sensor.Value;
                             }
@@ -556,6 +553,17 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     /// AMD Ryzen sensors such as Core (Tctl/Tdie), CCDx (Tdie), and CCDs Max (Tdie) are explicitly recognized.
     /// Any other valid temperature sensor exposed by the CPU is retained as a last-resort real reading.
     /// </summary>
+    internal static bool IsGpuHotspotTemperatureSensor(string? sensorName)
+    {
+        if (string.IsNullOrWhiteSpace(sensorName)) return false;
+        if (sensorName.Contains("Memory", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("VRAM", StringComparison.OrdinalIgnoreCase)) return false;
+
+        return sensorName.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Junction", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static bool IsBetterCpuTemperatureReading(
         float? currentTemperature,
         int currentPriority,
