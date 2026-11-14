@@ -17,6 +17,16 @@ public sealed class WingetSoftwareCenterCatalogTests
     }
 
     [Fact]
+    public void XboxStorePackage_UsesMicrosoftStoreSource()
+    {
+        var package = WingetSoftwareCenterService.OfficialCatalog
+            .SingleOrDefault(item => item.PackageId == "9MV0B5HZVK9Z");
+
+        Assert.NotNull(package);
+        Assert.Equal("msstore", package!.OfficialSource);
+    }
+
+    [Fact]
     public void OfficialCatalog_UsesOnlySupportedOfficialSources()
     {
         Assert.All(
