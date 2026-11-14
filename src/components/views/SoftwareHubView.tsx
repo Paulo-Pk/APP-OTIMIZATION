@@ -27,7 +27,7 @@ const officialWingetIds: Record<string, string> = {
   'sw-ea': 'ElectronicArts.EADesktop',
   'sw-ubisoft': 'Ubisoft.Connect',
   'sw-gog': 'GOG.Galaxy',
-  'sw-xbox': 'Microsoft.GamingApp',
+  'sw-xbox': '9MV0B5HZVK9Z',
   'sw-opera-gx': 'Opera.OperaGX',
   'sw-vlc': 'VideoLAN.VLC',
   'sw-firefox': 'Mozilla.Firefox',
