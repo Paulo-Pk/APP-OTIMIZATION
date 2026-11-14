@@ -15,7 +15,7 @@ interface GameCenterViewProps {
   onLaunchGame: (game: GameProfile) => void;
   onStopGame: (sessionId: string) => void;
   onToggleGameBoost: (sessionId: string, enabled: boolean) => void;
-  gameSessions: Array<{ sessionId: string; title: string; processId: number; isRunning: boolean; boostEnabled: boolean }>;
+  gameSessions: Array<{ sessionId: string; title: string; executablePath: string; processId: number; isRunning: boolean; boostEnabled: boolean }>;
 }
 
 export const GameCenterView: React.FC<GameCenterViewProps> = ({
@@ -156,7 +156,7 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
                 {/* Native process session controls */}
                 {(() => {
                   const runningSession = gameSessions.find((session) =>
-                    session.isRunning && (session.title.toLowerCase() === game.title.toLowerCase() || session.title.toLowerCase() === game.executablePath.split('\\').pop()?.replace(/\.exe$/i, '').toLowerCase())
+                    session.isRunning && session.executablePath.toLowerCase() === game.executablePath.toLowerCase()
                   );
                   return (
                     <div className="space-y-2 pt-2 border-t border-slate-800/60">
