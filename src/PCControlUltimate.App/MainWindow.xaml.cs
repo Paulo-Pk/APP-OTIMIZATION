@@ -73,6 +73,7 @@ public partial class MainWindow : Window
             // The browser never supplies a path; the user chooses the file in the Windows dialog.
             AppWebView.CoreWebView2.WebMessageReceived += (_, args) =>
             {
+                string? requestId = null;
                 try
                 {
                     if (!Uri.TryCreate(args.Source, UriKind.Absolute, out var source) ||
@@ -92,7 +93,7 @@ public partial class MainWindow : Window
                         return;
                     }
 
-                    string requestId = requestElement.GetString() ?? string.Empty;
+                    requestId = requestElement.GetString() ?? string.Empty;
                     if (requestId.Length is < 8 or > 80 ||
                         requestId.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
                     {
@@ -148,7 +149,23 @@ public partial class MainWindow : Window
                 }
                 catch
                 {
-                    // Invalid messages and cancelled dialogs must not interrupt the desktop host.
+                    // Complete a valid pending picker request even when file hashing or
+                    // native dialog handling fails; otherwise React would wait for 120 seconds.
+                    if (!string.IsNullOrWhiteSpace(requestId))
+                    {
+                        try
+                        {
+                            AppWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                            {
+                                type = "pccontrol:pick-executable-result",
+                                requestId,
+                                path = (string?)null,
+                                title = (string?)null,
+                                approvalId = (string?)null
+                            }));
+                        }
+                        catch { }
+                    }
                 }
             };
 
