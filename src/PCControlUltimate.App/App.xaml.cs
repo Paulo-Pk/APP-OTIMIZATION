@@ -12,6 +12,7 @@ using PCControlUltimate.Gaming.Network;
 using PCControlUltimate.Hardware;
 using PCControlUltimate.Infrastructure.Data;
 using PCControlUltimate.Infrastructure.Services;
+using PCControlUltimate.Security;
 using PCControlUltimate.Windows.Services;
 using Serilog;
 
@@ -105,6 +106,14 @@ public partial class App : Application
                 Log.Information("Existing PrivilegedAgentServer instance detected via Mutex; connecting via DPAPI token.");
             }
 
+            // A secondary UI instance may reuse the existing agent's DPAPI-protected
+            // session token. It must not issue native picker approvals because the
+            // in-memory approval store belongs to the process that owns the server.
+            if (string.IsNullOrWhiteSpace(inMemoryToken))
+            {
+                inMemoryToken = IntegrityVerifier.ReadProtectedSessionToken(PrivilegedAgentServer.ProtectedTokenFilePath);
+            }
+
             _agentClient = new AgentClientService(inMemoryToken);
 
             var services = new ServiceCollection();
@@ -169,7 +178,7 @@ public partial class App : Application
             services.AddTransient<RestoreCenterView>();
             services.AddTransient<AiAssistantView>();
 
-            services.AddSingleton<MainWindow>(_ => new MainWindow(inMemoryToken ?? string.Empty, !string.IsNullOrWhiteSpace(inMemoryToken)));
+            services.AddSingleton<MainWindow>(_ => new MainWindow(inMemoryToken ?? string.Empty, _agentServer != null));
 
             _serviceProvider = services.BuildServiceProvider();
 
