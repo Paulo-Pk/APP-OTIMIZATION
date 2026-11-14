@@ -601,7 +601,7 @@ public static class WireGuardTunnelManager
                         long.TryParse(peerCols[5], out long rxBytes);
                         long.TryParse(peerCols[6], out long txBytes);
 
-                        bool handshakeOk = latestHandshakeEpoch > 0 && rxBytes > 0;
+                        bool handshakeOk = latestHandshakeEpoch > 0;
                         string msg = handshakeOk
                             ? $"Túnel conectado com Handshake verificado (RX: {rxBytes} B / TX: {txBytes} B)."
                             : "ATENÇÃO: Serviço WireGuard iniciado, mas AINDA SEM HANDSHAKE / TRÁFEGO do servidor remoto.";
