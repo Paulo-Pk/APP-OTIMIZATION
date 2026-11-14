@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { nativeBridge } from '../../services/nativeBridge';
 import {
   Globe,
@@ -58,6 +58,46 @@ export const GameNetworkAcceleratorView: React.FC = () => {
   const [measurementMethod, setMeasurementMethod] = useState<string | null>(null);
   const [measuredAt, setMeasuredAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [wireGuardLoading, setWireGuardLoading] = useState(false);
+  const [wireGuardStatus, setWireGuardStatus] = useState<{
+    wireGuardInstalled: boolean;
+    wireGuardBinaryPath: string | null;
+    tunnelName: string;
+    serviceInstalled: boolean;
+    serviceRunning: boolean;
+    handshakeVerified: boolean;
+    lastHandshakeEpochSeconds: number | null;
+    bytesReceived: number;
+    bytesSent: number;
+    activeAllowedIps: string[];
+    diagnosticMessage: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let requestVersion = 0;
+    const refreshStatus = async () => {
+      if (!nativeBridge.getStatus().isConnected) {
+        if (active) {
+          setWireGuardStatus(null);
+          setWireGuardLoading(false);
+        }
+        return;
+      }
+      const version = ++requestVersion;
+      setWireGuardLoading(true);
+      const result = await nativeBridge.getWireGuardStatus();
+      if (!active || version !== requestVersion) return;
+      setWireGuardStatus(result);
+      setWireGuardLoading(false);
+    };
+    const unsubscribe = nativeBridge.subscribe(() => { void refreshStatus(); });
+    return () => {
+      active = false;
+      requestVersion++;
+      unsubscribe();
+    };
+  }, []);
 
   const handleEvaluateRoute = async () => {
     setIsProbing(true);
@@ -162,14 +202,59 @@ export const GameNetworkAcceleratorView: React.FC = () => {
         </div>
 
         <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800 space-y-2">
-          <div className="flex items-center gap-2 text-xs text-slate-400 font-bold uppercase">
-            <Server className="w-4 h-4 text-purple-400" /> Estado do WireGuard
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs text-slate-400 font-bold uppercase">
+              <Server className="w-4 h-4 text-purple-400" /> Estado do WireGuard
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                setWireGuardLoading(true);
+                const result = await nativeBridge.getWireGuardStatus();
+                setWireGuardStatus(result);
+                setWireGuardLoading(false);
+              }}
+              disabled={wireGuardLoading || !nativeBridge.getStatus().isConnected}
+              className="text-[10px] text-purple-300 hover:text-white disabled:text-slate-600"
+            >
+              {wireGuardLoading ? 'Consultando...' : 'Atualizar'}
+            </button>
           </div>
-          <p className="text-xs text-slate-300 leading-relaxed">
-            Esta interface web não está conectada às operações nativas do WireGuard. Nenhuma configuração foi auditada, nenhum serviço foi instalado/removido e nenhuma rota foi alterada por esta tela.
-          </p>
+          <div className="text-xs font-semibold text-white">
+            {wireGuardLoading
+              ? 'Consultando o serviço PCControlGameTunnel no Windows...'
+              : !nativeBridge.getStatus().isConnected
+                ? 'Conecte o agente Windows para consultar o túnel.'
+                : !wireGuardStatus
+                  ? 'Não foi possível obter o estado do túnel.'
+                  : !wireGuardStatus.wireGuardInstalled
+                    ? 'WireGuard não está instalado.'
+                    : wireGuardStatus.serviceRunning
+                      ? wireGuardStatus.handshakeVerified
+                        ? 'Túnel em execução · handshake confirmado'
+                        : 'Serviço em execução · handshake ainda não confirmado'
+                      : wireGuardStatus.serviceInstalled
+                        ? 'Serviço do túnel instalado, mas parado'
+                        : 'Cliente WireGuard instalado · túnel PC Control não instalado'}
+          </div>
+          {wireGuardStatus && (
+            <>
+              <p className="text-xs text-slate-300 leading-relaxed">{wireGuardStatus.diagnosticMessage}</p>
+              {wireGuardStatus.serviceRunning && (
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-300">
+                  <span>Recebido: {wireGuardStatus.bytesReceived.toLocaleString('pt-BR')} B</span>
+                  <span>Enviado: {wireGuardStatus.bytesSent.toLocaleString('pt-BR')} B</span>
+                </div>
+              )}
+              {wireGuardStatus.activeAllowedIps.length > 0 && (
+                <div className="text-[10px] text-slate-400 break-words">
+                  AllowedIPs ativos: {wireGuardStatus.activeAllowedIps.join(', ')}
+                </div>
+              )}
+            </>
+          )}
           <p className="text-[10px] text-amber-300">
-            A auditoria e o controle do túnel exigem integração autenticada com o agente Windows; não exibimos um falso status de segurança.
+            Consulta somente-leitura do serviço PCControlGameTunnel. Esta tela ainda não instala/remove túneis nem altera rotas; a presença do serviço não garante handshake com o servidor.
           </p>
         </div>
       </div>
