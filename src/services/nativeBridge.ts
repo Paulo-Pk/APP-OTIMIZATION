@@ -710,6 +710,7 @@ class NativeBridgeService {
   }
 
   public async scanRealDebloatDirectories(): Promise<{
+    isEstimateOnly: boolean;
     d3dCacheBytes: number;
     tempWindowsBytes: number;
     tempUserBytes: number;
@@ -718,6 +719,7 @@ class NativeBridgeService {
     deliveryOptimizationBytes: number;
     werQueueBytes: number;
     werArchiveBytes: number;
+    categories: Record<string, { success: boolean; errors: string[] }>;
   } | null> {
     if (!this.agentStatus.isConnected) return null;
 
@@ -725,11 +727,40 @@ class NativeBridgeService {
       const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/debloat/scan`, {
         headers: this.getAuthHeaders(),
       });
-      if (res.ok) return await res.json();
+      if (!res.ok) return null;
+      const data = await res.json();
+      const read = (object: any, key: string) => object?.[key] ?? object?.[key.charAt(0).toUpperCase() + key.slice(1)];
+      const rawCategories = read(data, 'categories');
+      if (read(data, 'isEstimateOnly') !== true || !Array.isArray(rawCategories)) return null;
+      const categories: Record<string, { success: boolean; errors: string[] }> = {};
+      for (const item of rawCategories) {
+        const key = String(read(item, 'categoryKey') || '');
+        if (!key) continue;
+        const rawErrors = read(item, 'errors');
+        categories[key] = {
+          success: read(item, 'success') === true,
+          errors: Array.isArray(rawErrors) ? rawErrors.map((error: unknown) => String(error)) : [],
+        };
+      }
+      const numericBytes = (key: string) => {
+        const value = read(data, key);
+        return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+      };
+      return {
+        isEstimateOnly: true,
+        d3dCacheBytes: numericBytes('d3dCacheBytes'),
+        tempWindowsBytes: numericBytes('tempWindowsBytes'),
+        tempUserBytes: numericBytes('tempUserBytes'),
+        softwareDistributionBytes: numericBytes('softwareDistributionBytes'),
+        prefetchBytes: numericBytes('prefetchBytes'),
+        deliveryOptimizationBytes: numericBytes('deliveryOptimizationBytes'),
+        werQueueBytes: numericBytes('werQueueBytes'),
+        werArchiveBytes: numericBytes('werArchiveBytes'),
+        categories,
+      };
     } catch {
-      // unavailable
+      return null;
     }
-    return null;
   }
 
   public async purgeRealDebloatDirectory(
