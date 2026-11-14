@@ -199,7 +199,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div>
-              <span className="text-slate-500 block text-[10px]">{t.dashboard.temp}</span>
+              <span className="text-slate-500 block text-[10px]">CPU · Package/Die</span>
               <span className="font-mono font-semibold text-slate-200">
                 {(telemetry.cpu.temperatureAvailable ?? (telemetry.cpu.temperature > 0))
                   ? `${telemetry.cpu.temperature.toFixed(1)}°C`
