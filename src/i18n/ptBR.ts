@@ -367,7 +367,7 @@ export const ptBR: TranslationDictionary = {
     confirmModalTitle: 'Confirmar Limpeza de Sistema',
     confirmModalSubtitle: 'Autorização explícita para purga de arquivos temporários e caches',
     confirmModalWarning: 'Esta ação excluirá apenas caches temporários e lixeira selecionados.',
-    confirmModalPersonalDataSafe: 'Seus dados pessoais (Documentos, Downloads, Imagens, Jogos) e arquivos essenciais do Windows NÃO serão modificados ou excluídos.',
+    confirmModalPersonalDataSafe: 'A limpeza atua somente nos diretórios selecionados acima. Arquivos em uso e links simbólicos são preservados; relatórios de erro selecionados serão removidos.',
     confirmModalCancel: 'Cancelar',
     confirmModalConfirm: 'Confirmar e Iniciar Limpeza',
     zeroBytesCleaned: 'Nenhum resíduo encontrado ou 0 B liberados nos diretórios selecionados.',
