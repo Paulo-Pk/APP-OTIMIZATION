@@ -130,10 +130,13 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
                 onChange={(e) => setMonitorFps(e.target.checked)}
                 className="w-4 h-4 rounded text-purple-600 bg-[#0a0c13] border-slate-700"
               />
-              <span>{t.gameCenter.autoCapturePresentMon}</span>
+              <span>Preferir monitoramento de FPS (a captura ainda é iniciada manualmente no Laboratório de Desempenho).</span>
             </label>
 
           </div>
+          <p className="text-[10px] leading-relaxed text-amber-300/90">
+            As opções de prioridade, afinidade de CPU e plano de energia são preferências salvas no perfil. Nesta versão, somente o botão Game Boost aplica temporariamente a prioridade Acima do Normal; as demais opções ainda não alteram o Windows.
+          </p>
         </div>
 
         <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
