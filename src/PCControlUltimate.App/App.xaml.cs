@@ -27,6 +27,7 @@ public partial class App : Application
     private DatabaseService? _databaseService;
     private Mutex? _agentMutex;
     private bool _ownsAgentMutex;
+    private bool _ownsAgentServer;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -93,6 +94,7 @@ public partial class App : Application
                 {
                     _agentServer = new PrivilegedAgentServer(_hardwareMonitor, PrivilegedAgentServer.DefaultPort, networkDiagnosticsService);
                     _agentServer.Start();
+                    _ownsAgentServer = true;
                     inMemoryToken = _agentServer.SessionToken;
                     Log.Information("PrivilegedAgentServer started on 127.0.0.1:{Port}", PrivilegedAgentServer.DefaultPort);
                 }
@@ -178,7 +180,7 @@ public partial class App : Application
             services.AddTransient<RestoreCenterView>();
             services.AddTransient<AiAssistantView>();
 
-            services.AddSingleton<MainWindow>(_ => new MainWindow(inMemoryToken ?? string.Empty, _agentServer != null));
+            services.AddSingleton<MainWindow>(_ => new MainWindow(inMemoryToken ?? string.Empty, _ownsAgentServer));
 
             _serviceProvider = services.BuildServiceProvider();
 
