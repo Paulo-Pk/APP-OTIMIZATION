@@ -232,7 +232,7 @@ export const GameNetworkAcceleratorView: React.FC = () => {
                     ? 'WireGuard não está instalado.'
                     : wireGuardStatus.serviceRunning
                       ? wireGuardStatus.handshakeVerified
-                        ? 'Túnel em execução · handshake confirmado'
+                        ? 'Serviço em execução · handshake já registrado'
                         : 'Serviço em execução · handshake ainda não confirmado'
                       : wireGuardStatus.serviceInstalled
                         ? 'Serviço do túnel instalado, mas parado'
