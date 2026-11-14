@@ -418,7 +418,8 @@ class NativeBridgeService {
   public async restoreRegistryTweak(
     tweakId: string,
     operationId?: string,
-    snapshotId?: string
+    snapshotId?: string,
+    confirmIncompleteBackup: boolean = false
   ): Promise<{ success: boolean; verified: boolean; error?: string }> {
     if (!this.agentStatus.isConnected) {
       return {
@@ -438,6 +439,7 @@ class NativeBridgeService {
           tweakId,
           operationId,
           snapshotId,
+          confirmIncompleteBackup,
         }),
       });
       const data = await res.json();
