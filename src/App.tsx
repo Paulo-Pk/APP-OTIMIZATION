@@ -73,6 +73,7 @@ const loadManualGameProfiles = (): GameProfile[] => {
       typeof game === 'object' &&
       game.platform === 'Manual' &&
       typeof game.id === 'string' &&
+      game.id.startsWith('manual-') &&
       typeof game.title === 'string' &&
       typeof game.executablePath === 'string' &&
       game.executablePath.trim().length > 0
@@ -805,7 +806,7 @@ export default function App() {
       try {
         if (!targetGame.id.startsWith('installed-')) {
           const persistable = updatedGames
-            .filter((game) => game.platform === 'Manual')
+            .filter((game) => game.platform === 'Manual' && game.id.startsWith('manual-'))
             .map(({ approvalId: _approvalId, ...profile }) => profile);
           localStorage.setItem(MANUAL_GAMES_STORAGE_KEY, JSON.stringify(persistable));
         } else {
