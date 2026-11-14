@@ -245,9 +245,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             // If the CPU exposes only per-core temperatures, report the hottest
                             // core instead of whichever core LibreHardwareMonitor enumerates first.
                             // Higher-confidence package/die sensor classes still take precedence.
-                            if (cpuTemp is null ||
-                                candidatePriority > cpuTempPriority ||
-                                (candidatePriority == cpuTempPriority && sensor.Value.Value > cpuTemp.Value))
+                            if (IsBetterCpuTemperatureReading(cpuTemp, cpuTempPriority, sensor.Value.Value, candidatePriority))
                             {
                                 cpuTemp = sensor.Value;
                                 cpuTempPriority = candidatePriority;
@@ -548,6 +546,17 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     /// AMD Ryzen sensors such as Core (Tctl/Tdie), CCDx (Tdie), and CCDs Max (Tdie) are explicitly recognized.
     /// Any other valid temperature sensor exposed by the CPU is retained as a last-resort real reading.
     /// </summary>
+    internal static bool IsBetterCpuTemperatureReading(
+        float? currentTemperature,
+        int currentPriority,
+        float candidateTemperature,
+        int candidatePriority)
+    {
+        return !currentTemperature.HasValue ||
+            candidatePriority > currentPriority ||
+            (candidatePriority == currentPriority && candidateTemperature > currentTemperature.Value);
+    }
+
     public static int GetCpuTemperatureSensorPriority(string? sensorName)
     {
         if (string.IsNullOrWhiteSpace(sensorName)) return 0;
