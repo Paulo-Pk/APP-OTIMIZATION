@@ -93,6 +93,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const hasGpuCoreTemperature = telemetry.gpu.temperatureAvailable ?? telemetry.gpu.temperature > 0;
   const hasGpuHotspotTemperature = telemetry.gpu.hotspotAvailable ?? (telemetry.gpu.hotspot > 0);
   const hasGpuTemps = hasGpuCoreTemperature && hasGpuHotspotTemperature;
+  const gpuLoadPercent = Math.min(100, Math.max(0, telemetry.gpu.utilization));
+  const hasVramUsed = telemetry.gpu.vramUsedAvailable ?? (telemetry.gpu.vramUsedMB > 0);
+  const hasVramTotal = telemetry.gpu.vramTotalAvailable ?? (telemetry.gpu.vramTotalMB > 0);
   const hotspotDelta = hasGpuTemps
     ? (telemetry.gpu.hotspot - telemetry.gpu.temperature).toFixed(1)
     : null;
@@ -286,7 +289,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <span className="text-slate-500 block text-[10px]">{t.dashboard.vramAllocated}</span>
               <span className="font-mono text-slate-200">
-                {telemetry.gpu.vramTotalMB > 0
+                {hasVramUsed && hasVramTotal && telemetry.gpu.vramTotalMB > 0
                   ? `${(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} / ${(telemetry.gpu.vramTotalMB / 1024).toFixed(0)} GB`
                   : t.common.sensorNotAvailable}
               </span>
@@ -296,7 +299,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
             <div
               className="bg-gradient-to-r from-rose-500 to-purple-500 h-full transition-all duration-500"
-              style={{ width: `${telemetry.gpu.utilization}%` }}
+              style={{ width: `${gpuLoadPercent}%` }}
             />
           </div>
         </div>
