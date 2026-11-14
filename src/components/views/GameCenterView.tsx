@@ -52,7 +52,7 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
 
         <div className="flex items-center gap-3">
           <button
-            onClick={onAddCustomGame}
+            onClick={() => onAddCustomGame()}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#141724] hover:bg-[#1b2033] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4 text-purple-400" />
