@@ -1207,7 +1207,10 @@ public class PrivilegedAgentServer : IDisposable
                             return;
                         }
 
-                        var restoreRes = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource(tweakId, operationId, snapshotId);
+                        bool confirmIncompleteBackup = doc.RootElement.TryGetProperty("confirmIncompleteBackup", out var cibEl) &&
+                            cibEl.ValueKind == JsonValueKind.True;
+                        var restoreRes = RegistryOptimizer.RestoreCatalogTweakFromTrustedSource(
+                            tweakId, operationId, snapshotId, confirmIncompleteBackup);
                         WriteAuditLog("TWEAK_RESTORE", $"Tweak={tweakId} OpId={restoreRes.OperationId ?? operationId} Success={restoreRes.Success} Verified={restoreRes.VerifiedValue}");
 
                         await SendJsonAsync(res, new
