@@ -302,7 +302,7 @@ public class RegistrySnapshotTests
 
             Assert.False(report.Success);
             Assert.Equal(0, report.RestoredCount);
-            Assert.Contains(report.Errors, e => e.Contains("incompleto", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(report.Errors, e => e.Contains("confirmação explícita", StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
@@ -358,7 +358,7 @@ public class RegistrySnapshotTests
                 "perf-game-dvr", snapshotIdOrPath: tempFile);
 
             Assert.False(result.Success);
-            Assert.Contains("incompleto", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("confirmação explícita", result.ErrorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
