@@ -572,6 +572,43 @@ class NativeBridgeService {
     }
   }
 
+  public async getWireGuardStatus(): Promise<{
+    wireGuardInstalled: boolean;
+    wireGuardBinaryPath: string | null;
+    tunnelName: string;
+    serviceInstalled: boolean;
+    serviceRunning: boolean;
+    handshakeVerified: boolean;
+    lastHandshakeEpochSeconds: number | null;
+    bytesReceived: number;
+    bytesSent: number;
+    activeAllowedIps: string[];
+    diagnosticMessage: string;
+  } | null> {
+    if (!this.agentStatus.isConnected) return null;
+    try {
+      const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/wireguard/status`, { headers: this.getAuthHeaders() });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const read = (key: string) => data[key] ?? data[key.charAt(0).toUpperCase() + key.slice(1)];
+      return {
+        wireGuardInstalled: read('wireGuardInstalled') === true,
+        wireGuardBinaryPath: read('wireGuardBinaryPath') ?? null,
+        tunnelName: String(read('tunnelName') ?? 'PCControlGameTunnel'),
+        serviceInstalled: read('serviceInstalled') === true,
+        serviceRunning: read('serviceRunning') === true,
+        handshakeVerified: read('handshakeVerified') === true,
+        lastHandshakeEpochSeconds: typeof read('lastHandshakeEpochSeconds') === 'number' ? read('lastHandshakeEpochSeconds') : null,
+        bytesReceived: Number(read('bytesReceived')) || 0,
+        bytesSent: Number(read('bytesSent')) || 0,
+        activeAllowedIps: Array.isArray(read('activeAllowedIps')) ? read('activeAllowedIps') : [],
+        diagnosticMessage: String(read('diagnosticMessage') ?? 'O agente não forneceu detalhes do túnel.'),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   public async discoverInstalledGames(): Promise<Array<{ title: string; launcher: string; installLocation: string; appId: string; executablePath: string | null; isInstalled: boolean }> | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
