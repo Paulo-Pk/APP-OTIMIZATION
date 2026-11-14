@@ -90,7 +90,7 @@ public class DiskCleanerTests
     [Fact]
     public void PurgeCategoryWithReport_UpdateCacheWithoutConfirmation_IsBlocked()
     {
-        var report = DiskCleanerEngine.PurgeCategoryWithReport("update-cache", confirmServiceStop: false);
+        var report = DiskCleanerEngine.PurgeCategoryWithReport("update-cache", confirmUpdateCache: false);
         Assert.False(report.Success);
         Assert.Equal(0, report.BytesFreed);
     }
