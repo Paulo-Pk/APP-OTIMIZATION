@@ -562,8 +562,32 @@ public static class WireGuardTunnelManager
             using var proc = Process.Start(psi);
             if (proc != null)
             {
-                string dumpOutput = await proc.StandardOutput.ReadToEndAsync(cancellationToken);
+                // Drain both streams concurrently and check the native command's exit code.
+                // Empty stdout alone must not be mistaken for a pending handshake.
+                Task<string> outputTask = proc.StandardOutput.ReadToEndAsync(cancellationToken);
+                Task<string> errorTask = proc.StandardError.ReadToEndAsync(cancellationToken);
                 await proc.WaitForExitAsync(cancellationToken);
+                string dumpOutput = await outputTask;
+                string errorOutput = await errorTask;
+
+                if (proc.ExitCode != 0)
+                {
+                    return new WireGuardTunnelStatusReport(
+                        WireGuardInstalled: true,
+                        WireGuardBinaryPath: wgExePath,
+                        TunnelName: tunnelName,
+                        ServiceInstalled: true,
+                        ServiceRunning: true,
+                        HandshakeVerified: false,
+                        LastHandshakeEpochSeconds: null,
+                        BytesReceived: 0,
+                        BytesSent: 0,
+                        ActiveAllowedIps: Array.Empty<string>(),
+                        DiagnosticMessage: string.IsNullOrWhiteSpace(errorOutput)
+                            ? $"wg.exe terminou com código {proc.ExitCode}; o handshake não pôde ser verificado."
+                            : $"wg.exe terminou com código {proc.ExitCode}: {errorOutput.Trim()}"
+                    );
+                }
 
                 var lines = dumpOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 // Line 0 is interface, Line 1+ are peers: public-key, preshared-key, endpoint, allowed-ips, latest-handshake, transfer-rx, transfer-tx, persistent-keepalive
