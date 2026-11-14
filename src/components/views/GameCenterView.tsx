@@ -91,7 +91,7 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
             const isActive = activePlatformFilter === platform.id;
             return (
               <button
-                key={platform}
+                key={platform.id}
                 onClick={() => setActivePlatformFilter(platform.id)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   isActive
