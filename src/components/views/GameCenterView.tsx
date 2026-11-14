@@ -84,8 +84,8 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
       </div>
 
       {/* Platform Filter Tabs */}
-      <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-[#0f121b] border border-slate-800">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-[#0f121b] border border-slate-800">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-slate-400 font-semibold mr-1">{t.gameCenter.platformLabel}</span>
           {platformFilters.map((platform) => {
             const isActive = activePlatformFilter === platform.id;
