@@ -11,13 +11,21 @@ import { useI18n } from '../../i18n';
 interface GameCenterViewProps {
   games: GameProfile[];
   onOpenProfileModal: (game: GameProfile) => void;
-  onAddCustomGame: () => void;
+  onAddCustomGame: (gameId?: string) => void;
+  onLaunchGame: (game: GameProfile) => void;
+  onStopGame: (sessionId: string) => void;
+  onToggleGameBoost: (sessionId: string, enabled: boolean) => void;
+  gameSessions: Array<{ sessionId: string; title: string; processId: number; isRunning: boolean; boostEnabled: boolean }>;
 }
 
 export const GameCenterView: React.FC<GameCenterViewProps> = ({
   games,
   onOpenProfileModal,
   onAddCustomGame,
+  onLaunchGame,
+  onStopGame,
+  onToggleGameBoost,
+  gameSessions,
 }) => {
   const { t } = useI18n();
   const [activePlatformFilter, setActivePlatformFilter] = useState<string>('all');
@@ -145,25 +153,58 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
                   </div>
                 )}
 
-                {/* Actions: Iniciar / Perfil */}
-                <div className="flex items-center gap-2 pt-2 border-t border-slate-800/60">
-                  <button
-                    onClick={() => onOpenProfileModal(game)}
-                    className="p-2 rounded-lg bg-[#141724] hover:bg-[#1a2032] border border-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                    title={t.gameCenter.editProfile}
-                  >
-                    <SlidersHorizontal className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled
-                    title="A inicialização nativa de jogos ainda não está disponível."
-                    className="flex-1 py-2 px-3 rounded-lg bg-slate-800 text-slate-500 text-xs font-bold uppercase tracking-wider cursor-not-allowed border border-slate-700"
-                  >
-                    Inicialização indisponível
-                  </button>
-                </div>
+                {/* Native process session controls */}
+                {(() => {
+                  const runningSession = gameSessions.find((session) =>
+                    session.isRunning && session.title.toLowerCase() === game.title.toLowerCase()
+                  );
+                  return (
+                    <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => onOpenProfileModal(game)}
+                          className="p-2 rounded-lg bg-[#141724] hover:bg-[#1a2032] border border-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                          title={t.gameCenter.editProfile}
+                        >
+                          <SlidersHorizontal className="w-4 h-4" />
+                        </button>
+                        {runningSession ? (
+                          <button
+                            onClick={() => onStopGame(runningSession.sessionId)}
+                            className="flex-1 py-2 px-3 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-rose-200 text-xs font-bold border border-rose-800"
+                          >
+                            Solicitar fechamento · PID {runningSession.processId}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onLaunchGame(game)}
+                            disabled={!game.approvalId}
+                            title={!game.approvalId ? "Selecione novamente o executável para autorizar a inicialização nesta sessão." : "Iniciar o executável aprovado pelo seletor nativo do Windows."}
+                            className="flex-1 py-2 px-3 rounded-lg bg-purple-700 hover:bg-purple-600 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-bold border border-purple-500/40 disabled:border-slate-700 disabled:cursor-not-allowed"
+                          >
+                            {game.approvalId ? "Iniciar jogo" : "Autorizar executável"}
+                          </button>
+                        )}
+                      </div>
+                      {runningSession && (
+                        <button
+                          onClick={() => onToggleGameBoost(runningSession.sessionId, !runningSession.boostEnabled)}
+                          className="w-full py-2 px-3 rounded-lg bg-[#141724] hover:bg-[#1a2032] border border-slate-700 text-xs font-semibold text-slate-200"
+                        >
+                          {runningSession.boostEnabled ? "Desativar Game Boost · restaurar prioridade" : "Ativar Game Boost · Acima do Normal"}
+                        </button>
+                      )}
+                      {!runningSession && !game.approvalId && (
+                        <button
+                          onClick={() => onAddCustomGame(game.id)}
+                          className="w-full text-[10px] text-purple-300 hover:text-purple-200 underline"
+                        >
+                          Selecionar executável novamente para autorizar
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           );
