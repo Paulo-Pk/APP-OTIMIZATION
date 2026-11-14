@@ -25,7 +25,7 @@ namespace PCControlUltimate.Windows.Services;
 /// </summary>
 public static class GameExecutableApprovalStore
 {
-    private sealed record Approval(string Path, DateTimeOffset ExpiresAt);
+    private sealed record Approval(string Path, string Sha256, long Length, DateTime LastWriteTimeUtc, DateTimeOffset ExpiresAt);
     private static readonly ConcurrentDictionary<string, Approval> Approvals = new(StringComparer.Ordinal);
 
     public static string Register(string executablePath)
@@ -35,9 +35,14 @@ public static class GameExecutableApprovalStore
             !string.Equals(Path.GetExtension(fullPath), ".exe", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("O executável selecionado não existe ou não é um arquivo .exe.");
 
+        var fileInfo = new FileInfo(fullPath);
+        string sha256;
+        using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            sha256 = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+
         PruneExpired();
         string id = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-        if (!Approvals.TryAdd(id, new Approval(fullPath, DateTimeOffset.UtcNow.AddMinutes(15))))
+        if (!Approvals.TryAdd(id, new Approval(fullPath, sha256, fileInfo.Length, fileInfo.LastWriteTimeUtc, DateTimeOffset.UtcNow.AddMinutes(15))))
             throw new InvalidOperationException("Não foi possível registrar a aprovação do executável.");
         return id;
     }
@@ -50,6 +55,27 @@ public static class GameExecutableApprovalStore
             return false;
         if (approval.ExpiresAt <= DateTimeOffset.UtcNow || !File.Exists(approval.Path))
             return false;
+
+        try
+        {
+            var fileInfo = new FileInfo(approval.Path);
+            if (fileInfo.Length != approval.Length || fileInfo.LastWriteTimeUtc != approval.LastWriteTimeUtc)
+                return false;
+
+            string currentHash;
+            using (var stream = new FileStream(approval.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                currentHash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+
+            if (!CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(currentHash),
+                Convert.FromHexString(approval.Sha256)))
+                return false;
+        }
+        catch
+        {
+            return false;
+        }
+
         executablePath = approval.Path;
         return true;
     }
