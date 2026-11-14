@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Win32;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
+using PCControlUltimate.Windows.Services;
 
 namespace PCControlUltimate.App;
 
@@ -117,12 +118,16 @@ public partial class MainWindow : Window
                     }
 
                     string? title = selectedPath == null ? null : Path.GetFileNameWithoutExtension(selectedPath);
+                    // The one-time approval is held in the in-process agent, not in browser storage.
+                    // React receives an opaque capability; it never chooses the path sent to launch.
+                    string? approvalId = selectedPath == null ? null : GameExecutableApprovalStore.Register(selectedPath);
                     string response = JsonSerializer.Serialize(new
                     {
                         type = "pccontrol:pick-executable-result",
                         requestId,
                         path = selectedPath,
-                        title
+                        title,
+                        approvalId
                     });
                     AppWebView.CoreWebView2.PostWebMessageAsJson(response);
                 }
