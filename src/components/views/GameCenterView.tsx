@@ -30,10 +30,32 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
   const { t } = useI18n();
   const [activePlatformFilter, setActivePlatformFilter] = useState<string>('all');
 
-  const filteredGames = games.filter((g) => {
-    if (activePlatformFilter === 'all') return true;
-    return g.platform.toLowerCase() === activePlatformFilter.toLowerCase();
-  });
+  // Storefront labels vary between discovery providers (for example, "Epic"
+  // and "Epic Games"). Normalize aliases before filtering to avoid split lists.
+  const normalizePlatform = (platform: string) => {
+    const value = platform.trim().toLowerCase();
+    if (value === 'epic' || value === 'epic games' || value === 'epicgames') return 'epic';
+    if (value === 'ea' || value === 'ea app' || value === 'origin') return 'ea app';
+    if (value === 'ubisoft' || value === 'ubisoft connect' || value === 'uplay') return 'ubisoft connect';
+    if (value === 'xbox' || value === 'microsoft store' || value === 'pc game pass') return 'xbox';
+    if (value === 'manual' || value === 'custom') return 'manual';
+    return value;
+  };
+
+  const platformFilters = [
+    { id: 'all', label: t.gameCenter.allGames },
+    { id: 'steam', label: 'Steam' },
+    { id: 'epic', label: 'Epic Games' },
+    { id: 'xbox', label: 'Xbox' },
+    { id: 'gog', label: 'GOG' },
+    { id: 'ubisoft connect', label: 'Ubisoft Connect' },
+    { id: 'ea app', label: 'EA app' },
+    { id: 'manual', label: 'Manual' },
+  ];
+
+  const filteredGames = games.filter((game) =>
+    activePlatformFilter === 'all' || normalizePlatform(game.platform) === activePlatformFilter
+  );
 
 
   return (
@@ -65,19 +87,19 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
       <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-[#0f121b] border border-slate-800">
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400 font-semibold mr-1">{t.gameCenter.platformLabel}</span>
-          {['all', 'Steam', 'Epic', 'Epic Games', 'Xbox', 'GOG', 'Ubisoft Connect', 'EA app', 'Manual'].map((platform) => {
-            const isActive = activePlatformFilter === platform;
+          {platformFilters.map((platform) => {
+            const isActive = activePlatformFilter === platform.id;
             return (
               <button
                 key={platform}
-                onClick={() => setActivePlatformFilter(platform)}
+                onClick={() => setActivePlatformFilter(platform.id)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   isActive
                     ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 border border-purple-400/40'
                     : 'bg-[#151926] text-slate-400 hover:text-slate-200 hover:bg-[#1a2030] border border-slate-800'
                 }`}
               >
-                {platform === 'all' ? t.gameCenter.allGames : platform}
+                {platform.label}
               </button>
             );
           })}
