@@ -48,6 +48,21 @@ interface NotificationState {
 }
 
 const MANUAL_GAMES_STORAGE_KEY = 'pc_control_manual_games';
+const GAME_EXECUTABLE_OVERRIDES_STORAGE_KEY = 'pc_control_game_executable_overrides';
+
+const loadGameExecutableOverrides = (): Record<string, string> => {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(GAME_EXECUTABLE_OVERRIDES_STORAGE_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([id, path]) =>
+        typeof id === 'string' && id.length > 0 && typeof path === 'string' && path.trim().length > 0
+      )
+    );
+  } catch {
+    return {};
+  }
+};
 
 const loadManualGameProfiles = (): GameProfile[] => {
   try {
@@ -254,16 +269,21 @@ export default function App() {
     let cancelled = false;
     nativeBridge.discoverInstalledGames().then((found) => {
       if (cancelled || !found) return;
+      const executableOverrides = loadGameExecutableOverrides();
       const mapped: GameProfile[] = found
         .filter((game) => game.isInstalled && game.title && !/\b(dlcs?|expansions?(?:\s+pack)?|season\s+pass|add[- ]?ons?|content\s+pack|soundtracks?|original\s+soundtrack|ost|supporter\s+pack|upgrade\s+pack|cosmetic\s+pack|bonus\s+content|artbook|demo|playtest|dedicated\s+server|server\s+tools|workshop\s+tools|test\s+server|public\s+test|test\s+application|sdk|editor|mod\s+tools|redistributables?|runtimes?)\b/i.test(game.title))
-        .map((game, index) => ({
-          id: `installed-${game.launcher.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${game.appId || index}`,
-          title: game.title,
-          platform: (["Steam", "Epic", "Epic Games", "Xbox", "GOG", "Ubisoft Connect", "EA app"].includes(game.launcher) ? game.launcher : "Manual") as GameProfile["platform"],
-          executablePath: game.executablePath || "", coverImage: game.launcher === 'Steam' && /^\d+$/.test(game.appId) ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg` : '',
-          processPriority: "Normal", cpuAffinity: "Todos", gpuPreference: "Alto Desempenho", powerProfile: "Equilibrado",
-          monitorFps: true, monitorTemps: true, boostEnabled: false,
-        }));
+        .map((game, index) => {
+          const id = `installed-${game.launcher.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${game.appId || index}`;
+          return {
+            id,
+            title: game.title,
+            platform: (["Steam", "Epic", "Epic Games", "Xbox", "GOG", "Ubisoft Connect", "EA app"].includes(game.launcher) ? game.launcher : "Manual") as GameProfile["platform"],
+            executablePath: executableOverrides[id] || game.executablePath || "",
+            coverImage: game.launcher === 'Steam' && /^\d+$/.test(game.appId) ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg` : '',
+            processPriority: "Normal", cpuAffinity: "Todos", gpuPreference: "Alto Desempenho", powerProfile: "Equilibrado",
+            monitorFps: true, monitorTemps: true, boostEnabled: false,
+          };
+        });
       const manual = loadManualGameProfiles().filter((profile) =>
         !mapped.some((game) => game.executablePath && game.executablePath.toLowerCase() === profile.executablePath.toLowerCase())
       );
@@ -782,20 +802,24 @@ export default function App() {
         : game);
       setGames(updatedGames);
 
-      if (targetGame.platform === 'Manual') {
-        const persistable = updatedGames
-          .filter((game) => game.platform === 'Manual')
-          .map(({ approvalId: _approvalId, ...profile }) => profile);
-        try {
+      try {
+        if (targetGame.platform === 'Manual') {
+          const persistable = updatedGames
+            .filter((game) => game.platform === 'Manual')
+            .map(({ approvalId: _approvalId, ...profile }) => profile);
           localStorage.setItem(MANUAL_GAMES_STORAGE_KEY, JSON.stringify(persistable));
-        } catch {
-          setNotification({
-            type: 'warning',
-            title: 'Executável autorizado nesta sessão',
-            message: 'O caminho não pôde ser salvo localmente. A autorização temporária continua disponível até fechar o aplicativo ou expirar.',
-          });
-          return;
+        } else {
+          const overrides = loadGameExecutableOverrides();
+          overrides[targetGame.id] = normalizedPath;
+          localStorage.setItem(GAME_EXECUTABLE_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
         }
+      } catch {
+        setNotification({
+          type: 'warning',
+          title: 'Executável autorizado nesta sessão',
+          message: 'O caminho não pôde ser salvo localmente. A autorização temporária continua disponível até fechar o aplicativo ou expirar.',
+        });
+        return;
       }
 
       setNotification({
