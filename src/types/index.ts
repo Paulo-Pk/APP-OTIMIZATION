@@ -190,6 +190,8 @@ export interface GameProfile {
   lastPlayed?: string;
   averageFps?: number;
   boostEnabled: boolean;
+  /** Short-lived native picker approval; never persist this value. */
+  approvalId?: string;
 }
 
 export interface PresentMonSession {
