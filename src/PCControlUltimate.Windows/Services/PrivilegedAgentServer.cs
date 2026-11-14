@@ -73,6 +73,7 @@ internal sealed class GameProcessSessionManager : IDisposable
     {
         public required string Id { get; init; }
         public required string Title { get; init; }
+        public required string ExecutablePath { get; init; }
         public required Process Process { get; init; }
         public ProcessPriorityClass? OriginalPriority { get; set; }
         public bool BoostEnabled { get; set; }
@@ -104,6 +105,7 @@ internal sealed class GameProcessSessionManager : IDisposable
             {
                 Id = id,
                 Title = Path.GetFileNameWithoutExtension(fullPath),
+                ExecutablePath = fullPath,
                 Process = process
             };
             return (true, id, process.Id, null);
@@ -133,6 +135,7 @@ internal sealed class GameProcessSessionManager : IDisposable
                 {
                     sessionId = session.Id,
                     title = session.Title,
+                    executablePath = session.ExecutablePath,
                     processId = session.Process.Id,
                     isRunning = true,
                     boostEnabled = session.BoostEnabled
