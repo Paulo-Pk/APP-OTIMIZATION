@@ -473,7 +473,7 @@ class NativeBridgeService {
 
     return new Promise((resolve) => {
       let settled = false;
-      const finish = (result: { path: string; title: string } | null) => {
+      const finish = (result: { path: string; title: string; approvalId: string } | null) => {
         if (settled) return;
         settled = true;
         window.clearTimeout(timeoutId);
