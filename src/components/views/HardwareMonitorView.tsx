@@ -25,8 +25,10 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
   // The native bridge already scopes VRAM readings to the primary GPU adapter.
   // Do not fall back to the unfiltered sensor list here: it contains every GPU
   // and could combine dedicated memory readings from different adapters.
-  const vramUsedMB = telemetry.gpu.vramUsedMB > 0 ? telemetry.gpu.vramUsedMB : null;
-  const vramTotalMB = telemetry.gpu.vramTotalMB > 0 ? telemetry.gpu.vramTotalMB : null;
+  const hasVramUsed = telemetry.gpu.vramUsedAvailable ?? (telemetry.gpu.vramUsedMB > 0);
+  const hasVramTotal = telemetry.gpu.vramTotalAvailable ?? (telemetry.gpu.vramTotalMB > 0);
+  const vramUsedMB = hasVramUsed ? telemetry.gpu.vramUsedMB : null;
+  const vramTotalMB = hasVramTotal ? telemetry.gpu.vramTotalMB : null;
   const sensorTypeLabels: Record<string, string> = { Temperature: 'Temperatura', Fan: 'Ventoinha', Clock: 'Frequência', Load: 'Uso', Voltage: 'Tensão', Power: 'Consumo' };
   const hardwareTypeLabels: Record<string, string> = { Cpu: 'Processador', Gpu: 'Placa de vídeo', Memory: 'Memória', Motherboard: 'Placa-mãe', Storage: 'Armazenamento' };
   const sensorTypeLabel = (type: string) => sensorTypeLabels[type] || type;
