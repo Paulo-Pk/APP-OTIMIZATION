@@ -1,17 +1,17 @@
 name: Windows Native Build, Test & Release x64
 
 on:
+  # Feature branches are validated through pull_request to avoid duplicate runs
+  # when a branch update also synchronizes an open PR.
   push:
     branches:
       - main
       - master
-      - 'feature/**'
   pull_request:
     branches:
       - main
       - master
       - 'feature/**'
-      - feature/game-network-accelerator
   workflow_dispatch:
 
 jobs:
