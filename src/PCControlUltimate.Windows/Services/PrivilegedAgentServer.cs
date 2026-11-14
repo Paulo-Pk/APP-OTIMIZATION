@@ -1280,7 +1280,7 @@ public class PrivilegedAgentServer : IDisposable
                     if (path == "/api/debloat/purge")
                     {
                         string categoryKey = doc.RootElement.TryGetProperty("categoryKey", out var ckEl) ? (ckEl.GetString() ?? "") : "";
-                        bool confirmUpdate = doc.RootElement.TryGetProperty("confirmUpdateCache", out var cuEl) && cuEl.GetBoolean();
+                        bool confirmUpdate = doc.RootElement.TryGetProperty("confirmUpdateCache", out var cuEl) && cuEl.ValueKind == JsonValueKind.True;
                         var purgeReport = DiskCleanerEngine.PurgeCategoryWithReport(categoryKey, confirmUpdate);
 
                         WriteAuditLog("DEBLOAT_PURGE", $"Category={categoryKey} FreedBytes={purgeReport.FreedBytes} DeletedFiles={purgeReport.DeletedFilesCount}");
