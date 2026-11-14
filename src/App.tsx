@@ -83,6 +83,7 @@ export default function App() {
     }))
   );
   const [games, setGames] = useState<GameProfile[]>([]);
+  const [gameSessions, setGameSessions] = useState<Array<{ sessionId: string; title: string; processId: number; isRunning: boolean; boostEnabled: boolean }>>([]);
   const [agentStatus, setAgentStatus] = useState<NativeAgentStatus>(nativeBridge.getStatus());
 
   // Restore records: strictly no fake entries. Loaded from local storage or empty.
@@ -741,7 +742,7 @@ export default function App() {
     handleApplyAllLevel('balanced');
   };
 
-  const handleAddCustomGame = async () => {
+  const handleAddCustomGame = async (existingGameId?: string) => {
     if (!nativeBridge.getStatus().isConnected) {
       setNotification({
         type: 'warning',
@@ -758,11 +759,22 @@ export default function App() {
     const duplicate = games.find((game) =>
       game.executablePath.trim().toLowerCase() === normalizedPath.toLowerCase()
     );
-    if (duplicate) {
+    if (duplicate && existingGameId !== duplicate.id) {
       setNotification({
         type: 'warning',
         title: 'Jogo já cadastrado',
         message: `${duplicate.title} já está na biblioteca do Game Center.`,
+      });
+      return;
+    }
+    if (duplicate && existingGameId === duplicate.id) {
+      setGames((previous) => previous.map((game) =>
+        game.id === duplicate.id ? { ...game, approvalId: selected.approvalId } : game
+      ));
+      setNotification({
+        type: 'success',
+        title: 'Executável revalidado',
+        message: `${duplicate.title}: autorização temporária renovada. Ela expira automaticamente e não é salva no disco.`,
       });
       return;
     }
@@ -772,6 +784,7 @@ export default function App() {
       title: selected.title,
       platform: 'Manual',
       executablePath: normalizedPath,
+      approvalId: selected.approvalId,
       coverImage: '',
       processPriority: 'Normal',
       cpuAffinity: 'Todos',
@@ -782,7 +795,7 @@ export default function App() {
       boostEnabled: false,
     };
 
-    const updatedManualProfiles = [...loadManualGameProfiles(), profile];
+    const updatedManualProfiles = [...loadManualGameProfiles(), (({ approvalId: _approvalId, ...persistable }) => persistable)(profile)];
     setGames((previous) => [...previous, profile]);
     try {
       localStorage.setItem(MANUAL_GAMES_STORAGE_KEY, JSON.stringify(updatedManualProfiles));
@@ -798,6 +811,43 @@ export default function App() {
         message: 'Não foi possível salvar o cadastro localmente. Ele ficará disponível até fechar o aplicativo.',
       });
     }
+  };
+
+  const handleLaunchGame = async (game: GameProfile) => {
+    if (!game.approvalId) {
+      setNotification({ type: 'warning', title: 'Autorização necessária', message: 'Selecione novamente o executável pelo botão do jogo antes de iniciar. A autorização anterior expirou ou não existe nesta sessão.' });
+      return;
+    }
+    const result = await nativeBridge.launchGame(game.approvalId);
+    if (!result.success || !result.sessionId) {
+      setNotification({ type: 'error', title: 'Não foi possível iniciar o jogo', message: result.error || 'O agente Windows recusou a inicialização.' });
+      return;
+    }
+    const sessions = await nativeBridge.getGameSessions();
+    if (sessions) setGameSessions(sessions);
+    setNotification({ type: 'success', title: 'Processo iniciado', message: `${game.title} iniciado pelo Windows (PID ${result.processId}).` });
+  };
+
+  const handleStopGame = async (sessionId: string) => {
+    const result = await nativeBridge.stopGame(sessionId);
+    if (!result.success) {
+      setNotification({ type: 'warning', title: 'Encerramento não confirmado', message: result.error || 'O jogo pode precisar ser fechado normalmente pela própria janela.' });
+      return;
+    }
+    const sessions = await nativeBridge.getGameSessions();
+    if (sessions) setGameSessions(sessions);
+    setNotification({ type: 'success', title: 'Solicitação enviada', message: 'O Windows recebeu o pedido de fechamento normal. O processo só sairá da lista quando o encerramento for confirmado.' });
+  };
+
+  const handleToggleGameBoost = async (sessionId: string, enabled: boolean) => {
+    const result = await nativeBridge.setGameBoost(sessionId, enabled);
+    if (!result.success) {
+      setNotification({ type: 'warning', title: 'Game Boost não aplicado', message: result.error || 'Não foi possível alterar a prioridade do processo.' });
+      return;
+    }
+    const sessions = await nativeBridge.getGameSessions();
+    if (sessions) setGameSessions(sessions);
+    setNotification({ type: 'success', title: enabled ? 'Game Boost ativado' : 'Game Boost desativado', message: enabled ? 'Prioridade temporária Acima do Normal aplicada. O valor original será restaurado ao desativar, encerrar o jogo ou fechar o aplicativo.' : 'Prioridade original restaurada.' });
   };
 
   const handleSaveGameProfile = (updated: GameProfile) => {
@@ -911,6 +961,10 @@ export default function App() {
               games={games}
               onOpenProfileModal={setGameProfileToEdit}
               onAddCustomGame={handleAddCustomGame}
+              onLaunchGame={handleLaunchGame}
+              onStopGame={handleStopGame}
+              onToggleGameBoost={handleToggleGameBoost}
+              gameSessions={gameSessions}
             />
           )}
 
