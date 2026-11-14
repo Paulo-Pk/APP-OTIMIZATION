@@ -1251,9 +1251,9 @@ public class PrivilegedAgentServer : IDisposable
                         string filePath = doc.RootElement.TryGetProperty("filePath", out var fpEl)
                             ? (fpEl.GetString() ?? "")
                             : (doc.RootElement.TryGetProperty("snapshotId", out var idEl) ? (idEl.GetString() ?? "") : "");
-                        bool confirmIncomplete = doc.RootElement.TryGetProperty("confirmIncompleteBackup", out var ciEl) && ciEl.GetBoolean();
+                        bool confirmIncomplete = doc.RootElement.TryGetProperty("confirmIncompleteBackup", out var ciEl) && ciEl.ValueKind == JsonValueKind.True;
                         string? singleTweakId = doc.RootElement.TryGetProperty("tweakId", out var stEl) ? stEl.GetString() : null;
-                        bool rollbackOnFail = doc.RootElement.TryGetProperty("rollbackOnPartialFailure", out var rbEl) && rbEl.GetBoolean();
+                        bool rollbackOnFail = doc.RootElement.TryGetProperty("rollbackOnPartialFailure", out var rbEl) && rbEl.ValueKind == JsonValueKind.True;
 
                         var report = RegistrySnapshotEngine.RestoreFromBackupWithReport(
                             filePath,
