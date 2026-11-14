@@ -193,7 +193,6 @@ public class WingetSoftwareCenterService
         new("ElectronicArts.EADesktop", "EA app", "Electronic Arts", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial para instalar e atualizar jogos da Electronic Arts.", "winget", true),
         new("Ubisoft.Connect", "Ubisoft Connect", "Ubisoft", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial da Ubisoft para biblioteca, atualizações e serviços dos jogos.", "winget", true),
         new("GOG.Galaxy", "GOG GALAXY", "GOG", SoftwarePackageCategory.Gaming, "Gaming", "Cliente oficial para organizar e instalar jogos da biblioteca GOG.", "winget", true),
-        new("Opera.OperaGX", "Opera GX", "Opera", SoftwarePackageCategory.Navegadores, "Navegadores", "Navegador com recursos de personalização e controles de uso de recursos para jogos.", "winget", false),
         new("9MV0B5HZVK9Z", "Xbox para PC", "Microsoft / Xbox", SoftwarePackageCategory.Gaming, "Gaming", "Aplicativo oficial Xbox para jogos de PC e Game Pass, distribuído pela Microsoft Store.", "msstore", false),
         new("Rem0o.FanControl", "Fan Control", "Rem0o", SoftwarePackageCategory.Hardware, "Hardware", "Controle de ventoinhas com curvas personalizadas em hardware compatível.", "winget", true),
         new("ShareX.ShareX", "ShareX", "ShareX Team", SoftwarePackageCategory.FerramentasDeSistema, "Ferramentas de Sistema", "Captura de tela e gravação de área de trabalho.", "winget", false)
