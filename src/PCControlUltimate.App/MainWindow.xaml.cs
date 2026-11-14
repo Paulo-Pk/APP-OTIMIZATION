@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 
@@ -63,6 +64,72 @@ public partial class MainWindow : Window
             string tokenLiteral = JsonSerializer.Serialize(_agentSessionToken);
             await AppWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 $"window.__PCCONTROL_AGENT_TOKEN__ = {tokenLiteral};");
+
+            // Expose only a narrowly scoped native executable picker to the trusted bundled UI.
+            // The browser never supplies a path; the user chooses the file in the Windows dialog.
+            AppWebView.CoreWebView2.WebMessageReceived += (_, args) =>
+            {
+                try
+                {
+                    if (!Uri.TryCreate(args.Source, UriKind.Absolute, out var source) ||
+                        !string.Equals(source.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(source.Host, AppHost, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+
+                    string message = args.TryGetWebMessageAsString();
+                    using var messageDocument = JsonDocument.Parse(message);
+                    var root = messageDocument.RootElement;
+                    if (!root.TryGetProperty("type", out var typeElement) ||
+                        typeElement.GetString() != "pccontrol:pick-executable" ||
+                        !root.TryGetProperty("requestId", out var requestElement))
+                    {
+                        return;
+                    }
+
+                    string requestId = requestElement.GetString() ?? string.Empty;
+                    if (requestId.Length is < 8 or > 80 ||
+                        requestId.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
+                    {
+                        return;
+                    }
+
+                    var dialog = new OpenFileDialog
+                    {
+                        Title = "Selecione o executável do jogo",
+                        Filter = "Aplicativos Windows (*.exe)|*.exe",
+                        CheckFileExists = true,
+                        CheckPathExists = true,
+                        Multiselect = false,
+                        DereferenceLinks = true
+                    };
+
+                    string? selectedPath = dialog.ShowDialog(this) == true
+                        ? Path.GetFullPath(dialog.FileName)
+                        : null;
+                    if (!string.IsNullOrWhiteSpace(selectedPath) &&
+                        (!File.Exists(selectedPath) ||
+                         !string.Equals(Path.GetExtension(selectedPath), ".exe", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        selectedPath = null;
+                    }
+
+                    string? title = selectedPath == null ? null : Path.GetFileNameWithoutExtension(selectedPath);
+                    string response = JsonSerializer.Serialize(new
+                    {
+                        type = "pccontrol:pick-executable-result",
+                        requestId,
+                        path = selectedPath,
+                        title
+                    });
+                    AppWebView.CoreWebView2.PostWebMessageAsJson(response);
+                }
+                catch
+                {
+                    // Invalid messages and cancelled dialogs must not interrupt the desktop host.
+                }
+            };
 
             AppWebView.CoreWebView2.ProcessFailed += (_, _) =>
                 Dispatcher.Invoke(() => ShowStartupError("A interface foi interrompida pelo WebView2. Feche e abra o PC Control Ultimate novamente."));
