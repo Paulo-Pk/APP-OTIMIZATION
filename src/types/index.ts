@@ -83,7 +83,9 @@ export interface GpuTelemetry {
   memoryClockMHz: number;
   utilization: number;
   vramUsedMB: number;
+  vramUsedAvailable?: boolean;
   vramTotalMB: number;
+  vramTotalAvailable?: boolean;
   powerWatts: number;
   fansRPM: number;
   fanSpeedPercent: number;
