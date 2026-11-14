@@ -196,7 +196,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
       {testError && (
         <div role="alert" className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/40 text-sm text-rose-200">
-          <div className="font-bold mb-1">O teste da GPU não foi concluído</div>
+          <div className="font-bold mb-1">O teste não foi concluído</div>
           <p className="text-xs text-rose-100/90">{testError}</p>
         </div>
       )}
