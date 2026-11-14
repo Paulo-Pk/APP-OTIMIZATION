@@ -78,6 +78,7 @@ export const GameNetworkAcceleratorView: React.FC = () => {
     let requestVersion = 0;
     const refreshStatus = async () => {
       if (!nativeBridge.getStatus().isConnected) {
+        requestVersion++;
         if (active) {
           setWireGuardStatus(null);
           setWireGuardLoading(false);
