@@ -61,6 +61,29 @@ public sealed class WireGuardTunnelManagerTests
         Assert.Contains("DEFAULT_ROUTE_OVERRIDE_BLOCKED", audit.ErrorReason);
     }
 
+    [Theory]
+    [InlineData("0.0.0.0/1, 128.0.0.0/1")]
+    [InlineData("::/1, 8000::/1")]
+    public void ConfigAudit_BlocksSplitCidrsThatCoverAnEntireDefaultRoute(string allowedIps)
+    {
+        string config = $"""
+            [Interface]
+            PrivateKey = {ValidPrivateKey}
+            Address = 10.0.0.2/32
+
+            [Peer]
+            PublicKey = {ValidPublicKey}
+            Endpoint = 192.0.2.10:51820
+            AllowedIPs = {allowedIps}
+            """;
+
+        var audit = WireGuardTunnelManager.ValidateAndAuditConfig(config);
+
+        Assert.False(audit.IsValid);
+        Assert.True(audit.AltersDefaultRoute);
+        Assert.Contains("DEFAULT_ROUTE_OVERRIDE_BLOCKED", audit.ErrorReason);
+    }
+
     [Fact]
     public void ConfigAudit_RejectsScriptHooks()
     {
