@@ -552,7 +552,7 @@ class NativeBridgeService {
     }
   }
 
-  public async getGameSessions(): Promise<Array<{ sessionId: string; title: string; processId: number; isRunning: boolean; boostEnabled: boolean }> | null> {
+  public async getGameSessions(): Promise<Array<{ sessionId: string; title: string; executablePath: string; processId: number; isRunning: boolean; boostEnabled: boolean }> | null> {
     if (!this.agentStatus.isConnected) return null;
     try {
       const res = await this.fetchWithTimeout(`${LOCAL_AGENT_URL}/api/games/sessions`, { headers: this.getAuthHeaders() });
@@ -562,6 +562,7 @@ class NativeBridgeService {
       return raw.map((item: any) => ({
         sessionId: String(item.sessionId ?? item.SessionId ?? ''),
         title: String(item.title ?? item.Title ?? ''),
+        executablePath: String(item.executablePath ?? item.ExecutablePath ?? ''),
         processId: Number(item.processId ?? item.ProcessId ?? 0),
         isRunning: Boolean(item.isRunning ?? item.IsRunning),
         boostEnabled: Boolean(item.boostEnabled ?? item.BoostEnabled),
