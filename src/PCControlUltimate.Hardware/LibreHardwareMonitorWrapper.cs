@@ -242,7 +242,12 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                         {
                             int candidatePriority = GetCpuTemperatureSensorPriority(sensor.Name);
-                            if (cpuTemp is null || candidatePriority > cpuTempPriority)
+                            // If the CPU exposes only per-core temperatures, report the hottest
+                            // core instead of whichever core LibreHardwareMonitor enumerates first.
+                            // Higher-confidence package/die sensor classes still take precedence.
+                            if (cpuTemp is null ||
+                                candidatePriority > cpuTempPriority ||
+                                (candidatePriority == cpuTempPriority && sensor.Value.Value > cpuTemp.Value))
                             {
                                 cpuTemp = sensor.Value;
                                 cpuTempPriority = candidatePriority;
