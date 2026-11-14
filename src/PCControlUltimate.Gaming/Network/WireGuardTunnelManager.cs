@@ -621,20 +621,43 @@ public static class WireGuardTunnelManager
                         );
                     }
                 }
+
+                return new WireGuardTunnelStatusReport(
+                    WireGuardInstalled: true,
+                    WireGuardBinaryPath: wgExePath,
+                    TunnelName: tunnelName,
+                    ServiceInstalled: true,
+                    ServiceRunning: true,
+                    HandshakeVerified: false,
+                    LastHandshakeEpochSeconds: null,
+                    BytesReceived: 0,
+                    BytesSent: 0,
+                    ActiveAllowedIps: Array.Empty<string>(),
+                    DiagnosticMessage: "wg.exe retornou uma resposta incompleta; o handshake não pôde ser verificado."
+                );
             }
+
+            return new WireGuardTunnelStatusReport(
+                WireGuardInstalled: true,
+                WireGuardBinaryPath: wgExePath,
+                TunnelName: tunnelName,
+                ServiceInstalled: true,
+                ServiceRunning: true,
+                HandshakeVerified: false,
+                LastHandshakeEpochSeconds: null,
+                BytesReceived: 0,
+                BytesSent: 0,
+                ActiveAllowedIps: Array.Empty<string>(),
+                DiagnosticMessage: "Não foi possível iniciar wg.exe para consultar o handshake."
+            );
         }
         catch (Exception ex)
         {
             return new WireGuardTunnelStatusReport(
                 true, wgExePath, tunnelName, svcInstalled, svcRunning, false, null, 0, 0,
-                Array.Empty<string>(), $"Serviço ativo, mas leitura de handshake requer privilégio UAC: {ex.Message}"
+                Array.Empty<string>(), $"Serviço ativo, mas leitura de handshake falhou: {ex.Message}"
             );
         }
-
-        return new WireGuardTunnelStatusReport(
-            true, wgExePath, tunnelName, svcInstalled, svcRunning, false, null, 0, 0,
-            Array.Empty<string>(), "Serviço em execução, aguardando handshake inicial."
-        );
     }
 
     public static async Task<string> CaptureCurrentIPv4RouteTableSnapshotAsync(CancellationToken cancellationToken = default)
