@@ -47,6 +47,26 @@ interface NotificationState {
   message: string;
 }
 
+const MANUAL_GAMES_STORAGE_KEY = 'pc_control_manual_games';
+
+const loadManualGameProfiles = (): GameProfile[] => {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(MANUAL_GAMES_STORAGE_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((game): game is GameProfile =>
+      !!game &&
+      typeof game === 'object' &&
+      game.platform === 'Manual' &&
+      typeof game.id === 'string' &&
+      typeof game.title === 'string' &&
+      typeof game.executablePath === 'string' &&
+      game.executablePath.trim().length > 0
+    );
+  } catch {
+    return [];
+  }
+};
+
 export default function App() {
   const { t } = useI18n();
   const [currentTab, setCurrentTab] = useState<TabId>('dashboard');
@@ -220,7 +240,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!agentStatus.isConnected) { setGames([]); return; }
+    if (!agentStatus.isConnected) {
+      setGames(loadManualGameProfiles());
+      return;
+    }
     let cancelled = false;
     nativeBridge.discoverInstalledGames().then((found) => {
       if (cancelled || !found) return;
@@ -234,7 +257,10 @@ export default function App() {
           processPriority: "Normal", cpuAffinity: "Todos", gpuPreference: "Alto Desempenho", powerProfile: "Equilibrado",
           monitorFps: true, monitorTemps: true, boostEnabled: false,
         }));
-      setGames(mapped);
+      const manual = loadManualGameProfiles().filter((profile) =>
+        !mapped.some((game) => game.executablePath && game.executablePath.toLowerCase() === profile.executablePath.toLowerCase())
+      );
+      setGames([...mapped, ...manual]);
     });
     return () => { cancelled = true; };
   }, [agentStatus.isConnected]);
@@ -715,6 +741,65 @@ export default function App() {
     handleApplyAllLevel('balanced');
   };
 
+  const handleAddCustomGame = async () => {
+    if (!nativeBridge.getStatus().isConnected) {
+      setNotification({
+        type: 'warning',
+        title: 'Agente Windows indisponível',
+        message: 'Abra o PC Control Ultimate instalado no Windows para selecionar um executável. A Preview do navegador não tem acesso ao seletor nativo.',
+      });
+      return;
+    }
+
+    const selected = await nativeBridge.pickExecutableFile();
+    if (!selected) return;
+
+    const normalizedPath = selected.path.trim();
+    const duplicate = games.find((game) =>
+      game.executablePath.trim().toLowerCase() === normalizedPath.toLowerCase()
+    );
+    if (duplicate) {
+      setNotification({
+        type: 'warning',
+        title: 'Jogo já cadastrado',
+        message: `${duplicate.title} já está na biblioteca do Game Center.`,
+      });
+      return;
+    }
+
+    const profile: GameProfile = {
+      id: `manual-${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Date.now()}`,
+      title: selected.title,
+      platform: 'Manual',
+      executablePath: normalizedPath,
+      coverImage: '',
+      processPriority: 'Normal',
+      cpuAffinity: 'Todos',
+      gpuPreference: 'Alto Desempenho',
+      powerProfile: 'Equilibrado',
+      monitorFps: true,
+      monitorTemps: true,
+      boostEnabled: false,
+    };
+
+    const updatedManualProfiles = [...loadManualGameProfiles(), profile];
+    setGames((previous) => [...previous, profile]);
+    try {
+      localStorage.setItem(MANUAL_GAMES_STORAGE_KEY, JSON.stringify(updatedManualProfiles));
+      setNotification({
+        type: 'success',
+        title: 'Jogo cadastrado',
+        message: `${profile.title} foi adicionado à biblioteca. O caminho foi salvo; iniciar o jogo e aplicar otimizações ainda dependem da integração de processos.`,
+      });
+    } catch {
+      setNotification({
+        type: 'warning',
+        title: 'Jogo adicionado nesta sessão',
+        message: 'Não foi possível salvar o cadastro localmente. Ele ficará disponível até fechar o aplicativo.',
+      });
+    }
+  };
+
   const handleSaveGameProfile = (updated: GameProfile) => {
     setGames((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
     setNotification({
@@ -825,13 +910,7 @@ export default function App() {
             <GameCenterView
               games={games}
               onOpenProfileModal={setGameProfileToEdit}
-              onAddCustomGame={() => {
-                setNotification({
-                  type: 'warning',
-                  title: 'Cadastro manual indisponível',
-                  message: 'O seletor nativo de executáveis ainda não está integrado. Nenhum perfil fictício foi criado.',
-                });
-              }}
+              onAddCustomGame={handleAddCustomGame}
             />
           )}
 
