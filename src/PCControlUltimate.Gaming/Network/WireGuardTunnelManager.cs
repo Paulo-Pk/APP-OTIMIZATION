@@ -603,7 +603,7 @@ public static class WireGuardTunnelManager
 
                         bool handshakeOk = latestHandshakeEpoch > 0;
                         string msg = handshakeOk
-                            ? $"Túnel conectado com Handshake verificado (RX: {rxBytes} B / TX: {txBytes} B)."
+                            ? $"Handshake registrado pelo WireGuard (RX: {rxBytes} B / TX: {txBytes} B). O timestamp não garante conectividade atual com o servidor."
                             : "ATENÇÃO: Serviço WireGuard iniciado, mas AINDA SEM HANDSHAKE / TRÁFEGO do servidor remoto.";
 
                         return new WireGuardTunnelStatusReport(
