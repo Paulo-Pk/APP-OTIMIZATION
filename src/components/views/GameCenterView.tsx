@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   Gamepad2,
-  Zap,
   SlidersHorizontal,
   Plus,
   ShieldCheck,
@@ -112,11 +111,6 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
                   {game.platform}
                 </div>
 
-                {game.boostEnabled && (
-                  <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded bg-purple-600/80 backdrop-blur-md text-[10px] font-bold text-white border border-purple-400/40 flex items-center gap-1">
-                    <Zap className="w-3 h-3 fill-current" /> {t.gameCenter.boostActive}
-                  </div>
-                )}
 
               </div>
 

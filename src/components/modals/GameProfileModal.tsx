@@ -25,7 +25,6 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
   const [affinity, setAffinity] = useState<GameProfile['cpuAffinity']>('Todos');
   const [powerProfile, setPowerProfile] = useState<GameProfile['powerProfile']>('Equilibrado');
   const [monitorFps, setMonitorFps] = useState(false);
-  const [boostEnabled, setBoostEnabled] = useState(false);
 
   // Keep the editor synchronized when the selected game changes. All hooks run
   // on every render, including while the modal is closed.
@@ -35,7 +34,6 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
     setAffinity(game.cpuAffinity);
     setPowerProfile(game.powerProfile);
     setMonitorFps(game.monitorFps);
-    setBoostEnabled(game.boostEnabled);
   }, [game]);
 
   const handleSave = () => {
@@ -46,7 +44,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
       cpuAffinity: affinity,
       powerProfile,
       monitorFps,
-      boostEnabled,
+      boostEnabled: false,
     });
     onClose();
   };
@@ -136,15 +134,6 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
               <span>{t.gameCenter.autoCapturePresentMon}</span>
             </label>
 
-            <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-              <input
-                type="checkbox"
-                checked={boostEnabled}
-                onChange={(e) => setBoostEnabled(e.target.checked)}
-                className="w-4 h-4 rounded text-purple-600 bg-[#0a0c13] border-slate-700"
-              />
-              <span>{t.gameCenter.autoGameBoost}</span>
-            </label>
           </div>
         </div>
 

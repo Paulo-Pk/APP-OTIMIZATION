@@ -718,8 +718,8 @@ export default function App() {
   const handleSaveGameProfile = (updated: GameProfile) => {
     setGames((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
     setNotification({
-      type: 'success',
-      message: `${updated.title}: Perfil de afinidade e prioridade salvo com sucesso.`,
+      type: 'warning',
+      message: `${updated.title}: preferências do perfil salvas. Elas ainda não são aplicadas ao processo do jogo.`,
     });
   };
 
