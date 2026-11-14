@@ -767,7 +767,7 @@ class NativeBridgeService {
 
   public async purgeRealDebloatDirectory(
     categoryKey: string,
-    confirmUpdateCache: boolean = true
+    confirmUpdateCache: boolean = false
   ): Promise<{ success: boolean; partialSuccess: boolean; freedBytes: number; deletedFilesCount: number; skippedLockedCount: number; skippedSymlinksCount: number; errors: string[]; status: string }> {
     if (!this.agentStatus.isConnected) return { success: false, partialSuccess: false, freedBytes: 0, deletedFilesCount: 0, skippedLockedCount: 0, skippedSymlinksCount: 0, errors: ['Agente Windows desconectado.'], status: 'Unavailable' };
     try {
