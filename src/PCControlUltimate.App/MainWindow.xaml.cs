@@ -14,11 +14,13 @@ public partial class MainWindow : Window
 {
     private const string AppHost = "app.pccontrol.local";
     private readonly string _agentSessionToken;
+    private readonly bool _canUseNativeGameLaunch;
 
-    public MainWindow(string agentSessionToken)
+    public MainWindow(string agentSessionToken, bool canUseNativeGameLaunch)
     {
         InitializeComponent();
         _agentSessionToken = agentSessionToken ?? string.Empty;
+        _canUseNativeGameLaunch = canUseNativeGameLaunch;
         Loaded += async (_, _) => await InitializeWebViewAsync();
     }
 
@@ -94,6 +96,19 @@ public partial class MainWindow : Window
                     if (requestId.Length is < 8 or > 80 ||
                         requestId.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
                     {
+                        return;
+                    }
+
+                    if (!_canUseNativeGameLaunch)
+                    {
+                        AppWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                        {
+                            type = "pccontrol:pick-executable-result",
+                            requestId,
+                            path = (string?)null,
+                            title = (string?)null,
+                            approvalId = (string?)null
+                        }));
                         return;
                     }
 
