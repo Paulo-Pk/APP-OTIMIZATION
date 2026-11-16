@@ -27,6 +27,16 @@ public class NetworkDiagnosticsService
 {
     public record VerifiedDiagnosticEndpoint(string Name, string IpAddress, int TcpPort, string DnsHostname);
 
+    public record GameReferenceTarget(string Id, string Server, string Location, string Host, int Port);
+    public record GameReferenceMeasurement(
+        string Id, string Server, string Location, string Host, string Protocol,
+        double? PingMs, double? JitterMs, int TcpFailurePercent,
+        string TcpHandshakeState, IReadOnlyList<double> Samples, bool IsSuccess);
+    public record GameReferenceMeasurementReport(
+        string MeasurementMethod, int TcpReachabilityPercent,
+        StructuredNetworkDiagnosticFinding? StructuredDiagnostic,
+        IReadOnlyList<GameReferenceMeasurement> Results);
+
     private static readonly HttpClient SharedHttpClient = new()
     {
         Timeout = TimeSpan.FromSeconds(10)
@@ -197,56 +207,18 @@ public class NetworkDiagnosticsService
     /// </summary>
     public async Task<NetworkDiagnosticsReport> RunRealDiagnosticsAsync(CancellationToken cancellationToken = default)
     {
-        var targetResults = new List<NetworkTargetProbeResult>();
+        // Probe independent endpoints concurrently. The previous sequential implementation
+        // could exceed the native agent's 15-second request deadline when several hosts timed out.
+        var targetTask = Task.WhenAll(
+            DefaultVerifiedEndpoints.Select(endpoint => ProbeEndpointAsync(endpoint, cancellationToken))
+        );
+        var dnsTask = MeasureDnsResolutionAsync("steampowered.com", cancellationToken);
 
-        foreach (var endpoint in DefaultVerifiedEndpoints)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+        await Task.WhenAll(targetTask, dnsTask);
+        cancellationToken.ThrowIfCancellationRequested();
 
-            int epIcmpSent = 3;
-            int epExplicitUnreachable = 0;
-            var epIcmpSamples = new List<double>();
-
-            using (var ping = new Ping())
-            {
-                for (int i = 0; i < epIcmpSent; i++)
-                {
-                    try
-                    {
-                        var reply = await ping.SendPingAsync(endpoint.IpAddress, 1200);
-                        if (reply.Status == IPStatus.Success)
-                        {
-                            epIcmpSamples.Add(reply.RoundtripTime);
-                        }
-                        else if (reply.Status is IPStatus.DestinationHostUnreachable
-                                 or IPStatus.DestinationNetworkUnreachable
-                                 or IPStatus.DestinationUnreachable)
-                        {
-                            epExplicitUnreachable++;
-                        }
-                    }
-                    catch { }
-                }
-            }
-
-            var tcpProbe = await ProbeTcpEndpointAsync(endpoint.IpAddress, endpoint.TcpPort, 1500, cancellationToken);
-
-            var probeOutcome = EvaluateTargetProbeOutcome(
-                endpoint.Name,
-                endpoint.IpAddress,
-                endpoint.TcpPort,
-                epIcmpSent,
-                epIcmpSamples,
-                tcpProbe.State,
-                tcpProbe.LatencyMs,
-                epExplicitUnreachable
-            );
-
-            targetResults.Add(probeOutcome);
-        }
-
-        var dnsProbe = await MeasureDnsResolutionAsync("steampowered.com", cancellationToken);
-
+        var targetResults = await targetTask;
+        var dnsProbe = await dnsTask;
         var report = BuildAggregateReportFromTargets(
             "Multi-Target (Cloudflare / Google / Quad9 / OpenDNS)",
             targetResults,
@@ -256,6 +228,160 @@ public class NetworkDiagnosticsService
 
         RecordHistoryEntry($"[{DateTime.UtcNow:HH:mm:ss} UTC] {report.DiagnosticSummary}");
         return report;
+    }
+
+    private static async Task<NetworkTargetProbeResult> ProbeEndpointAsync(
+        VerifiedDiagnosticEndpoint endpoint,
+        CancellationToken cancellationToken)
+    {
+        const int icmpSent = 3;
+        int explicitUnreachable = 0;
+        var icmpSamples = new List<double>();
+
+        // Run TCP handshake in parallel with the three ICMP samples to keep the
+        // total request comfortably below the local agent's timeout.
+        var tcpTask = ProbeTcpEndpointAsync(endpoint.IpAddress, endpoint.TcpPort, 1500, cancellationToken);
+
+        using (var ping = new Ping())
+        {
+            for (int i = 0; i < icmpSent; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var reply = await ping.SendPingAsync(endpoint.IpAddress, 1200);
+                    if (reply.Status == IPStatus.Success)
+                    {
+                        icmpSamples.Add(reply.RoundtripTime);
+                    }
+                    else if (reply.Status is IPStatus.DestinationHostUnreachable
+                             or IPStatus.DestinationNetworkUnreachable
+                             or IPStatus.DestinationUnreachable)
+                    {
+                        explicitUnreachable++;
+                    }
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
+            }
+        }
+
+        var tcpProbe = await tcpTask;
+        return EvaluateTargetProbeOutcome(
+            endpoint.Name,
+            endpoint.IpAddress,
+            endpoint.TcpPort,
+            icmpSent,
+            icmpSamples,
+            tcpProbe.State,
+            tcpProbe.LatencyMs,
+            explicitUnreachable
+        );
+    }
+
+
+    private static readonly IReadOnlyDictionary<string, GameReferenceTarget> GameReferenceTargets =
+        new Dictionary<string, GameReferenceTarget>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["cs2"] = new("game-cs2", "Counter-Strike 2 · referência Steam", "Endpoint público Steam", "steampowered.com", 443),
+            ["valorant"] = new("game-valorant", "VALORANT · referência Riot Games", "Endpoint público Riot", "riotgames.com", 443),
+            ["fortnite"] = new("game-fortnite", "Fortnite · referência Epic", "Endpoint público Epic", "epicgames.com", 443),
+            ["apex"] = new("game-apex", "Apex Legends · referência EA", "Endpoint público EA", "ea.com", 443),
+            ["lol"] = new("game-lol", "League of Legends · referência Riot", "Endpoint público Riot", "leagueoflegends.com", 443),
+            ["r6"] = new("game-r6", "Rainbow Six Siege · referência Ubisoft", "Endpoint público Ubisoft", "ubisoft.com", 443),
+            ["rocketleague"] = new("game-rocketleague", "Rocket League · referência oficial", "Endpoint público Rocket League", "rocketleague.com", 443)
+        };
+
+    public async Task<GameReferenceMeasurementReport> MeasureGameReferenceTargetsAsync(
+        IEnumerable<string> selectedGameIds,
+        CancellationToken cancellationToken = default)
+    {
+        var targets = (selectedGameIds ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => GameReferenceTargets.TryGetValue(id.Trim(), out var target) ? target : null)
+            .Where(target => target != null)
+            .Cast<GameReferenceTarget>()
+            .GroupBy(target => target.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+
+        if (targets.Length == 0)
+        {
+            var emptyDiagnostic = new StructuredNetworkDiagnosticFinding(
+                WhatWasTested: "Nenhum jogo autorizado foi selecionado.",
+                WhatFailed: "Nenhum endpoint foi consultado.",
+                EvidenceFound: "A lista de IDs não contém jogos do catálogo fechado.",
+                ProbableCause: "Seleção vazia ou ID não reconhecido.",
+                RecommendedSolution: "Selecione um jogo disponível no catálogo.",
+                VerificationSteps: "Execute novamente após selecionar ao menos um jogo."
+            );
+            return new GameReferenceMeasurementReport(
+                "TCP_HANDSHAKE_RTT_SEPARATED_FROM_ICMP", 0, emptyDiagnostic,
+                Array.Empty<GameReferenceMeasurement>());
+        }
+
+        var measurements = await Task.WhenAll(targets.Select(async target =>
+        {
+            const int totalProbes = 3;
+            var samples = new List<double>();
+            int failedCount = 0;
+            TcpConnectionProbeState lastState = TcpConnectionProbeState.ConnectionFailure;
+
+            for (int i = 0; i < totalProbes; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var probe = await ProbeTcpEndpointAsync(target.Host, target.Port, 1800, cancellationToken);
+                if (probe.State == TcpConnectionProbeState.Connected && probe.LatencyMs.HasValue)
+                    samples.Add(probe.LatencyMs.Value);
+                else
+                {
+                    failedCount++;
+                    lastState = probe.State;
+                }
+
+                if (i < totalProbes - 1)
+                    await Task.Delay(40, cancellationToken);
+            }
+
+            double? average = samples.Count > 0 ? samples.Average() : null;
+            double? jitter = null;
+            if (samples.Count > 1 && average.HasValue)
+            {
+                double variance = samples.Sum(value => Math.Pow(value - average.Value, 2)) / samples.Count;
+                jitter = Math.Round(Math.Sqrt(variance), 1);
+            }
+
+            return new GameReferenceMeasurement(
+                Id: target.Id,
+                Server: target.Server,
+                Location: target.Location,
+                Host: target.Host,
+                Protocol: $"TCP:{target.Port} Handshake",
+                PingMs: average.HasValue ? Math.Round(average.Value, 1) : null,
+                JitterMs: jitter,
+                TcpFailurePercent: (int)Math.Round((double)failedCount / totalProbes * 100.0),
+                TcpHandshakeState: samples.Count > 0 ? "Connected" : lastState.ToString(),
+                Samples: samples.Select(value => Math.Round(value, 1)).ToArray(),
+                IsSuccess: samples.Count > 0
+            );
+        }));
+
+        int connectedCount = measurements.Count(result => result.IsSuccess);
+        int reachability = (int)Math.Round((double)connectedCount / measurements.Length * 100.0);
+        var diagnostic = new StructuredNetworkDiagnosticFinding(
+            WhatWasTested: "Handshakes TCP:443 em endpoints públicos de referência dos jogos selecionados.",
+            WhatFailed: connectedCount == measurements.Length
+                ? "Nenhuma falha de handshake TCP nas amostras."
+                : $"{measurements.Length - connectedCount} endpoint(s) tiveram timeout, bloqueio ou recusa de conexão.",
+            EvidenceFound: $"{connectedCount}/{measurements.Length} endpoints aceitaram ao menos um handshake TCP. Isso não representa perda ICMP/UDP.",
+            ProbableCause: connectedCount > 0
+                ? "Há conectividade com parte dos endpoints; falhas individuais podem ser filtro, timeout ou indisponibilidade do serviço."
+                : "Nenhum endpoint selecionado aceitou conexão TCP; a medição não identifica sozinha a causa.",
+            RecommendedSolution: "Use os tempos apenas como referência de conectividade TCP; eles não medem ping da partida.",
+            VerificationSteps: "Compare os resultados em outra rede e consulte a telemetria dentro do próprio jogo."
+        );
+
+        return new GameReferenceMeasurementReport(
+            "TCP_HANDSHAKE_RTT_SEPARATED_FROM_ICMP", reachability, diagnostic, measurements);
     }
 
     /// <summary>
