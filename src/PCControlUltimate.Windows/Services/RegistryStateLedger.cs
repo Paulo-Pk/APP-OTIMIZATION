@@ -54,153 +54,118 @@ public record LedgerValidationResult(
 /// <summary>
 /// Trusted backend-only ledger that records the original state of Registry tweaks before modification.
 /// Protected by Windows DPAPI (CurrentUser), NTFS ACLs, and canonical HMAC-SHA256 authentication.
-/// Fail-closed design: if the protected HMAC key cannot be loaded or created securely, no fallback secret is used
-/// and restorations relying on the Ledger are refused safely.
+/// Ensures the backend never trusts originalValue, valueKind, wasInitiallyAbsent, or keyCreatedByApp sent by the frontend.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public static class RegistryStateLedger
 {
     private static readonly object _syncRoot = new();
 
-    private sealed class TestLedgerScopeContext
-    {
-        public string? EphemeralSecretKey { get; init; }
-        public string? IsolatedLedgerFilePath { get; init; }
-        public bool SimulateKeyUnavailable { get; init; }
-        public bool SimulatePersistenceFailure { get; set; }
-        public Dictionary<string, string> InMemoryProtectedFiles { get; } = new(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static readonly AsyncLocal<TestLedgerScopeContext?> _testScope = new();
-
-    private sealed class TestLedgerDisposableScope : IDisposable
-    {
-        private readonly TestLedgerScopeContext? _previous;
-        private readonly string? _tempFileToDelete;
-        private bool _disposed;
-
-        public TestLedgerDisposableScope(TestLedgerScopeContext? previous, string? tempFileToDelete)
-        {
-            _previous = previous;
-            _tempFileToDelete = tempFileToDelete;
-        }
-
-        public void Dispose()
-        {
-            if (!_disposed)
-            {
-                _testScope.Value = _previous;
-                if (!string.IsNullOrWhiteSpace(_tempFileToDelete) && File.Exists(_tempFileToDelete))
-                {
-                    try { File.Delete(_tempFileToDelete); } catch { }
-                }
-                _disposed = true;
-            }
-        }
-    }
-
-    private static string _defaultLedgerFilePath = Path.Combine(
+    public static string LedgerFilePath { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "PCControlUltimate",
         "StateLedger",
         "tweak_state_ledger.dpapi"
     );
 
-    public static string LedgerFilePath
+    internal static Func<string, string, TokenProtectionResult> ProtectedTokenWriter { get; set; } = IntegrityVerifier.SaveProtectedSessionTokenWithReport;
+    internal static Func<string, string?> ProtectedTokenReader { get; set; } = IntegrityVerifier.ReadProtectedSessionToken;
+
+    // Initialize only after LedgerFilePath so DPAPI key and ledger share the protected application directory.
+    private static readonly string _ledgerSecretKey = InitializeProcessLedgerKey();
+
+    private static FileStream AcquireCrossProcessLock()
     {
-        get => _testScope.Value?.IsolatedLedgerFilePath ?? _defaultLedgerFilePath;
-        set => _defaultLedgerFilePath = value;
+        string? directory = Path.GetDirectoryName(LedgerFilePath);
+        if (string.IsNullOrWhiteSpace(directory))
+            throw new InvalidOperationException("Diretório do Ledger inválido.");
+        Directory.CreateDirectory(directory);
+
+        string lockPath = LedgerFilePath + ".lock";
+        DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+        while (true)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(50);
+            }
+            catch (IOException ex)
+            {
+                throw new TimeoutException("Tempo esgotado aguardando outra instância do PC Control liberar o Ledger.", ex);
+            }
+        }
     }
 
     private static string LedgerKeyFilePath => Path.Combine(
-        Path.GetDirectoryName(_defaultLedgerFilePath) ?? Path.GetTempPath(),
+        Path.GetDirectoryName(LedgerFilePath) ?? Path.GetTempPath(),
         "ledger_hmac_key.dpapi"
     );
 
-    private static readonly string? _productionLedgerSecretKey = TryInitializeProductionLedgerKey();
-
-    private static string? ActiveSecretKey
+    private static string InitializeProcessLedgerKey()
     {
-        get
-        {
-            var scope = _testScope.Value;
-            if (scope != null)
-            {
-                return scope.SimulateKeyUnavailable ? null : scope.EphemeralSecretKey;
-            }
-            return _productionLedgerSecretKey;
-        }
-    }
-
-    public static bool IsLedgerKeyAvailable => !string.IsNullOrWhiteSpace(ActiveSecretKey) && ActiveSecretKey!.Length >= 64;
-
-    /// <summary>
-    /// Internal test-only scope that provisions an isolated CSPRNG 256-bit HMAC key and isolated Ledger storage
-    /// (or simulates an unavailable DPAPI key to verify fail-closed behavior).
-    /// </summary>
-    internal static IDisposable UseTestEphemeralKeyScope(string? customTestLedgerFilePath = null, bool simulateUnavailableKey = false)
-    {
-        var previous = _testScope.Value;
-        byte[] keyBytes = new byte[32];
-        RandomNumberGenerator.Fill(keyBytes);
-        string ephemeralHex = Convert.ToHexString(keyBytes).ToLowerInvariant();
-
-        string tempFile = customTestLedgerFilePath ?? Path.Combine(
-            Path.GetTempPath(),
-            $"pccontrol_test_ledger_{Guid.NewGuid():N}.dpapi"
-        );
-
-        _testScope.Value = new TestLedgerScopeContext
-        {
-            EphemeralSecretKey = simulateUnavailableKey ? null : ephemeralHex,
-            IsolatedLedgerFilePath = tempFile,
-            SimulateKeyUnavailable = simulateUnavailableKey
-        };
-
-        return new TestLedgerDisposableScope(previous, tempFile);
-    }
-
-    private static string? TryInitializeProductionLedgerKey()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return null;
-        }
-
         try
         {
-            string? existing = IntegrityVerifier.ReadProtectedSessionToken(LedgerKeyFilePath);
-            if (!string.IsNullOrWhiteSpace(existing) && existing.Length >= 64)
+            // Serialize first-run key creation across application processes.
+            using var processLock = AcquireCrossProcessLock();
+
+            // Never rotate an existing but unreadable key: doing so would permanently orphan
+            // the authenticated recovery history. Create a key only on first use.
+            if (File.Exists(LedgerKeyFilePath))
             {
-                return existing;
+                string? existing = IntegrityVerifier.ReadProtectedSessionToken(LedgerKeyFilePath);
+                if (!string.IsNullOrWhiteSpace(existing) && existing.Length >= 32)
+                    return existing;
+
+                throw new CryptographicException(
+                    "A chave DPAPI existente do Ledger não pôde ser lida ou é inválida. A chave não será substituída para preservar o histórico.");
             }
 
             byte[] keyBytes = new byte[32];
             RandomNumberGenerator.Fill(keyBytes);
             string generated = Convert.ToHexString(keyBytes).ToLowerInvariant();
-
-            var saveReport = IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerKeyFilePath, generated);
-            if (!saveReport.Success || !saveReport.DpapiApplied)
-            {
-                return null;
-            }
-
-            string? verifiedRead = IntegrityVerifier.ReadProtectedSessionToken(LedgerKeyFilePath);
-            if (!string.Equals(verifiedRead, generated, StringComparison.Ordinal))
-            {
-                return null;
-            }
-
+            TokenProtectionResult protection = IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerKeyFilePath, generated);
+            if (!protection.Success || (OperatingSystem.IsWindows() && (!protection.DpapiProtected || !protection.AclRestricted)))
+                throw new CryptographicException(protection.ErrorMessage ?? "A chave do Ledger não recebeu proteção DPAPI/ACL.");
+            string? persisted = IntegrityVerifier.ReadProtectedSessionToken(LedgerKeyFilePath);
+            if (!string.Equals(persisted, generated, StringComparison.Ordinal))
+                throw new CryptographicException("Não foi possível confirmar a persistência protegida da chave do Ledger.");
             return generated;
         }
         catch
         {
-            // Fail-closed: never fall back to a hardcoded or predictable secret
-            return null;
+            // Fail closed: never replace a DPAPI failure with a predictable process-wide secret.
+            return string.Empty;
         }
     }
 
     public static string BuildEntryCanonicalString(RegistryLedgerEntry entry)
+    {
+        // JSON provides unambiguous field boundaries and escaping for arbitrary Registry strings.
+        // Keep property order explicit: this byte sequence is the authenticated v2.6 contract.
+        return JsonSerializer.Serialize(new
+        {
+            OperationId = entry.OperationId ?? string.Empty,
+            TweakId = (entry.TweakId ?? string.Empty).ToLowerInvariant(),
+            Hive = (entry.Hive ?? string.Empty).ToUpperInvariant(),
+            SubKeyPath = RegistryOptimizer.NormalizeSubKeyPath(entry.SubKeyPath ?? string.Empty).ToLowerInvariant(),
+            ValueName = (entry.ValueName ?? string.Empty).ToLowerInvariant(),
+            OriginalValueKind = entry.OriginalValueKind ?? string.Empty,
+            WasInitiallyAbsent = entry.WasInitiallyAbsent,
+            KeyCreatedByApp = entry.KeyCreatedByApp,
+            OriginalRawValue = entry.OriginalRawValue,
+            AppliedValue = entry.AppliedValue ?? string.Empty,
+            CreatedAtUtc = entry.CreatedAtUtc ?? string.Empty,
+            IsRestored = entry.IsRestored,
+            RestoredAtUtc = entry.RestoredAtUtc
+        });
+    }
+
+    // v2.5 canonical entry format retained only for authenticating and migrating existing files.
+    private static string BuildPreviousEntryCanonicalString(RegistryLedgerEntry entry)
     {
         return string.Join("|",
             entry.OperationId ?? string.Empty,
@@ -215,28 +180,84 @@ public static class RegistryStateLedger
             entry.AppliedValue ?? string.Empty,
             entry.CreatedAtUtc ?? string.Empty,
             entry.IsRestored ? "1" : "0",
-            entry.RestoredAtUtc ?? "<NOT_RESTORED>"
+            entry.RestoredAtUtc ?? string.Empty
+        );
+    }
+
+    private static string BuildPreviousLedgerCanonicalString(IEnumerable<RegistryLedgerEntry> entries)
+    {
+        var sb = new StringBuilder();
+        foreach (var entry in entries.OrderBy(x => x.CreatedAtUtc, StringComparer.Ordinal)
+            .ThenBy(x => x.OperationId, StringComparer.Ordinal))
+        {
+            sb.Append(BuildPreviousEntryCanonicalString(entry)).Append('|')
+              .Append(entry.EntryHmacSha256).Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    // Legacy v2.5 canonical form. Used only to verify already-authenticated entries before
+    // upgrading their HMAC to the current form; unverifiable entries are never migrated.
+    private static string BuildLegacyEntryCanonicalString(RegistryLedgerEntry entry)
+    {
+        return string.Join("|",
+            entry.OperationId ?? string.Empty,
+            (entry.TweakId ?? string.Empty).ToLowerInvariant(),
+            (entry.Hive ?? string.Empty).ToUpperInvariant(),
+            RegistryOptimizer.NormalizeSubKeyPath(entry.SubKeyPath ?? string.Empty).ToLowerInvariant(),
+            (entry.ValueName ?? string.Empty).ToLowerInvariant(),
+            entry.OriginalValueKind ?? string.Empty,
+            entry.WasInitiallyAbsent ? "1" : "0",
+            entry.KeyCreatedByApp ? "1" : "0",
+            entry.OriginalRawValue ?? "<ABSENT>",
+            entry.AppliedValue ?? string.Empty,
+            entry.CreatedAtUtc ?? string.Empty,
+            entry.IsRestored ? "1" : "0"
+        );
+    }
+
+    private static string BuildLegacyLedgerCanonicalString(IEnumerable<RegistryLedgerEntry> entries)
+    {
+        var sb = new StringBuilder();
+        foreach (var entry in entries
+            .OrderBy(x => x.CreatedAtUtc, StringComparer.Ordinal)
+            .ThenBy(x => x.OperationId, StringComparer.Ordinal))
+        {
+            sb.Append(BuildLegacyEntryCanonicalString(entry))
+              .Append('|')
+              .Append(entry.EntryHmacSha256)
+              .Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    private static bool VerifyLegacyEntryHmac(RegistryLedgerEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey) || string.IsNullOrWhiteSpace(entry.EntryHmacSha256))
+            return false;
+        return IntegrityVerifier.VerifyHmacSha256(
+            _ledgerSecretKey,
+            BuildLegacyEntryCanonicalString(entry),
+            entry.EntryHmacSha256
         );
     }
 
     public static string ComputeEntryHmac(RegistryLedgerEntry entry)
     {
-        string? secret = ActiveSecretKey;
-        if (string.IsNullOrWhiteSpace(secret))
-        {
-            throw new InvalidOperationException("LEDGER_KEY_UNAVAILABLE: Chave de autenticação do Ledger indisponível.");
-        }
-        return IntegrityVerifier.ComputeHmacSha256(secret, BuildEntryCanonicalString(entry));
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
+            throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Operação bloqueada.");
+        return IntegrityVerifier.ComputeHmacSha256(_ledgerSecretKey, BuildEntryCanonicalString(entry));
     }
 
     public static bool VerifyEntryHmac(RegistryLedgerEntry? entry)
     {
-        string? secret = ActiveSecretKey;
-        if (string.IsNullOrWhiteSpace(secret) || entry == null || string.IsNullOrWhiteSpace(entry.EntryHmacSha256))
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey) ||
+            entry == null ||
+            string.IsNullOrWhiteSpace(entry.EntryHmacSha256))
             return false;
 
         return IntegrityVerifier.VerifyHmacSha256(
-            secret,
+            _ledgerSecretKey,
             BuildEntryCanonicalString(entry),
             entry.EntryHmacSha256
         );
@@ -251,14 +272,6 @@ public static class RegistryStateLedger
         }
         return sb.ToString();
     }
-
-    public static bool IsSupportedRegistryValueKind(RegistryValueKind kind) =>
-        kind is RegistryValueKind.DWord
-            or RegistryValueKind.QWord
-            or RegistryValueKind.String
-            or RegistryValueKind.ExpandString
-            or RegistryValueKind.MultiString
-            or RegistryValueKind.Binary;
 
     /// <summary>
     /// Records a verified pre-modification state in the backend ledger and returns its unique OperationId.
@@ -287,12 +300,13 @@ public static class RegistryStateLedger
     {
         lock (_syncRoot)
         {
-            if (!IsLedgerKeyAvailable)
-            {
-                throw new InvalidOperationException("LEDGER_KEY_UNAVAILABLE: Não é possível registrar o estado original sem chave protegida válida.");
-            }
+            if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
+                throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Ajuste não pode ser aplicado com segurança.");
 
-            var ledger = LoadVerifiedLedgerInternal() ?? new RegistryLedgerFile();
+            using var processLock = AcquireCrossProcessLock();
+            var ledger = LoadVerifiedLedgerInternal();
+            if (ledger == null)
+                throw new InvalidOperationException("O Ledger existente não pôde ser autenticado. Ajuste bloqueado para preservar o histórico.");
 
             var entry = new RegistryLedgerEntry
             {
@@ -325,9 +339,8 @@ public static class RegistryStateLedger
 
     /// <summary>
     /// Resolves and strictly validates a trusted restoration state from the backend ledger.
-    /// Fails closed if the protected HMAC key is unavailable, if the entry or file HMAC is invalid,
-    /// if the TweakId/Hive/SubKeyPath/ValueName does not match the closed catalog, or if OriginalRawValue
-    /// cannot be safely converted to OriginalValueKind.
+    /// Blocks replayed operations, mismatched catalog targets, invalid original RegistryValueKinds,
+    /// and tampered HMACs. Authenticated custom original values remain restorable.
     /// </summary>
     public static LedgerValidationResult ResolveTrustedRestoreEntry(string tweakId, string? operationId = null)
     {
@@ -339,12 +352,7 @@ public static class RegistryStateLedger
 
         lock (_syncRoot)
         {
-            if (!IsLedgerKeyAvailable)
-            {
-                return new LedgerValidationResult(false, null, "LEDGER_KEY_UNAVAILABLE",
-                    "Chave criptográfica do histórico de restauração indisponível. Operação recusada por segurança.");
-            }
-
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal(out string? integrityError);
             if (ledger == null)
             {
@@ -365,12 +373,14 @@ public static class RegistryStateLedger
                         $"Operação '{operationId}' não encontrada no histórico confiável do backend.");
                 }
 
+                // Rule 8: Verify that the operation strictly belongs to the tweakId being restored
                 if (!string.Equals(targetEntry.TweakId, def.TweakId, StringComparison.OrdinalIgnoreCase))
                 {
                     return new LedgerValidationResult(false, null, "OPERATION_TWEAK_MISMATCH",
                         $"Violação de segurança: a operação '{operationId}' pertence ao ajuste '{targetEntry.TweakId}' e não pode ser usada para restaurar '{def.TweakId}'.");
                 }
 
+                // Rule 7: Prevent reuse / replay of an already-restored operation
                 if (targetEntry.IsRestored)
                 {
                     return new LedgerValidationResult(false, null, "OPERATION_ALREADY_RESTORED",
@@ -379,6 +389,7 @@ public static class RegistryStateLedger
             }
             else
             {
+                // Find the most recent un-restored entry for this tweakId
                 targetEntry = ledger.Entries
                     .Where(e => string.Equals(e.TweakId, def.TweakId, StringComparison.OrdinalIgnoreCase) && !e.IsRestored)
                     .OrderByDescending(e => e.CreatedAtUtc, StringComparer.Ordinal)
@@ -400,14 +411,14 @@ public static class RegistryStateLedger
                 }
             }
 
-            // 1. Verify entry-level HMAC-SHA256 before trusting any field
+            // Verify entry-level HMAC-SHA256
             if (!VerifyEntryHmac(targetEntry))
             {
                 return new LedgerValidationResult(false, null, "ENTRY_HMAC_INVALID",
                     $"Adulteração detectada na entrada de histórico '{targetEntry.OperationId}'.");
             }
 
-            // 2. Confirm TweakId, Hive, SubKeyPath, and ValueName strictly match the closed catalog
+            // Rule 8: Verify Hive, SubKeyPath, and ValueName match the closed catalog
             if (!string.Equals(targetEntry.Hive, def.Hive, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(RegistryOptimizer.NormalizeSubKeyPath(targetEntry.SubKeyPath), RegistryOptimizer.NormalizeSubKeyPath(def.SubKeyPath), StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(targetEntry.ValueName, def.ValueName, StringComparison.OrdinalIgnoreCase))
@@ -416,23 +427,26 @@ public static class RegistryStateLedger
                     $"A entrada de histórico não corresponde ao caminho ou nome de valor do catálogo para '{def.TweakId}'.");
             }
 
-            // 3. Validate that OriginalValueKind is a valid, supported RegistryValueKind
-            if (!Enum.TryParse<RegistryValueKind>(targetEntry.OriginalValueKind, true, out var parsedOriginalKind) ||
-                !IsSupportedRegistryValueKind(parsedOriginalKind))
+            // Restore the authenticated original type/value. Catalog restrictions apply to new writes,
+            // not to a previously recorded state protected by this entry's HMAC.
+            if (!Enum.TryParse<RegistryValueKind>(targetEntry.OriginalValueKind, true, out var parsedKind) ||
+                !Enum.IsDefined(typeof(RegistryValueKind), parsedKind) ||
+                (!targetEntry.WasInitiallyAbsent && parsedKind == RegistryValueKind.Unknown))
             {
-                return new LedgerValidationResult(false, null, "INCOMPATIBLE_VALUE_KIND",
-                    $"Tipo de Registro '{targetEntry.OriginalValueKind}' inválido ou não suportado para restauração.");
+                return new LedgerValidationResult(false, null, "INVALID_ORIGINAL_VALUE_KIND",
+                    $"Tipo original de Registro inválido na operação '{targetEntry.OperationId}'.");
             }
 
-            // 4. If the value existed originally, validate conversion of OriginalRawValue to OriginalValueKind (including MultiString and Binary)
-            if (!targetEntry.WasInitiallyAbsent)
+            if (targetEntry.WasInitiallyAbsent)
             {
-                if (targetEntry.OriginalRawValue == null ||
-                    !RegistryOptimizer.TryDeserializeRegistryValue(targetEntry.OriginalRawValue, parsedOriginalKind, out _, out string? convError))
-                {
-                    return new LedgerValidationResult(false, null, "INVALID_ORIGINAL_VALUE_FORMAT",
-                        $"Valor original '{targetEntry.OriginalRawValue ?? "<NULL>"}' não pode ser convertido com segurança para o tipo '{parsedOriginalKind}': {convError}");
-                }
+                if (targetEntry.OriginalRawValue != null)
+                    return new LedgerValidationResult(false, null, "INVALID_ABSENT_STATE",
+                        "O Ledger indica valor originalmente ausente, mas contém um valor original.");
+            }
+            else if (targetEntry.OriginalRawValue == null)
+            {
+                return new LedgerValidationResult(false, null, "MISSING_ORIGINAL_VALUE",
+                    "O Ledger não contém o valor original autenticado necessário para restaurar.");
             }
 
             return new LedgerValidationResult(true, targetEntry, null, null);
@@ -445,38 +459,20 @@ public static class RegistryStateLedger
 
         lock (_syncRoot)
         {
-            if (!IsLedgerKeyAvailable) return false;
-            if (_testScope.Value?.SimulatePersistenceFailure == true) return false;
-
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal();
             if (ledger == null) return false;
 
             var entry = ledger.Entries.FirstOrDefault(e =>
                 string.Equals(e.OperationId, operationId.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (entry == null) return false;
+            if (entry == null || entry.IsRestored) return false;
 
             entry.IsRestored = true;
             entry.RestoredAtUtc = DateTime.UtcNow.ToString("O");
             entry.EntryHmacSha256 = ComputeEntryHmac(entry);
 
-            try
-            {
-                SaveLedgerInternal(ledger);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-    }
-
-    internal static void SetSimulatedPersistenceFailureForTesting(bool simulateFailure)
-    {
-        var scope = _testScope.Value;
-        if (scope != null)
-        {
-            scope.SimulatePersistenceFailure = simulateFailure;
+            SaveLedgerInternal(ledger);
+            return true;
         }
     }
 
@@ -484,40 +480,19 @@ public static class RegistryStateLedger
     {
         lock (_syncRoot)
         {
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal();
             return ledger?.Entries.ToList() ?? new List<RegistryLedgerEntry>();
         }
     }
 
-    public static IReadOnlyList<RegistryLedgerEntry> GetHistoryForTweak(string tweakId)
-    {
-        if (string.IsNullOrWhiteSpace(tweakId))
-            return Array.Empty<RegistryLedgerEntry>();
+    internal static void ClearLedgerForTesting() => ClearLedger();
 
-        lock (_syncRoot)
-        {
-            var ledger = LoadVerifiedLedgerInternal();
-            if (ledger == null)
-                return Array.Empty<RegistryLedgerEntry>();
-
-            return ledger.Entries
-                .Where(e => string.Equals(e.TweakId, tweakId.Trim(), StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(e => e.CreatedAtUtc, StringComparer.Ordinal)
-                .ToList();
-        }
-    }
-
-    public static void ClearLedgerForTesting() => ClearLedger();
-
-    public static void ClearLedger()
+    internal static void ClearLedger()
     {
         lock (_syncRoot)
         {
-            var scope = _testScope.Value;
-            if (scope != null)
-            {
-                scope.InMemoryProtectedFiles.Clear();
-            }
+            using var processLock = AcquireCrossProcessLock();
             if (File.Exists(LedgerFilePath))
             {
                 try { File.Delete(LedgerFilePath); } catch { }
@@ -526,12 +501,13 @@ public static class RegistryStateLedger
     }
 
     /// <summary>
-    /// Internal test helper to inject an entry into the ledger (used by unit tests to test tamper detection, incompatible kinds, or valid states).
+    /// Injects an entry into the ledger (used by unit tests to test tamper detection, incompatible kinds, or valid states).
     /// </summary>
     internal static void SaveRawEntryForTesting(RegistryLedgerEntry entry, bool recomputeValidHmac = true)
     {
         lock (_syncRoot)
         {
+            using var processLock = AcquireCrossProcessLock();
             var ledger = LoadVerifiedLedgerInternal() ?? new RegistryLedgerFile();
             ledger.Entries.RemoveAll(e => string.Equals(e.OperationId, entry.OperationId, StringComparison.OrdinalIgnoreCase));
             if (recomputeValidHmac)
@@ -543,38 +519,43 @@ public static class RegistryStateLedger
         }
     }
 
+    /// <summary>
+    /// Test-only fixture helper for validating malformed Ledger identity records.
+    /// </summary>
+    internal static void SaveRawEntriesForTesting(IEnumerable<RegistryLedgerEntry> entries)
+    {
+        lock (_syncRoot)
+        {
+            using var processLock = AcquireCrossProcessLock();
+            var ledger = new RegistryLedgerFile { Entries = entries.ToList() };
+            foreach (var entry in ledger.Entries)
+                entry.EntryHmacSha256 = ComputeEntryHmac(entry);
+            SaveLedgerInternal(ledger);
+        }
+    }
+
     private static RegistryLedgerFile? LoadVerifiedLedgerInternal() => LoadVerifiedLedgerInternal(out _);
 
     private static RegistryLedgerFile? LoadVerifiedLedgerInternal(out string? errorMessage)
     {
         errorMessage = null;
-        string? secret = ActiveSecretKey;
-        if (string.IsNullOrWhiteSpace(secret))
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
         {
-            errorMessage = "Chave de autenticação do Ledger indisponível.";
+            errorMessage = "A chave DPAPI do Ledger não está disponível. Restauração autenticada bloqueada.";
             return null;
         }
 
-        string? json = null;
-        var scope = _testScope.Value;
-        if (scope != null && scope.InMemoryProtectedFiles.TryGetValue(LedgerFilePath, out string? memJson))
-        {
-            json = memJson;
-        }
-        else if (!File.Exists(LedgerFilePath))
+        if (!File.Exists(LedgerFilePath))
         {
             return new RegistryLedgerFile();
-        }
-        else
-        {
-            json = IntegrityVerifier.ReadProtectedSessionToken(LedgerFilePath);
         }
 
         try
         {
+            string? json = IntegrityVerifier.ReadProtectedSessionToken(LedgerFilePath);
             if (string.IsNullOrWhiteSpace(json))
             {
-                errorMessage = "Não foi possível descriptografar ou ler o Ledger do Registro.";
+                errorMessage = "Não foi possível descriptografar ou ler o Ledger DPAPI do Registro.";
                 return null;
             }
 
@@ -585,27 +566,74 @@ public static class RegistryStateLedger
                 return null;
             }
 
-            if (string.IsNullOrWhiteSpace(ledger.FormatVersion) ||
-                !string.Equals(ledger.FormatVersion, "2.6", StringComparison.Ordinal))
+            if (ledger.FormatVersion is not ("2.5" or "2.6"))
             {
-                errorMessage = $"Versão de formato do Ledger '{ledger.FormatVersion ?? "<NULL>"}' incompatível com o formato autenticado atual (2.6).";
+                errorMessage = $"Versão do Ledger não suportada: {ledger.FormatVersion ?? "(nula)"}; recuperação bloqueada.";
                 return null;
             }
 
-            if (!IntegrityVerifier.VerifyHmacSha256(secret, BuildLedgerCanonicalString(ledger.Entries), ledger.LedgerHmacSha256))
+            // OperationId is the recovery identity used by restore and completion APIs.
+            // Reject ambiguous identities before any FirstOrDefault lookup can select one.
+            var operationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in ledger.Entries)
+            {
+                if (entry == null || string.IsNullOrWhiteSpace(entry.OperationId) ||
+                    !operationIds.Add(entry.OperationId.Trim()))
+                {
+                    errorMessage = "O Ledger contém OperationId vazio ou duplicado; recuperação bloqueada por ambiguidade.";
+                    return null;
+                }
+            }
+
+            bool currentLedgerHmacValid = IntegrityVerifier.VerifyHmacSha256(
+                _ledgerSecretKey,
+                BuildLedgerCanonicalString(ledger.Entries),
+                ledger.LedgerHmacSha256);
+            bool previousLedgerHmacValid = !currentLedgerHmacValid && IntegrityVerifier.VerifyHmacSha256(
+                _ledgerSecretKey,
+                BuildPreviousLedgerCanonicalString(ledger.Entries),
+                ledger.LedgerHmacSha256);
+            bool legacyLedgerHmacValid = !currentLedgerHmacValid && !previousLedgerHmacValid &&
+                IntegrityVerifier.VerifyHmacSha256(
+                    _ledgerSecretKey,
+                    BuildLegacyLedgerCanonicalString(ledger.Entries),
+                    ledger.LedgerHmacSha256);
+
+            if (!currentLedgerHmacValid && !previousLedgerHmacValid && !legacyLedgerHmacValid)
             {
                 errorMessage = "Assinatura HMAC-SHA256 global do Ledger inválida (adulteração detectada).";
                 return null;
             }
 
+            bool migratedLegacyEntries = previousLedgerHmacValid || legacyLedgerHmacValid;
             foreach (var entry in ledger.Entries)
             {
-                if (!VerifyEntryHmac(entry))
+                if (VerifyEntryHmac(entry))
+                    continue;
+
+                bool previousEntryValid = IntegrityVerifier.VerifyHmacSha256(
+                    _ledgerSecretKey, BuildPreviousEntryCanonicalString(entry), entry.EntryHmacSha256);
+                if (previousEntryValid)
+                {
+                    entry.EntryHmacSha256 = ComputeEntryHmac(entry);
+                    migratedLegacyEntries = true;
+                    continue;
+                }
+
+                if (!VerifyLegacyEntryHmac(entry))
                 {
                     errorMessage = $"Assinatura HMAC-SHA256 inválida para a operação '{entry.OperationId}'.";
                     return null;
                 }
+
+                // RestoredAtUtc was not authenticated by the legacy v2.5 form. Do not trust it.
+                entry.RestoredAtUtc = null;
+                entry.EntryHmacSha256 = ComputeEntryHmac(entry);
+                migratedLegacyEntries = true;
             }
+
+            if (migratedLegacyEntries)
+                SaveLedgerInternal(ledger);
 
             return ledger;
         }
@@ -618,32 +646,57 @@ public static class RegistryStateLedger
 
     private static void SaveLedgerInternal(RegistryLedgerFile ledger)
     {
-        string? secret = ActiveSecretKey;
-        if (string.IsNullOrWhiteSpace(secret))
-        {
-            throw new InvalidOperationException("LEDGER_KEY_UNAVAILABLE: Não é possível salvar o Ledger sem chave de autenticação válida.");
-        }
+        if (string.IsNullOrWhiteSpace(_ledgerSecretKey))
+            throw new InvalidOperationException("A chave DPAPI do Ledger não está disponível. Gravação bloqueada.");
 
-        var scope = _testScope.Value;
-        if (scope?.SimulatePersistenceFailure == true)
-        {
-            throw new IOException("LEDGER_PERSISTENCE_FAILED: Falha simulada ao persistir o estado no Ledger.");
-        }
-
+        ledger.FormatVersion = "2.6";
         ledger.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
-        ledger.LedgerHmacSha256 = IntegrityVerifier.ComputeHmacSha256(secret, BuildLedgerCanonicalString(ledger.Entries));
+        ledger.LedgerHmacSha256 = IntegrityVerifier.ComputeHmacSha256(_ledgerSecretKey, BuildLedgerCanonicalString(ledger.Entries));
         string json = JsonSerializer.Serialize(ledger, new JsonSerializerOptions { WriteIndented = true });
+        string? directory = Path.GetDirectoryName(LedgerFilePath);
+        if (string.IsNullOrWhiteSpace(directory)) throw new InvalidOperationException("Diretório do Ledger inválido.");
+        Directory.CreateDirectory(directory);
 
-        if (scope != null)
+        string tempPath = LedgerFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        string backupPath = LedgerFilePath + "." + Guid.NewGuid().ToString("N") + ".bak";
+        bool originalExisted = File.Exists(LedgerFilePath);
+        bool replaced = false;
+        bool preserveBackupForRecovery = false;
+        try
         {
-            scope.InMemoryProtectedFiles[LedgerFilePath] = json;
+            TokenProtectionResult protection = ProtectedTokenWriter(tempPath, json);
+            if (!protection.Success || (OperatingSystem.IsWindows() && (!protection.DpapiProtected || !protection.AclRestricted)))
+                throw new IOException(protection.ErrorMessage ?? "O arquivo temporário do Ledger não recebeu proteção DPAPI/ACL obrigatória.");
+            if (!string.Equals(ProtectedTokenReader(tempPath), json, StringComparison.Ordinal))
+                throw new CryptographicException("A verificação de leitura do Ledger temporário falhou.");
+
+            if (originalExisted) File.Replace(tempPath, LedgerFilePath, backupPath, ignoreMetadataErrors: true);
+            else File.Move(tempPath, LedgerFilePath);
+            replaced = true;
+
+            if (!string.Equals(ProtectedTokenReader(LedgerFilePath), json, StringComparison.Ordinal))
+                throw new CryptographicException("A verificação do Ledger após a substituição falhou.");
+            if (File.Exists(backupPath)) File.Delete(backupPath);
         }
-        if (OperatingSystem.IsWindows())
+        catch
         {
-            var saveReport = IntegrityVerifier.SaveProtectedSessionTokenWithReport(LedgerFilePath, json);
-            if (scope == null && (!saveReport.Success || !saveReport.DpapiApplied))
+            if (replaced && originalExisted && File.Exists(backupPath))
             {
-                throw new IOException($"LEDGER_PERSISTENCE_FAILED: Não foi possível gravar o Ledger protegido por DPAPI ({saveReport.ErrorMessage}).");
+                try { File.Replace(backupPath, LedgerFilePath, null, ignoreMetadataErrors: true); }
+                catch { preserveBackupForRecovery = true; }
+            }
+            else if (replaced && !originalExisted)
+            {
+                try { File.Delete(LedgerFilePath); } catch { }
+            }
+            throw;
+        }
+        finally
+        {
+            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+            if (!preserveBackupForRecovery)
+            {
+                try { if (File.Exists(backupPath)) File.Delete(backupPath); } catch { }
             }
         }
     }

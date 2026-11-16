@@ -37,6 +37,7 @@ public class SystemStabilityAuditor
         int lookbackDays = 7,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int days = Math.Clamp(lookbackDays, 1, 90);
         DateTime cutoffUtc = DateTime.UtcNow.AddDays(-days);
         var events = new List<SystemStabilityEventItem>();
@@ -47,9 +48,9 @@ public class SystemStabilityAuditor
                 AuditedAtUtc: DateTime.UtcNow,
                 LookbackDays: days,
                 EventLogAccessible: false,
-                IsSystemStable: true,
+                IsSystemStable: false,
                 CriticalEvents: events,
-                DiagnosticSummary: "Leitura do Windows Event Viewer requer sistema operacional Windows nativo."
+                DiagnosticSummary: "Não foi possível verificar a estabilidade: a leitura do Windows Event Viewer requer sistema operacional Windows nativo."
             ));
         }
 
@@ -70,15 +71,21 @@ public class SystemStabilityAuditor
                 DiagnosticSummary: summary
             ));
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cancellation is a caller control signal, not an Event Viewer access failure.
+            // Preserve it so the diagnostic workflow can stop promptly and report cancellation.
+            throw;
+        }
         catch (Exception ex)
         {
             return Task.FromResult(new SystemStabilityAuditReport(
                 AuditedAtUtc: DateTime.UtcNow,
                 LookbackDays: days,
                 EventLogAccessible: false,
-                IsSystemStable: true,
+                IsSystemStable: false,
                 CriticalEvents: events,
-                DiagnosticSummary: $"Acesso ao log de eventos 'System' restrito ou indisponível nesta sessão: {ex.Message}"
+                DiagnosticSummary: $"Estabilidade não verificada: acesso ao log de eventos 'System' restrito ou indisponível nesta sessão: {ex.Message}"
             ));
         }
     }
@@ -101,9 +108,11 @@ public class SystemStabilityAuditor
             {
                 entry = sysLog.Entries[i];
             }
-            catch
+            catch (Exception ex)
             {
-                continue;
+                // A skipped unreadable entry could itself be a critical event.
+                // Fail the audit as unavailable instead of claiming the system is stable.
+                throw new InvalidOperationException("Não foi possível ler uma entrada do log System.", ex);
             }
 
             DateTime entryUtc = entry.TimeGenerated.ToUniversalTime();
@@ -114,7 +123,10 @@ public class SystemStabilityAuditor
             string source = entry.Source ?? string.Empty;
 
             bool isKernelPower41 = eventId == 41 && source.Contains("Kernel-Power", StringComparison.OrdinalIgnoreCase);
-            bool isWhea = source.Contains("WHEA-Logger", StringComparison.OrdinalIgnoreCase);
+            // Only classify the hardware-error IDs documented by this auditor.
+            // Other WHEA informational/operational events must not become false alarms.
+            bool isWhea = source.Contains("WHEA-Logger", StringComparison.OrdinalIgnoreCase) &&
+                eventId is 1 or 17 or 18 or 19 or 46;
             bool isDisplayTdr = eventId == 4101 && source.Contains("Display", StringComparison.OrdinalIgnoreCase);
 
             if (isKernelPower41 || isWhea || isDisplayTdr)

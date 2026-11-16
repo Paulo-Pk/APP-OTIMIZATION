@@ -263,6 +263,55 @@ public class AgentClientService : IDisposable
         }
     }
 
+    private static readonly System.Collections.Generic.HashSet<string> AllowedCleanerCategories =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "cache-dx-shaders",
+            "temp-windows",
+            "temp-user",
+            "update-cache"
+        };
+
+    public async Task<(bool success, string details)> ScanCleanerCategoriesAsync()
+    {
+        if (!IsConnected) return (false, "Agente privilegiado não autenticado ou desconectado.");
+        try
+        {
+            using var req = CreateAuthenticatedRequest(HttpMethod.Get, "/api/debloat/scan");
+            using var res = await _httpClient.SendAsync(req);
+            string responseText = await res.Content.ReadAsStringAsync();
+            return (res.IsSuccessStatusCode, responseText);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Falha ao consultar o agente de limpeza: {ex.Message}");
+        }
+    }
+
+    public async Task<(bool success, string details)> PurgeCleanerCategoryAsync(
+        string categoryKey,
+        bool confirmUpdateCache = false)
+    {
+        if (!AllowedCleanerCategories.Contains(categoryKey))
+            return (false, "Categoria de limpeza não autorizada.");
+        if (!IsConnected) return (false, "Agente privilegiado não autenticado ou desconectado.");
+
+        try
+        {
+            using var req = CreateAuthenticatedRequest(
+                HttpMethod.Post,
+                "/api/debloat/purge",
+                new { categoryKey, confirmUpdateCache });
+            using var res = await _httpClient.SendAsync(req);
+            string responseText = await res.Content.ReadAsStringAsync();
+            return (res.IsSuccessStatusCode, responseText);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Falha ao executar limpeza pelo agente: {ex.Message}");
+        }
+    }
+
     public void Dispose()
     {
         _httpClient.Dispose();

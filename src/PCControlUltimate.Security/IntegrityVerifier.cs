@@ -122,10 +122,8 @@ public static class IntegrityVerifier
             if (!string.IsNullOrEmpty(dir))
             {
                 Directory.CreateDirectory(dir);
-                if (OperatingSystem.IsWindows())
-                {
-                    TryRestrictDirectoryAclToCurrentUser(dir, out _);
-                }
+                if (OperatingSystem.IsWindows() && !TryRestrictDirectoryAclToCurrentUser(dir, out string? directoryAclError))
+                    return new TokenProtectionResult(false, false, false, $"NTFS directory ACL restriction failed: {directoryAclError}");
             }
 
             byte[] plainBytes = Encoding.UTF8.GetBytes(plainToken);

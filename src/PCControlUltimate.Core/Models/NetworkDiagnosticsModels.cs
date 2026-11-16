@@ -47,13 +47,24 @@ public record NetworkEndpointTestResult(
     [property: JsonPropertyName("icmpRoundtripMs")] string IcmpRoundtripMs,
     [property: JsonPropertyName("tcpConnectMs")] string TcpConnectMs,
     [property: JsonPropertyName("note")] string Note
-);
+)
+{
+    public string TargetName => Name;
+    public string HostOrIp => Note;
+    public string AverageRttMs => IcmpRoundtripMs;
+    public string JitterMs => "—";
+    public string PacketLossPercent => "—";
+    public string TcpHandshakeMs => TcpConnectMs;
+}
 
 public record DnsQueryResult(
     [property: JsonPropertyName("hostname")] string Hostname,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("resolutionMs")] long ResolutionMs
-);
+)
+{
+    public long QueryTimeMs => ResolutionMs;
+}
 
 public record ExternalThroughputResult(
     [property: JsonPropertyName("available")] bool Available,

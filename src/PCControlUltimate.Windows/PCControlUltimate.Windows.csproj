@@ -8,9 +8,6 @@
     <RootNamespace>PCControlUltimate.Windows</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="PCControlUltimate.Tests" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="../PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
     <ProjectReference Include="../PCControlUltimate.Hardware/PCControlUltimate.Hardware.csproj" />
     <ProjectReference Include="../PCControlUltimate.Gaming/PCControlUltimate.Gaming.csproj" />
@@ -18,8 +15,11 @@
     <ProjectReference Include="../PCControlUltimate.Security/PCControlUltimate.Security.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="System.Management" Version="9.0.2" />
+    <PackageReference Include="System.Management" Version="10.0.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.2" />
     <PackageReference Include="Serilog" Version="4.2.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PCControlUltimate.Tests" />
   </ItemGroup>
 </Project>

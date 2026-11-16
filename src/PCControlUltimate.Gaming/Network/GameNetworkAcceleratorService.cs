@@ -2,15 +2,29 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Text.Json;
 using System.Linq;
+using Microsoft.Win32;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace PCControlUltimate.Gaming.Network;
+
+public record InstalledGameEntry(
+    string Title,
+    string Launcher,
+    string InstallLocation,
+    string AppId,
+    string? ExecutablePath,
+    bool IsInstalled,
+    string? CoverImageUrl = null
+);
 
 public record DetectedGameConnection(
     int ProcessId,
@@ -21,7 +35,10 @@ public record DetectedGameConnection(
     string RemoteAddress,
     int RemotePort,
     string ConnectionState
-);
+)
+{
+    public string RemoteEndpoint => RemotePort > 0 ? $"{RemoteAddress}:{RemotePort}" : RemoteAddress;
+}
 
 public record TracerouteHopResult(
     int HopNumber,
@@ -215,6 +232,480 @@ public static class GameNetworkAcceleratorService
         return true;
     }
 
+    private static bool IsMainGameTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+
+        // Exclude separately catalogued add-ons while keeping normal editions of base games.
+        return !Regex.IsMatch(
+            title,
+            @"\b(dlc|season\s*pass|expansion(?:\s*pass|\s*pack)?|add[\s-]?on|content\s*pack|soundtrack|original\s*soundtrack|ost|supporter\s*pack|upgrade\s*pack|cosmetic\s*pack|bonus\s*content|artbook|map\s*pack|character\s*pack|mission\s*pack|story\s*pack|starter\s*pack|demo|playtest)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    /// <summary>
+    /// Discovers installed games from supported Steam and Epic manifests plus GOG, Ubisoft Connect, and EA registry catalogs. No full-disk scan.
+    /// </summary>
+    public static IReadOnlyList<InstalledGameEntry> DiscoverInstalledGames()
+    {
+        var games = new Dictionary<string, InstalledGameEntry>(StringComparer.OrdinalIgnoreCase);
+        void Add(InstalledGameEntry game)
+        {
+            if (string.IsNullOrWhiteSpace(game.Title) || string.IsNullOrWhiteSpace(game.InstallLocation))
+                return;
+
+            // Launcher catalogs may include DLC apps, expansion packs, soundtracks,
+            // dedicated servers and tools alongside the base games. Keep the library
+            // focused on standalone playable titles.
+            if (IsDlcOrNonGameCatalogEntry(game.Title))
+                return;
+
+            // Steam exposes official library artwork by AppID. Other launchers do not
+            // provide a common public artwork URL in their local install catalogs.
+            if (string.Equals(game.Launcher, "Steam", StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(game.AppId, @"^\d+$"))
+            {
+                game = game with
+                {
+                    CoverImageUrl = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.AppId}/library_600x900.jpg"
+                };
+            }
+
+            games[game.Launcher + ":" + game.AppId] = game;
+        }
+
+        try
+        {
+            var steamRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string defaultSteam = Path.Combine(programFilesX86, "Steam");
+            if (Directory.Exists(defaultSteam)) steamRoots.Add(defaultSteam);
+
+            // Steam may be installed outside Program Files (x86). Read its registered
+            // install locations instead of scanning the entire disk.
+            AddSteamRegistryRoot(steamRoots, RegistryHive.CurrentUser, RegistryView.Registry32,
+                @"Software\Valve\Steam", "SteamPath");
+            AddSteamRegistryRoot(steamRoots, RegistryHive.CurrentUser, RegistryView.Registry64,
+                @"Software\Valve\Steam", "SteamPath");
+            AddSteamRegistryRoot(steamRoots, RegistryHive.LocalMachine, RegistryView.Registry32,
+                @"Software\Valve\Steam", "InstallPath");
+            AddSteamRegistryRoot(steamRoots, RegistryHive.LocalMachine, RegistryView.Registry64,
+                @"Software\Valve\Steam", "InstallPath");
+            AddSteamRegistryRoot(steamRoots, RegistryHive.LocalMachine, RegistryView.Registry64,
+                @"Software\WOW6432Node\Valve\Steam", "InstallPath");
+
+            // Expand the complete set of Steam libraries before reading app manifests.
+            foreach (string root in steamRoots.ToArray())
+            {
+                string libraryFile = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+                if (!File.Exists(libraryFile)) continue;
+                string vdf = File.ReadAllText(libraryFile);
+                foreach (Match match in Regex.Matches(vdf, @"""path""\s*""([^""]+)""", RegexOptions.IgnoreCase))
+                {
+                    string library = match.Groups[1].Value.Replace(@"\\", @"\");
+                    if (Directory.Exists(library)) steamRoots.Add(Path.GetFullPath(library));
+                }
+            }
+
+            // Scan manifests in the primary Steam folder and every discovered library.
+            foreach (string root in steamRoots)
+            {
+                string apps = Path.Combine(root, "steamapps");
+                if (!Directory.Exists(apps)) continue;
+                foreach (string manifest in Directory.EnumerateFiles(apps, "appmanifest_*.acf", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        string data = File.ReadAllText(manifest);
+                        string title = Regex.Match(data, @"""name""\s*""([^""]+)""", RegexOptions.IgnoreCase).Groups[1].Value;
+                        string installDir = Regex.Match(data, @"""installdir""\s*""([^""]+)""", RegexOptions.IgnoreCase).Groups[1].Value;
+                        string appId = Regex.Match(Path.GetFileName(manifest), @"appmanifest_(\d+)\.acf", RegexOptions.IgnoreCase).Groups[1].Value;
+                        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(installDir) || string.IsNullOrWhiteSpace(appId)) continue;
+                        string location = Path.GetFullPath(Path.Combine(apps, "common", installDir));
+                        if (Directory.Exists(location))
+                            Add(new InstalledGameEntry(title, "Steam", location, appId, null, true));
+                    }
+                    catch { /* Skip unreadable or malformed manifests. */ }
+                }
+            }
+        }
+        catch { /* Steam is optional. */ }
+
+        try
+        {
+            string manifests = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Epic", "EpicGamesLauncher", "Data", "Manifests");
+            if (Directory.Exists(manifests))
+            {
+                foreach (string manifest in Directory.EnumerateFiles(manifests, "*.item", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(manifest));
+                        JsonElement root = doc.RootElement;
+                        string title = ReadManifestString(root, "DisplayName");
+                        string location = ReadManifestString(root, "InstallLocation");
+                        string appId = ReadManifestString(root, "AppName");
+                        string launchExe = ReadManifestString(root, "LaunchExecutable");
+                        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(location)) continue;
+                        location = Path.GetFullPath(location);
+                        if (!Directory.Exists(location)) continue;
+                        string? executable = null;
+                        if (!string.IsNullOrWhiteSpace(launchExe))
+                        {
+                            string candidate = Path.GetFullPath(Path.Combine(location, launchExe));
+                            string prefix = location.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                            if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+                                executable = candidate;
+                        }
+                        Add(new InstalledGameEntry(title, "Epic Games", location,
+                            string.IsNullOrWhiteSpace(appId) ? Path.GetFileNameWithoutExtension(manifest) : appId,
+                            executable, true));
+                    }
+                    catch { /* Skip unreadable or malformed manifests. */ }
+                }
+            }
+        }
+        catch { /* Epic Games is optional. */ }
+
+        // Additional launchers expose installed-game locations through their own registry catalogs.
+        // These are bounded lookups; no disk-wide executable scan is performed.
+        AddRegistryGameCatalog(games, RegistryHive.CurrentUser, RegistryView.Registry32,
+            @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
+        AddRegistryGameCatalog(games, RegistryHive.CurrentUser, RegistryView.Registry64,
+            @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
+            @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
+            @"Software\GOG.com\Games", "GOG", new[] { "path", "gamePath", "installDir" },
+            new[] { "gameName", "name", "DisplayName" }, new[] { "exe", "gameExe" });
+
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
+            @"Software\Ubisoft\Launcher\Installs", "Ubisoft Connect",
+            new[] { "InstallDir", "InstallLocation", "InstallPath" },
+            new[] { "DisplayName", "GameName", "name" }, new[] { "Exe", "Executable" });
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
+            @"Software\Ubisoft\Launcher\Installs", "Ubisoft Connect",
+            new[] { "InstallDir", "InstallLocation", "InstallPath" },
+            new[] { "DisplayName", "GameName", "name" }, new[] { "Exe", "Executable" });
+
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry32,
+            @"Software\EA Games", "EA app",
+            new[] { "Install Dir", "InstallDir", "InstallLocation" },
+            new[] { "DisplayName", "GameName", "ProductName" }, new[] { "Executable", "Exe" });
+        AddRegistryGameCatalog(games, RegistryHive.LocalMachine, RegistryView.Registry64,
+            @"Software\EA Games", "EA app",
+            new[] { "Install Dir", "InstallDir", "InstallLocation" },
+            new[] { "DisplayName", "GameName", "ProductName" }, new[] { "Executable", "Exe" });
+
+        // Xbox / Microsoft Store GDK games are registered as Windows app packages.
+        // Enumerate only the current user's packages and accept packages carrying the
+        // official MicrosoftGame.config game manifest (not every Store app).
+        AddMicrosoftStoreGames(games);
+        AddXboxGamesFolderGames(games);
+
+        return games.Values
+            .Where(game => !IsDlcOrNonGameCatalogEntry(game.Title))
+            .Select(game =>
+                string.Equals(game.Launcher, "Steam", StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(game.AppId, @"^\d+$") &&
+                string.IsNullOrWhiteSpace(game.CoverImageUrl)
+                    ? game with { CoverImageUrl = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.AppId}/library_600x900.jpg" }
+                    : game)
+            .OrderBy(game => game.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsDlcOrNonGameCatalogEntry(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return true;
+        return Regex.IsMatch(
+            title,
+            @"\b(DLCs?|Expansions?(?:\s+Pack)?|Season\s+Pass|Add[- ]?ons?|Soundtracks?|Original\s+Soundtrack|Dedicated\s+Server|Server\s+Tools|Workshop\s+Tools|Test\s+Server|Public\s+Test|Test\s+Application|SDK|Editor|Mod\s+Tools|Redistributables?|Runtimes?)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static void AddXboxGamesFolderGames(Dictionary<string, InstalledGameEntry> games)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            // GDK flat-file installs use [drive]:\\XboxGames by default. Keep this
+            // lookup bounded to that known folder and its immediate game directories.
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (!drive.IsReady || drive.DriveType != DriveType.Fixed) continue;
+                    string xboxGamesRoot = Path.Combine(drive.RootDirectory.FullName, "XboxGames");
+                    foreach (InstalledGameEntry game in DiscoverXboxGamesFolder(xboxGamesRoot))
+                        games["Xbox / Microsoft Store:" + game.AppId] = game;
+                }
+                catch
+                {
+                    // An unavailable or protected drive must not interrupt other catalogs.
+                }
+            }
+        }
+        catch
+        {
+            // Xbox folder discovery is optional; other launcher catalogs remain available.
+        }
+    }
+
+    internal static IReadOnlyList<InstalledGameEntry> DiscoverXboxGamesFolder(string xboxGamesRoot)
+    {
+        var discovered = new List<InstalledGameEntry>();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(xboxGamesRoot) || !Directory.Exists(xboxGamesRoot))
+                return discovered;
+
+            // No recursive or whole-disk scan: inspect only immediate game folders.
+            foreach (string gameDirectory in Directory.EnumerateDirectories(
+                xboxGamesRoot, "*", SearchOption.TopDirectoryOnly))
+            {
+                string packageName = Path.GetFileName(gameDirectory);
+                if (TryReadMicrosoftGameConfig(gameDirectory, packageName, out InstalledGameEntry? game)
+                    && game is not null)
+                {
+                    discovered.Add(game);
+                }
+            }
+        }
+        catch
+        {
+            // Skip inaccessible folders and malformed game installations individually.
+        }
+
+        return discovered;
+    }
+
+    private static void AddMicrosoftStoreGames(Dictionary<string, InstalledGameEntry> games)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            const string script =
+                "Get-AppxPackage | Where-Object { -not [string]::IsNullOrWhiteSpace($_.InstallLocation) } " +
+                "| Select-Object @{Name='Name';Expression={$_.Name}}, @{Name='InstallLocation';Expression={$_.InstallLocation}} " +
+                "| ConvertTo-Json -Compress";
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("-NoLogo");
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-NonInteractive");
+            startInfo.ArgumentList.Add("-Command");
+            startInfo.ArgumentList.Add(script);
+
+            using Process? process = Process.Start(startInfo);
+            if (process is null) return;
+
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(15000))
+            {
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+                try { process.WaitForExit(5000); } catch { }
+                // Observe both redirected-stream tasks after terminating a timed-out
+                // PowerShell process so no background reads are left unobserved.
+                try { Task.WhenAll(outputTask, errorTask).GetAwaiter().GetResult(); } catch { }
+                return;
+            }
+
+            string output = outputTask.GetAwaiter().GetResult();
+            _ = errorTask.GetAwaiter().GetResult();
+            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output)) return;
+
+            using JsonDocument document = JsonDocument.Parse(output);
+            IEnumerable<JsonElement> packages = document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.EnumerateArray().ToArray()
+                : document.RootElement.ValueKind == JsonValueKind.Object
+                    ? new[] { document.RootElement }
+                    : Array.Empty<JsonElement>();
+
+            foreach (JsonElement package in packages)
+            {
+                string packageName = ReadManifestString(package, "Name");
+                string installLocation = ReadManifestString(package, "InstallLocation");
+                if (string.IsNullOrWhiteSpace(packageName) || string.IsNullOrWhiteSpace(installLocation))
+                    continue;
+
+                if (TryReadMicrosoftGameConfig(installLocation, packageName, out InstalledGameEntry? game)
+                    && game is not null)
+                {
+                    games["Xbox / Microsoft Store:" + game.AppId] = game;
+                }
+            }
+        }
+        catch
+        {
+            // Package enumeration is optional; other launcher catalogs remain available.
+        }
+    }
+
+    internal static bool TryReadMicrosoftGameConfig(
+        string installLocation,
+        string packageName,
+        out InstalledGameEntry? game)
+    {
+        game = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(installLocation) || string.IsNullOrWhiteSpace(packageName))
+                return false;
+
+            string location = Path.GetFullPath(installLocation);
+            if (!Directory.Exists(location)) return false;
+
+            string configPath = Path.Combine(location, "MicrosoftGame.config");
+            if (!File.Exists(configPath)) return false;
+
+            XDocument config = XDocument.Load(configPath);
+            XElement? identity = config.Descendants().FirstOrDefault(element => element.Name.LocalName == "Identity");
+            XElement? shellVisuals = config.Descendants().FirstOrDefault(element => element.Name.LocalName == "ShellVisuals");
+            string appId = identity?.Attribute("Name")?.Value?.Trim() ?? packageName;
+            string title = shellVisuals?.Attribute("DefaultDisplayName")?.Value?.Trim() ?? packageName;
+            if (string.IsNullOrWhiteSpace(appId)) appId = packageName;
+            if (string.IsNullOrWhiteSpace(title)) title = packageName;
+
+            string? executable = null;
+            XElement? executableElement = config.Descendants().FirstOrDefault(element => element.Name.LocalName == "Executable");
+            string? executableName = executableElement?.Attribute("Name")?.Value?.Trim();
+            if (!string.IsNullOrWhiteSpace(executableName))
+            {
+                string candidate = Path.GetFullPath(Path.Combine(location, executableName));
+                string prefix = location.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+                    executable = candidate;
+            }
+
+            game = new InstalledGameEntry(title, "Xbox / Microsoft Store", location, appId, executable, true);
+            return true;
+        }
+        catch
+        {
+            // Invalid or inaccessible package manifests are skipped individually.
+            return false;
+        }
+    }
+
+    private static void AddRegistryGameCatalog(
+        Dictionary<string, InstalledGameEntry> games,
+        RegistryHive hive,
+        RegistryView view,
+        string catalogPath,
+        string launcher,
+        IReadOnlyList<string> locationValueNames,
+        IReadOnlyList<string> titleValueNames,
+        IReadOnlyList<string> executableValueNames)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view);
+            using RegistryKey? catalog = baseKey.OpenSubKey(catalogPath);
+            if (catalog is null) return;
+
+            foreach (string subKeyName in catalog.GetSubKeyNames())
+            {
+                try
+                {
+                    using RegistryKey? entry = catalog.OpenSubKey(subKeyName);
+                    if (entry is null) continue;
+
+                    string ReadFirst(IReadOnlyList<string> names)
+                    {
+                        foreach (string name in names)
+                        {
+                            string? value = entry.GetValue(name) as string;
+                            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+                        }
+                        return string.Empty;
+                    }
+
+                    string rawLocation = ReadFirst(locationValueNames);
+                    if (string.IsNullOrWhiteSpace(rawLocation)) continue;
+                    string location = Path.GetFullPath(Environment.ExpandEnvironmentVariables(rawLocation));
+                    if (!Directory.Exists(location)) continue;
+
+                    string title = ReadFirst(titleValueNames);
+                    if (string.IsNullOrWhiteSpace(title)) title = subKeyName;
+                    string rawExecutable = ReadFirst(executableValueNames);
+                    string? executable = null;
+                    if (!string.IsNullOrWhiteSpace(rawExecutable))
+                    {
+                        string candidate = Path.IsPathRooted(rawExecutable)
+                            ? Path.GetFullPath(rawExecutable)
+                            : Path.GetFullPath(Path.Combine(location, rawExecutable));
+                        string prefix = location.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                        if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+                            executable = candidate;
+                    }
+
+                    string key = launcher + ":" + subKeyName;
+                    games[key] = new InstalledGameEntry(title, launcher, location, subKeyName, executable, true);
+                }
+                catch
+                {
+                    // One malformed launcher entry must not stop discovery of other games.
+                }
+            }
+        }
+        catch
+        {
+            // Launcher registry catalogs are optional and may be absent or inaccessible.
+        }
+    }
+
+    private static void AddSteamRegistryRoot(
+        HashSet<string> roots,
+        RegistryHive hive,
+        RegistryView view,
+        string subKeyPath,
+        string valueName)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view);
+            using RegistryKey? steamKey = baseKey.OpenSubKey(subKeyPath);
+            string? registeredPath = steamKey?.GetValue(valueName) as string;
+            if (string.IsNullOrWhiteSpace(registeredPath)) return;
+
+            string normalizedPath = Environment.ExpandEnvironmentVariables(registeredPath.Trim());
+            if (Directory.Exists(normalizedPath))
+                roots.Add(Path.GetFullPath(normalizedPath));
+        }
+        catch
+        {
+            // Registry access is optional; continue with other known Steam locations.
+        }
+    }
+
+    private static string ReadManifestString(JsonElement root, string propertyName)
+    {
+        return root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty(propertyName, out JsonElement value)
+            && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+    }
+
     /// <summary>
     /// Detects currently running game processes and maps their active external TCP/UDP socket endpoints
     /// without injecting into game processes or reading process memory.
@@ -254,9 +745,14 @@ public static class GameNetworkAcceleratorService
             }
 
             // Parse active OS socket table via netstat -ano without touching the game process
+            if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(Environment.SystemDirectory))
+                return results;
+
             var psi = new ProcessStartInfo
             {
-                FileName = "netstat",
+                // Use the Windows system binary explicitly; never resolve netstat through
+                // the current directory or a potentially modified PATH.
+                FileName = Path.Combine(Environment.SystemDirectory, "netstat.exe"),
                 Arguments = "-ano",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -266,9 +762,42 @@ public static class GameNetworkAcceleratorService
             using var netstatProc = Process.Start(psi);
             if (netstatProc != null)
             {
-                string output = netstatProc.StandardOutput.ReadToEnd();
-                netstatProc.WaitForExit(2000);
+                // Drain stdout asynchronously while enforcing a hard process lifetime.
+                // ReadToEnd() before a timeout can otherwise wait forever if netstat stalls.
+                Task<string> outputTask = netstatProc.StandardOutput.ReadToEndAsync();
+                if (!netstatProc.WaitForExit(2000))
+                {
+                    try
+                    {
+                        if (!netstatProc.HasExited)
+                            netstatProc.Kill(entireProcessTree: true);
+                    }
+                    catch { }
 
+                    // Do not wait on a redirected stream if the process could not be
+                    // terminated; a failed kill must not turn this timeout into a hang.
+                    try
+                    {
+                        if (!netstatProc.WaitForExit(1000))
+                            return results;
+                    }
+                    catch
+                    {
+                        return results;
+                    }
+                }
+
+                string output;
+                try
+                {
+                    // The process has exited, so its redirected stdout should be closed.
+                    // Keep a final bound in case an unexpected handle owner keeps the pipe open.
+                    output = outputTask.WaitAsync(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult();
+                }
+                catch
+                {
+                    return results;
+                }
                 var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (var line in lines)
                 {
@@ -615,8 +1144,52 @@ public static class GameNetworkAcceleratorService
             );
         }
 
-        // Total relay RTT includes User->Relay RTT plus Relay->GameServer leg (if not directly measured from inside the tunnel, must be at least the ingress RTT)
-        double relayTotalRtt = Math.Round(relayIngressProbe.AverageRttMs.Value + Math.Max(0.0, estimatedRelayToGameLegMs ?? 0.0), 2);
+        if (!directRoute.IsReliable || !directRoute.AverageRttMs.HasValue)
+        {
+            var unreliableDirect = new RouteComparisonEvaluation(
+                GameIdentifier: gameIdentifier,
+                TargetServerHost: targetServerHost,
+                TargetServerPort: targetServerPort,
+                DirectRoute: directRoute,
+                BestRelayNodeId: candidateNode.NodeId,
+                BestRelayNodeName: candidateNode.DisplayName,
+                RelayIngressProbe: relayIngressProbe,
+                EstimatedTotalRelayRttMs: null,
+                RecommendedMode: "Direct",
+                ShouldUseRelay: false,
+                HonestVerdictPt: "MANTER ROTA DIRETA / NOVA MEDIÇÃO NECESSÁRIA: a rota direta não possui amostras confiáveis para servir de referência. Não é seguro afirmar que o relay melhora a conexão.",
+                HonestVerdictEn: "KEEP DIRECT / MEASUREMENT REQUIRED: the direct route has no reliable baseline samples. A relay improvement cannot be established safely.",
+                MeasuredAtUtc: nowIso
+            );
+            EnqueueEvaluation(unreliableDirect);
+            return unreliableDirect;
+        }
+
+        if (!estimatedRelayToGameLegMs.HasValue ||
+            !double.IsFinite(estimatedRelayToGameLegMs.Value) ||
+            estimatedRelayToGameLegMs.Value < 0)
+        {
+            var unmeasuredRelayLeg = new RouteComparisonEvaluation(
+                GameIdentifier: gameIdentifier,
+                TargetServerHost: targetServerHost,
+                TargetServerPort: targetServerPort,
+                DirectRoute: directRoute,
+                BestRelayNodeId: candidateNode.NodeId,
+                BestRelayNodeName: candidateNode.DisplayName,
+                RelayIngressProbe: relayIngressProbe,
+                EstimatedTotalRelayRttMs: null,
+                RecommendedMode: "Direct",
+                ShouldUseRelay: false,
+                HonestVerdictPt: "MANTER ROTA DIRETA: foi medida apenas a latência entre o PC e o relay. A latência do relay até o servidor do jogo não foi medida; sem esse segundo trecho, não é possível calcular nem recomendar a rota completa.",
+                HonestVerdictEn: "KEEP DIRECT: only the PC-to-relay leg was measured. The relay-to-game-server leg is unknown, so the complete route cannot be calculated or recommended.",
+                MeasuredAtUtc: nowIso
+            );
+            EnqueueEvaluation(unmeasuredRelayLeg);
+            return unmeasuredRelayLeg;
+        }
+
+        // Total RTT is only evaluated when the relay-to-game-server leg was supplied as a measured estimate.
+        double relayTotalRtt = Math.Round(relayIngressProbe.AverageRttMs.Value + estimatedRelayToGameLegMs.Value, 2);
         double directRtt = directRoute.AverageRttMs ?? 9999.0;
         double directJitter = directRoute.JitterMs ?? 999.0;
         double relayJitter = relayIngressProbe.JitterMs ?? 999.0;
@@ -745,10 +1318,11 @@ public static class GameNetworkAcceleratorService
         double? currentPacketLossPercent = null,
         CancellationToken cancellationToken = default)
     {
-        string nicName = "Adaptador Padrão";
-        string nicType = "Ethernet";
+        string nicName = "Não detectado";
+        string nicType = "Indisponível";
         bool isWifi = false;
-        long speedMbps = 1000;
+        bool interfaceDetected = false;
+        long speedMbps = 0;
         long rxBytes = 0;
         long txBytes = 0;
 
@@ -762,6 +1336,7 @@ public static class GameNetworkAcceleratorService
 
             if (activeNic != null)
             {
+                interfaceDetected = true;
                 nicName = activeNic.Description;
                 nicType = activeNic.NetworkInterfaceType.ToString();
                 isWifi = activeNic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 ||
@@ -773,38 +1348,78 @@ public static class GameNetworkAcceleratorService
                 txBytes = stats.BytesSent;
             }
         }
-        catch { }
+        catch
+        {
+            interfaceDetected = false;
+            nicName = "Não detectado";
+            nicType = "Indisponível";
+            speedMbps = 0;
+            rxBytes = 0;
+            txBytes = 0;
+        }
 
         double? dnsMs = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var sw = Stopwatch.StartNew();
             await Dns.GetHostAddressesAsync("steampowered.com", cancellationToken);
             sw.Stop();
             dnsMs = Math.Round(sw.Elapsed.TotalMilliseconds, 1);
         }
-        catch { }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // DNS measurement is optional; absence is reported as unavailable.
+        }
 
-        bool congestion = (currentJitterMs ?? 0) >= 12.0 || (currentPacketLossPercent ?? 0) >= 1.5;
+        bool hasJitterMeasurement = currentJitterMs.HasValue &&
+                                    double.IsFinite(currentJitterMs.Value) &&
+                                    currentJitterMs.Value >= 0;
+        bool hasPacketLossMeasurement = currentPacketLossPercent.HasValue &&
+                                        double.IsFinite(currentPacketLossPercent.Value) &&
+                                        currentPacketLossPercent.Value >= 0;
+        bool congestion = (hasJitterMeasurement && currentJitterMs!.Value >= 12.0) ||
+                          (hasPacketLossMeasurement && currentPacketLossPercent!.Value >= 1.5);
 
         AcceleratorOperatingMode mode;
         string justification;
-        if (isWifi || congestion)
+        if (!interfaceDetected)
+        {
+            mode = AcceleratorOperatingMode.Automatico;
+            justification = "Nenhuma interface de rede ativa pôde ser confirmada. A recomendação de modo foi mantida neutra; verifique a conexão e tente novamente.";
+        }
+        else if (isWifi)
         {
             mode = AcceleratorOperatingMode.Estabilidade;
-            justification = isWifi
-                ? $"Conexão sem fio (Wi-Fi) detectada em '{nicName}'. Modo Estabilidade recomendado para mitigar jitter de radiofrequência."
-                : $"Oscilação de rede detectada (Jitter: {currentJitterMs ?? 0:F1} ms). Modo Estabilidade prioriza consistência de entrega.";
+            justification = $"Conexão sem fio (Wi-Fi) detectada em '{nicName}'. Modo Estabilidade recomendado para reduzir oscilações típicas do enlace sem fio; isso não garante redução de ping.";
         }
-        else if (speedMbps >= 500 && (currentJitterMs ?? 0) < 4.0)
+        else if (congestion)
+        {
+            mode = AcceleratorOperatingMode.Estabilidade;
+            string evidence = hasJitterMeasurement && currentJitterMs!.Value >= 12.0
+                ? $"jitter medido de {currentJitterMs.Value:F1} ms"
+                : $"perda de pacotes medida de {currentPacketLossPercent!.Value:F1}%";
+            justification = $"Sinal de instabilidade detectado ({evidence}). Modo Estabilidade recomendado para priorizar consistência.";
+        }
+        else if (speedMbps >= 500 && hasJitterMeasurement && currentJitterMs!.Value < 4.0)
         {
             mode = AcceleratorOperatingMode.BaixaLatencia;
-            justification = $"Link Ethernet de alta velocidade ({speedMbps} Mbps) com baixo jitter. Modo Baixa Latência otimiza o caminho direto.";
+            justification = $"Link de alta velocidade ({speedMbps} Mbps) e jitter medido baixo ({currentJitterMs.Value:F1} ms). Modo Baixa Latência recomendado; o resultado depende também do servidor e da rota do jogo.";
         }
         else
         {
             mode = AcceleratorOperatingMode.Gaming;
-            justification = $"Conexão cabeada estável ({speedMbps} Mbps). Modo Gaming mantém priorização MMCSS e rota direta verificada.";
+            string link = speedMbps > 0
+                ? $"Interface '{nicName}' negociada a {speedMbps} Mbps"
+                : $"Interface '{nicName}' detectada, mas a velocidade negociada não foi informada";
+            string jitter = hasJitterMeasurement
+                ? $" Jitter medido: {currentJitterMs!.Value:F1} ms."
+                : " Jitter não medido nesta análise.";
+            justification = $"{link}.{jitter} Não há evidência suficiente para recomendar uma rota alternativa; mantenha a rota direta.";
         }
 
         return new AcceleratorNetworkEnvironmentAnalysis(

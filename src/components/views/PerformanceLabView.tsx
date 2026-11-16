@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Gauge,
   Activity,
@@ -6,49 +6,165 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-import { PresentMonSession } from '../../types';
+import { HardwareTelemetry, PresentMonSession } from '../../types';
 import { useI18n } from '../../i18n';
 import { nativeBridge } from '../../services/nativeBridge';
 
-export const PerformanceLabView: React.FC = () => {
+interface PerformanceLabViewProps { telemetry: HardwareTelemetry; }
+
+export const PerformanceLabView: React.FC<PerformanceLabViewProps> = ({ telemetry }) => {
   const { t } = useI18n();
   // Strictly empty until a real PresentMon capture is completed via the Windows Agent
   const [sessions, setSessions] = useState<PresentMonSession[]>([]);
-  const [selectedProcess, setSelectedProcess] = useState<string>('cs2.exe');
+  const [selectedProcess, setSelectedProcess] = useState<string>('');
+  const [runningProcesses, setRunningProcesses] = useState<Array<{ processId: number; processName: string; mainWindowTitle: string }>>([]);
+  const [gameTitlesByProcess, setGameTitlesByProcess] = useState<Record<string, string>>({});
+  const [processDiscoveryNote, setProcessDiscoveryNote] = useState('');
+  const [isLoadingProcesses, setIsLoadingProcesses] = useState(false);
+
+  const refreshRunningProcesses = useCallback(async () => {
+    setIsLoadingProcesses(true);
+    try {
+      const [processes, installedGames] = await Promise.all([
+        nativeBridge.listRunningProcesses(),
+        nativeBridge.discoverInstalledGames(),
+      ]);
+      const visibleProcesses = (processes || [])
+        .filter((p) => p.processName && p.processId > 4 && (p.mainWindowTitle || '').trim().length > 0)
+        .sort((a, b) => a.mainWindowTitle.localeCompare(b.mainWindowTitle, 'pt-BR'));
+
+      // Match running processes against detected game installation paths. This lets
+      // the user choose a game by its display title instead of knowing its .exe name.
+      const gameEntries = (installedGames || []).filter((game) => game.isInstalled);
+      const titleByProcess: Record<string, string> = {};
+      const normalizeGameLabel = (value: string) => value.toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]/g, '');
+      for (const game of gameEntries) {
+        if (game.executablePath) {
+          const executableName = game.executablePath.split(/[\\/]/).pop()?.replace(/\.exe$/i, '').toLowerCase();
+          if (executableName) titleByProcess[executableName] = game.title;
+        }
+      }
+      const matchedGames = visibleProcesses.filter((process) => {
+        const processName = process.processName.toLowerCase();
+        if (titleByProcess[processName]) return true;
+        const windowTitle = normalizeGameLabel(process.mainWindowTitle);
+        const matchingInstalledGame = gameEntries.find((game) => {
+          const gameTitle = normalizeGameLabel(game.title);
+          return gameTitle.length >= 4 && windowTitle.includes(gameTitle);
+        });
+        if (matchingInstalledGame) titleByProcess[processName] = matchingInstalledGame.title;
+        return Boolean(matchingInstalledGame);
+      });
+      const candidates = matchedGames.length > 0 ? matchedGames : visibleProcesses;
+
+      setGameTitlesByProcess(titleByProcess);
+      setRunningProcesses(candidates);
+      setProcessDiscoveryNote(matchedGames.length > 0
+        ? `${matchedGames.length} jogo(s) em execução identificado(s) automaticamente.`
+        : visibleProcesses.length > 0
+          ? 'Nenhum jogo instalado foi associado com segurança. Exibindo aplicativos em execução para seleção manual.'
+          : 'Nenhum jogo com janela ativa foi encontrado. Abra um jogo e atualize a lista.');
+      setSelectedProcess((current) => candidates.some((p) => p.processName === current) ? current : (candidates[0]?.processName || ''));
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? `Falha ao procurar jogos em execução: ${error.message}` : 'Falha ao procurar jogos em execução.');
+    } finally {
+      setIsLoadingProcesses(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // The view may mount after the app has already authenticated the agent.
+    // Load the process list immediately in that case; subscriptions only report
+    // future status changes and would otherwise leave this screen initially empty.
+    if (nativeBridge.getStatus().isConnected) {
+      void refreshRunningProcesses();
+    }
+
+    const unsubscribe = nativeBridge.subscribe((status) => {
+      if (status.isConnected) void refreshRunningProcesses();
+      else { setRunningProcesses([]); setSelectedProcess(''); setGameTitlesByProcess({}); setProcessDiscoveryNote('Conecte o Agente Windows para detectar jogos em execução.'); }
+    });
+    return unsubscribe;
+  }, [refreshRunningProcesses]);
   const [durationSec, setDurationSec] = useState<number>(10);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const telemetrySamples = useRef<Array<{ cpuLoad: number | null; gpuLoad: number | null; cpuTemp: number | null; gpuTemp: number | null }>>([]);
+
+  useEffect(() => {
+    if (!isRecording) return;
+
+    // The bridge normalizes unavailable numeric telemetry to zero for legacy UI
+    // compatibility. For a capture, use sensor availability to distinguish a
+    // genuine 0% reading from a missing sensor instead of averaging fake zeros.
+    const findAvailableSensor = (hardwarePattern: RegExp, sensorType: string, namePattern: RegExp): number | null => {
+      const sensor = telemetry.sensors?.find((item) =>
+        hardwarePattern.test(item.hardwareType) &&
+        item.sensorType.toLowerCase() === sensorType.toLowerCase() &&
+        namePattern.test(item.name) &&
+        item.isAvailable &&
+        item.value !== null &&
+        typeof item.value === 'number' && Number.isFinite(item.value)
+      );
+      return sensor?.value ?? null;
+    };
+
+    telemetrySamples.current.push({
+      cpuLoad: findAvailableSensor(/^cpu$/i, 'Load', /total/i),
+      gpuLoad: findAvailableSensor(/^gpu/i, 'Load', /core|total/i),
+      cpuTemp: Number.isFinite(telemetry.cpu.temperature) && telemetry.cpu.temperature > 0 ? telemetry.cpu.temperature : null,
+      gpuTemp: Number.isFinite(telemetry.gpu.temperature) && telemetry.gpu.temperature > 0 ? telemetry.gpu.temperature : null,
+    });
+  }, [telemetry, isRecording]);
 
   const handleStartCapture = async () => {
+    if (!selectedProcess) {
+      setStatusMessage('Selecione um jogo ou processo em execução antes de iniciar a captura.');
+      return;
+    }
+
+    telemetrySamples.current = [];
     setIsRecording(true);
     setStatusMessage(t.performanceLab.initializingHook);
 
-    const nativeResult = await nativeBridge.runPresentMonCapture(selectedProcess, durationSec);
-    if (nativeResult && nativeResult.capturedFrames > 0) {
-      const newSession: PresentMonSession = {
-        id: `session-${Date.now()}`,
-        gameTitle: `${selectedProcess} (PresentMon Real)`,
-        date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        durationSeconds: durationSec,
-        avgFps: nativeResult.avgFps,
-        minFps: nativeResult.minFps ?? Math.round(nativeResult.avgFps * 0.72),
-        onePercentLow: nativeResult.onePercentLow,
-        pointOnePercentLow: Math.round(nativeResult.onePercentLow * 0.8),
-        frametimeAvgMs: nativeResult.frametimeAvgMs,
-        frametimeStDevMs: nativeResult.frametimeStDevMs,
-        cpuLoadAvg: 0,
-        gpuLoadAvg: 0,
-        cpuTempAvg: 0,
-        gpuTempAvg: 0,
-        isOptimized: true,
-      };
-      setSessions((prev) => [newSession, ...prev]);
-      setStatusMessage(t.performanceLab.captureSuccess);
-    } else {
-      setStatusMessage(t.performanceLab.agentRequiredPresentMon);
-    }
+    try {
+      const nativeResult = await nativeBridge.runPresentMonCapture(selectedProcess, durationSec);
+      if (nativeResult && nativeResult.capturedFrames > 0) {
+        const samples = telemetrySamples.current;
+        const average = (key: 'cpuLoad' | 'gpuLoad' | 'cpuTemp' | 'gpuTemp') => {
+          const values = samples
+            .map((sample) => sample[key])
+            .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && (key === 'cpuLoad' || key === 'gpuLoad' ? value >= 0 : value > 0));
+          return values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : null;
+        };
 
-    setIsRecording(false);
+        const newSession: PresentMonSession = {
+          id: `session-${Date.now()}`,
+          gameTitle: `${selectedProcess} (PresentMon Real)`,
+          date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          durationSeconds: durationSec,
+          avgFps: nativeResult.avgFps,
+          minFps: nativeResult.minFps ?? 0,
+          onePercentLow: nativeResult.onePercentLow,
+          pointOnePercentLow: null,
+          frametimeAvgMs: nativeResult.frametimeAvgMs,
+          frametimeStDevMs: nativeResult.frametimeStDevMs,
+          cpuLoadAvg: average('cpuLoad'),
+          gpuLoadAvg: average('gpuLoad'),
+          cpuTempAvg: average('cpuTemp'),
+          gpuTempAvg: average('gpuTemp'),
+          isOptimized: false,
+        };
+        setSessions((prev) => [newSession, ...prev]);
+        setStatusMessage(t.performanceLab.captureSuccess);
+      } else {
+        setStatusMessage(nativeResult?.error || t.performanceLab.agentRequiredPresentMon);
+      }
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? `Não foi possível concluir a captura: ${error.message}` : 'Não foi possível concluir a captura PresentMon.');
+    } finally {
+      setIsRecording(false);
+    }
   };
 
   return (
@@ -66,25 +182,34 @@ export const PerformanceLabView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
+          <select
             value={selectedProcess}
             onChange={(e) => setSelectedProcess(e.target.value)}
-            placeholder="Processo (ex: cs2.exe)"
-            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white"
-          />
+            disabled={isLoadingProcesses || runningProcesses.length === 0}
+            className="min-w-[250px] px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs text-white [color-scheme:dark] disabled:opacity-60" style={{ colorScheme: "dark" }}
+          >
+            <option value="" style={{ backgroundColor: '#0a0c13', color: '#f8fafc' }}>{isLoadingProcesses ? 'Procurando jogos em execução...' : 'Selecione um jogo em execução'}</option>
+            {runningProcesses.map((process) => (
+              <option key={process.processId} value={process.processName} style={{ backgroundColor: '#0a0c13', color: '#f8fafc' }}>
+                {gameTitlesByProcess[process.processName.toLowerCase()] || process.mainWindowTitle || process.processName} — {process.mainWindowTitle || process.processName}.exe
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => void refreshRunningProcesses()} disabled={isLoadingProcesses} className="px-3 py-2 rounded-lg bg-[#171b2a] border border-slate-700 text-xs text-slate-200 disabled:opacity-50">
+            {isLoadingProcesses ? 'Buscando...' : 'Atualizar jogos'}
+          </button>
           <select
             value={durationSec}
             onChange={(e) => setDurationSec(Number(e.target.value))}
-            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white"
+            className="px-3 py-2 rounded-lg bg-[#0a0c13] border border-slate-700 text-xs font-mono text-white [color-scheme:dark]" style={{ colorScheme: "dark" }}
           >
-            <option value={10}>10s</option>
-            <option value={30}>30s</option>
-            <option value={60}>60s</option>
+            <option value={10} style={{ backgroundColor: "#0a0c13", color: "#f8fafc" }}>10 segundos</option>
+            <option value={30} style={{ backgroundColor: "#0a0c13", color: "#f8fafc" }}>30 segundos</option>
+            <option value={60} style={{ backgroundColor: "#0a0c13", color: "#f8fafc" }}>60 segundos</option>
           </select>
           <button
             onClick={handleStartCapture}
-            disabled={isRecording}
+            disabled={isRecording || !selectedProcess}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all cursor-pointer ${
               isRecording
                 ? 'bg-rose-600 text-white animate-pulse'
@@ -96,6 +221,10 @@ export const PerformanceLabView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {processDiscoveryNote && (
+        <p className="text-[11px] text-slate-400 px-1" role="status">{processDiscoveryNote}</p>
+      )}
 
       {statusMessage && (
         <div className="p-3 bg-[#111626] border border-purple-500/40 rounded-lg text-xs text-purple-300 font-mono flex items-center justify-between">
@@ -116,7 +245,7 @@ export const PerformanceLabView: React.FC = () => {
             Nenhuma Sessão PresentMon Capturada Nesta Sessão
           </div>
           <p className="text-xs text-slate-400 max-w-lg mx-auto leading-relaxed">
-            O PC Control Ultimate não exibe métricas de FPS ou frametime pré-fabricadas. Conecte o Agente Windows Privilegiado com o Intel PresentMon instalado, informe o executável do jogo em execução e inicie uma captura real para visualizar FPS Médio, 1% Low e desvio padrão de frametime.
+            O PC Control Ultimate procura jogos instalados e processos em execução automaticamente. Selecione o nome do jogo identificado (sem precisar conhecer o arquivo .exe), conecte o Agente Windows Privilegiado com o Intel PresentMon instalado e inicie uma captura real para visualizar FPS Médio, 1% Low e frametime.
           </p>
         </div>
       ) : (
@@ -151,6 +280,10 @@ export const PerformanceLabView: React.FC = () => {
                   <span className="text-xl font-bold text-emerald-400">{s.onePercentLow} FPS</span>
                 </div>
                 <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">0,1% Low</span>
+                  <span className="text-xl font-bold text-emerald-300">{s.pointOnePercentLow === null ? 'N/D' : `${s.pointOnePercentLow} FPS`}</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase block font-sans">
                     {t.performanceLab.frametimeAvg}
                   </span>
@@ -161,6 +294,22 @@ export const PerformanceLabView: React.FC = () => {
                     {t.performanceLab.frametimeJitter}
                   </span>
                   <span className="text-xl font-bold text-cyan-300">±{s.frametimeStDevMs} ms</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Uso médio da CPU</span>
+                  <span className="text-xl font-bold text-purple-300">{s.cpuLoadAvg === null ? 'N/D' : `${s.cpuLoadAvg}%`}</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Uso médio da GPU</span>
+                  <span className="text-xl font-bold text-cyan-300">{s.gpuLoadAvg === null ? 'N/D' : `${s.gpuLoadAvg}%`}</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Temperatura média da CPU</span>
+                  <span className="text-xl font-bold text-amber-300">{s.cpuTempAvg === null ? 'N/D' : `${s.cpuTempAvg}°C`}</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Temperatura média da GPU</span>
+                  <span className="text-xl font-bold text-rose-300">{s.gpuTempAvg === null ? 'N/D' : `${s.gpuTempAvg}°C`}</span>
                 </div>
               </div>
             </div>

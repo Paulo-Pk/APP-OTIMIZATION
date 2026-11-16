@@ -13,9 +13,10 @@ import { useI18n } from '../../i18n';
 
 interface GpuHealthLabViewProps {
   gpu: GpuTelemetry;
+  sensors?: Array<{ identifier: string; name: string; hardwareType: string; sensorType: string; value: number | null; unit: string; isAvailable: boolean; status: string }>;
 }
 
-export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
+export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors = [] }) => {
   const { t } = useI18n();
   const [vendorFilter, setVendorFilter] = useState<'NVIDIA' | 'AMD' | 'Intel'>(
     (gpu.vendor === 'NVIDIA' || gpu.vendor === 'AMD' || gpu.vendor === 'Intel'
@@ -24,7 +25,10 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
   );
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
 
-  const hasGpuSensors = gpu.temperature > 0 && gpu.hotspot > 0;
+  const hasGpuCoreTemperature = gpu.temperatureAvailable ?? (gpu.temperature > 0);
+  const hasGpuHotspotTemperature = gpu.hotspotAvailable ?? (gpu.hotspot > 0);
+  const hasGpuMemoryTemperature = gpu.memoryTempAvailable ?? (gpu.memoryTemp > 0);
+  const hasGpuSensors = hasGpuCoreTemperature && hasGpuHotspotTemperature;
   const deltaT = hasGpuSensors ? gpu.hotspot - gpu.temperature : 0;
   const isDeltaElevated = hasGpuSensors && deltaT > 22;
 
@@ -87,6 +91,24 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
         </div>
       </div>
 
+      {/* Full sensor inventory for all GPU adapters */}
+      <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Sensores e componentes da GPU</h3>
+          <span className="text-[11px] text-slate-400">{sensors.filter((s) => /^gpu/i.test(s.hardwareType)).length} leituras detectadas</span>
+        </div>
+        {sensors.filter((s) => /^gpu/i.test(s.hardwareType)).length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {sensors.filter((s) => /^gpu/i.test(s.hardwareType)).map((sensor) => (
+              <div key={sensor.identifier} className="rounded-lg border border-slate-800 bg-[#0a0c13] px-3 py-2">
+                <div className="text-[11px] text-slate-400">{sensor.name}</div>
+                <div className="text-sm font-mono font-semibold text-slate-100">{sensor.isAvailable && sensor.value !== null ? `${Number(sensor.value).toFixed(1)} ${sensor.unit}` : 'Não disponível'}</div>
+                <div className="text-[10px] text-slate-500">{sensor.sensorType} · {sensor.hardwareType}</div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-xs text-slate-500">O agente não retornou leituras individuais da GPU nesta sessão.</p>}
+      </div>
       {/* Hotspot Delta Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-4 flex flex-col justify-between">
@@ -126,7 +148,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               </span>
               {hasGpuSensors && (
                 <span className="text-xs text-slate-400 font-mono">
-                  (Hotspot {gpu.hotspot}°C - Core {gpu.temperature}°C)
+                  (Hotspot {gpu.hotspot}°C - Temperatura da GPU {gpu.temperature}°C)
                 </span>
               )}
             </div>
@@ -158,10 +180,10 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-lg font-bold text-white font-mono">
-              {hasGpuSensors ? t.gpuHealth.noThrottling : t.common.sensorNotAvailable}
+              {gpu.isThrottling ? 'Limitação detectada pela telemetria' : 'Nenhum alerta de limitação recebido'}
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              {t.gpuHealth.throttlingDesc}
+              {'Este estado só é informado quando o agente recebe um sinal de limitação da placa. A ausência de alerta não substitui um teste de estabilidade.'}
             </p>
           </div>
 
@@ -253,12 +275,12 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               <div className="text-purple-400 font-bold">========================================================</div>
               <div>• GPU: {gpu.name} ({gpu.vendor})</div>
               <div>
-                • Core Temp:{' '}
-                {gpu.temperature > 0 ? `${gpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
+                • Temperatura da GPU:{' '}
+                {hasGpuCoreTemperature ? `${gpu.temperature.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </div>
               <div>
-                • Hotspot Temp:{' '}
-                {gpu.hotspot > 0 ? `${gpu.hotspot.toFixed(1)}°C` : t.common.sensorNotAvailable}
+                • Hotspot:{' '}
+                {hasGpuHotspotTemperature ? `${gpu.hotspot.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </div>
               <div>
                 • Thermal Delta (ΔT):{' '}
@@ -266,7 +288,7 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu }) => {
               </div>
               <div>
                 • Memory Temp:{' '}
-                {gpu.memoryTemp > 0 ? `${gpu.memoryTemp.toFixed(1)}°C` : t.common.sensorNotAvailable}
+                {hasGpuMemoryTemperature ? `${gpu.memoryTemp.toFixed(1)}°C` : t.common.sensorNotAvailable}
               </div>
               <div>
                 • VRAM Usage:{' '}

@@ -10,7 +10,7 @@ export async function runCpuBenchmark(
   onProgress: (p: BenchmarkProgress) => void
 ): Promise<{ score: number; durationMs: number; details: string }> {
   const startTime = performance.now();
-  onProgress({ status: 'running', progress: 5, currentTest: 'Inicializando carga computacional x86...' });
+  onProgress({ status: 'running', progress: 5, currentTest: 'Preparando teste de cálculo do processador...' });
 
   await new Promise((r) => setTimeout(r, 80));
 
@@ -47,14 +47,14 @@ export async function runCpuBenchmark(
   }
 
   // Step 2: Floating point trigonometric math
-  onProgress({ status: 'running', progress: 65, currentTest: 'Cálculo de Matrizes e Ponto Flutuante AVX...' });
+  onProgress({ status: 'running', progress: 65, currentTest: 'Executando cálculos matemáticos em ponto flutuante...' });
   let floatAccumulator = 0;
   const mathIterations = 800000;
   for (let i = 0; i < mathIterations; i++) {
     floatAccumulator += Math.sin(i) * Math.cos(i) + Math.sqrt(i + 1);
   }
 
-  onProgress({ status: 'running', progress: 90, currentTest: 'Consolidando métricas de IPC e latência de instrução...' });
+  onProgress({ status: 'running', progress: 90, currentTest: 'Calculando o resultado do teste sintético...' });
   await new Promise((r) => setTimeout(r, 120));
 
   const totalDuration = performance.now() - startTime;
@@ -80,126 +80,167 @@ export async function runGpuBenchmark(
   onProgress: (p: BenchmarkProgress) => void
 ): Promise<{ score: number; durationMs: number; details: string }> {
   const startTime = performance.now();
-  onProgress({ status: 'running', progress: 10, currentTest: 'Inicializando contexto WebGL Shader Compute...' });
+  onProgress({ status: 'running', progress: 5, currentTest: 'Preparando teste gráfico acelerado por hardware...' });
 
-  await new Promise((r) => setTimeout(r, 80));
-
-  // Create an offscreen canvas
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
-  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  canvas.width = 1024;
+  canvas.height = 576;
 
+  const contextOptions: WebGLContextAttributes = { alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false };
+  const gl2 = canvas.getContext('webgl2', contextOptions) as WebGL2RenderingContext | null;
+  const gl: WebGLRenderingContext | WebGL2RenderingContext | null =
+    gl2 ?? (canvas.getContext('webgl', contextOptions) as WebGLRenderingContext | null);
   if (!gl) {
+    throw new Error('O navegador não disponibilizou WebGL. Ative a aceleração de hardware nas configurações do navegador e tente novamente.');
+  }
+
+  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info') as { UNMASKED_VENDOR_WEBGL: number; UNMASKED_RENDERER_WEBGL: number } | null;
+  const renderer = debugInfo
+    ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'GPU não identificada pelo navegador')
+    : 'GPU detectada (identificação detalhada indisponível)';
+  const vendor = debugInfo
+    ? String(gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || '')
+    : '';
+
+  if (/swiftshader|llvmpipe|microsoft basic render driver|software rasterizer/i.test(renderer)) {
+    throw new Error('O navegador está usando renderização por software, não a placa de vídeo. Ative a aceleração gráfica do navegador antes de executar este teste.');
+  }
+
+  const isWebGL2 = gl2 !== null;
+  const vertexSource = isWebGL2
+    ? `#version 300 es
+      in vec2 position;
+      void main() { gl_Position = vec4(position, 0.0, 1.0); }`
+    : `attribute vec2 position;
+      void main() { gl_Position = vec4(position, 0.0, 1.0); }`;
+
+  const fragmentSource = isWebGL2
+    ? `#version 300 es
+      precision highp float;
+      uniform vec2 u_resolution;
+      uniform float u_time;
+      out vec4 outputColor;
+      void main() {
+        vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+        float value = 0.0;
+        for (int i = 0; i < 40; i++) {
+          float fi = float(i);
+          vec2 p = uv * 2.0 - 1.0;
+          p += vec2(sin(u_time + fi * 0.1), cos(u_time * 0.8 + fi * 0.2)) * 0.4;
+          value += 0.01 / max(length(p), 0.0001);
+        }
+        outputColor = vec4(value * 0.8, value * 0.4, value * 1.2, 1.0);
+      }`
+    : `precision highp float;
+      uniform vec2 u_resolution;
+      uniform float u_time;
+      void main() {
+        vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+        float value = 0.0;
+        for (int i = 0; i < 40; i++) {
+          float fi = float(i);
+          vec2 p = uv * 2.0 - 1.0;
+          p += vec2(sin(u_time + fi * 0.1), cos(u_time * 0.8 + fi * 0.2)) * 0.4;
+          value += 0.01 / max(length(p), 0.0001);
+        }
+        gl_FragColor = vec4(value * 0.8, value * 0.4, value * 1.2, 1.0);
+      }`;
+
+  const compileShader = (type: number, source: string) => {
+    const shader = gl.createShader(type);
+    if (!shader) throw new Error('Não foi possível criar o shader do teste gráfico.');
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(shader) || 'Erro sem detalhes';
+      gl.deleteShader(shader);
+      throw new Error('Falha ao preparar o teste da GPU: ' + log);
+    }
+    return shader;
+  };
+
+  let vertexShader: WebGLShader | null = null;
+  let fragmentShader: WebGLShader | null = null;
+  let program: WebGLProgram | null = null;
+  let buffer: WebGLBuffer | null = null;
+
+  try {
+    vertexShader = compileShader(gl.VERTEX_SHADER, vertexSource);
+    fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentSource);
+    program = gl.createProgram();
+    if (!program) throw new Error('Não foi possível criar o programa gráfico da GPU.');
+
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error('A placa de vídeo não conseguiu preparar o programa de teste: ' + (gl.getProgramInfoLog(program) || 'erro de link'));
+    }
+
+    gl.useProgram(program);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    buffer = gl.createBuffer();
+    if (!buffer) throw new Error('Não foi possível alocar o buffer de geometria.');
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+
+    const positionLocation = gl.getAttribLocation(program, 'position');
+    const resolutionLocation = gl.getUniformLocation(program, 'u_resolution');
+    const timeLocation = gl.getUniformLocation(program, 'u_time');
+    if (positionLocation < 0 || !resolutionLocation || !timeLocation) {
+      throw new Error('O driver não disponibilizou todos os recursos gráficos necessários ao teste.');
+    }
+
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+
+    const totalFrames = 60;
+    let measuredRenderMs = 0;
+    let batchStart = performance.now();
+    for (let frame = 0; frame < totalFrames; frame++) {
+      gl.uniform1f(timeLocation, frame * 0.05);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      if ((frame + 1) % 10 === 0) {
+        // Finish each batch before measuring it. UI refresh pauses are excluded from the score.
+        gl.finish();
+        measuredRenderMs += performance.now() - batchStart;
+        onProgress({
+          status: 'running',
+          progress: Math.round(10 + ((frame + 1) / totalFrames) * 80),
+          currentTest: `Renderizando carga gráfica ${frame + 1}/${totalFrames}...`,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 12));
+        batchStart = performance.now();
+      }
+    }
+
+    const duration = Math.max(1, measuredRenderMs);
+    const renderFps = Math.round((totalFrames / (duration / 1000)) * 10) / 10;
+    const score = renderFps;
+
     onProgress({
       status: 'completed',
       progress: 100,
-      currentTest: 'Aceleração de hardware WebGL indisponível',
-      score: 4200,
-      details: 'Modo padrão sem WebGL2',
+      currentTest: 'Teste gráfico concluído',
+      score,
+      details: `${renderFps.toLocaleString('pt-BR')} quadros/s · ${isWebGL2 ? 'WebGL 2' : 'WebGL'} · ${renderer}`,
     });
-    return { score: 4200, durationMs: 500, details: 'WebGL indisponível' };
+
+    return {
+      score,
+      durationMs: duration,
+      details: `${totalFrames} quadros renderizados em ${duration.toFixed(0)} ms · Adaptador: ${vendor ? vendor + ' / ' : ''}${renderer}`,
+    };
+  } finally {
+    if (buffer) gl.deleteBuffer(buffer);
+    if (program) gl.deleteProgram(program);
+    if (vertexShader) gl.deleteShader(vertexShader);
+    if (fragmentShader) gl.deleteShader(fragmentShader);
+    const loseContext = gl.getExtension('WEBGL_lose_context');
+    loseContext?.loseContext();
   }
-
-  // Vertex and Fragment shaders for raymarching fractal computation
-  const vsSource = `
-    attribute vec2 position;
-    void main() {
-      gl_Position = vec4(position, 0.0, 1.0);
-    }
-  `;
-
-  const fsSource = `
-    precision highp float;
-    uniform vec2 u_resolution;
-    uniform float u_time;
-    void main() {
-      vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-      float color = 0.0;
-      for (float i = 0.0; i < 40.0; i++) {
-        vec2 p = uv * 2.0 - 1.0;
-        p += vec2(sin(u_time + i * 0.1), cos(u_time * 0.8 + i * 0.2)) * 0.4;
-        color += 0.01 / length(p);
-      }
-      gl_FragColor = vec4(vec3(color * 0.8, color * 0.4, color * 1.2), 1.0);
-    }
-  `;
-
-  function createShader(glCtx: WebGLRenderingContext, type: number, src: string) {
-    const s = glCtx.createShader(type);
-    if (!s) return null;
-    glCtx.shaderSource(s, src);
-    glCtx.compileShader(s);
-    return s;
-  }
-
-  const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
-  const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
-  const program = gl.createProgram();
-
-  if (!vs || !fs || !program) {
-    return { score: 5500, durationMs: 400, details: 'Shader compilation fallback' };
-  }
-
-  gl.attachShader(program, vs);
-  gl.attachShader(program, fs);
-  gl.linkProgram(program);
-  gl.useProgram(program);
-
-  const buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(
-    gl.ARRAY_BUFFER,
-    new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
-    gl.STATIC_DRAW
-  );
-
-  const posLoc = gl.getAttribLocation(program, 'position');
-  gl.enableVertexAttribArray(posLoc);
-  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-
-  const resLoc = gl.getUniformLocation(program, 'u_resolution');
-  const timeLoc = gl.getUniformLocation(program, 'u_time');
-  gl.uniform2f(resLoc, 512, 512);
-
-  // Render 80 frames measuring time
-  const totalFrames = 80;
-  for (let f = 0; f < totalFrames; f++) {
-    gl.uniform1f(timeLoc, f * 0.05);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-    if (f % 15 === 0) {
-      const pct = Math.round(20 + (f / totalFrames) * 75);
-      onProgress({
-        status: 'running',
-        progress: pct,
-        currentTest: `Renderizando ${totalFrames} frames de Fractal Raymarching (${f}/${totalFrames})...`,
-      });
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-
-  // Read one pixel to force GPU pipeline flush
-  const pixel = new Uint8Array(4);
-  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-
-  const duration = performance.now() - startTime;
-  const fps = (totalFrames / (duration / 1000)).toFixed(1);
-  const score = Math.round((totalFrames / duration) * 85000);
-
-  onProgress({
-    status: 'completed',
-    progress: 100,
-    currentTest: 'Concluído',
-    score,
-    details: `${score} pts · Renderizados ${totalFrames} frames a ~${fps} FPS real`,
-  });
-
-  return {
-    score,
-    durationMs: duration,
-    details: `${totalFrames} quadros shader raymarching · ${fps} FPS renderizado`,
-  };
 }
 
 export async function runRamBenchmark(

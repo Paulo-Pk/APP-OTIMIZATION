@@ -50,14 +50,28 @@ async function startServer() {
       port: number;
     }
 
-    const targets: TargetConfig[] = [
-      { id: 'sp', server: 'Valve CS2 / Steam Cluster (América do Sul)', location: 'São Paulo, BR', host: 'steampowered.com', port: 443 },
-      { id: 'santiago', server: 'Riot Games Valorant Cluster (América do Sul)', location: 'Santiago, CL', host: 'riotgames.com', port: 443 },
-      { id: 'miami', server: 'Epic Games / AWS us-east-1 (América do Norte)', location: 'Miami / Virginia, EUA', host: 'epicgames.com', port: 443 },
-      { id: 'frankfurt', server: 'Europe Gaming Hub (Frankfurt)', location: 'Frankfurt, Alemanha', host: 'cloudflare.com', port: 443 },
+    const defaultTargets: TargetConfig[] = [
+      { id: 'sp', server: 'Serviço Steam (endereço de referência)', location: 'Endpoint público · Brasil', host: 'steampowered.com', port: 443 },
+      { id: 'santiago', server: 'Serviço Riot Games (endereço de referência)', location: 'Endpoint público · Chile', host: 'riotgames.com', port: 443 },
+      { id: 'miami', server: 'Serviço Epic Games (endereço de referência)', location: 'Endpoint público · EUA', host: 'epicgames.com', port: 443 },
+      { id: 'frankfurt', server: 'Cloudflare (endereço de referência)', location: 'Endpoint público · Global', host: 'cloudflare.com', port: 443 },
       { id: 'cf-dns', server: 'Cloudflare Edge Anycast (TCP 443)', location: 'Anycast Global', host: '1.1.1.1', port: 443 },
       { id: 'google-dns', server: 'Google Public Edge (TCP 443)', location: 'Anycast Global', host: '8.8.8.8', port: 443 },
     ];
+
+    const gameReferenceTargets: Record<string, TargetConfig> = {
+      cs2: { id: 'game-cs2', server: 'Counter-Strike 2 · referência Steam', location: 'Endpoint público Steam', host: 'steampowered.com', port: 443 },
+      valorant: { id: 'game-valorant', server: 'VALORANT · referência Riot Games', location: 'Endpoint público Riot', host: 'riotgames.com', port: 443 },
+      fortnite: { id: 'game-fortnite', server: 'Fortnite · referência Epic Games', location: 'Endpoint público Epic', host: 'epicgames.com', port: 443 },
+      apex: { id: 'game-apex', server: 'Apex Legends · referência EA', location: 'Endpoint público EA', host: 'ea.com', port: 443 },
+      lol: { id: 'game-lol', server: 'League of Legends · referência Riot', location: 'Endpoint público Riot', host: 'leagueoflegends.com', port: 443 },
+      r6: { id: 'game-r6', server: 'Rainbow Six Siege · referência Ubisoft', location: 'Endpoint público Ubisoft', host: 'ubisoft.com', port: 443 },
+      rocketleague: { id: 'game-rocketleague', server: 'Rocket League · referência oficial', location: 'Endpoint público Rocket League', host: 'rocketleague.com', port: 443 },
+    };
+    const selectedGameIds = String(_req.query.games || '').split(',').map((id) => id.trim()).filter(Boolean);
+    const targets: TargetConfig[] = selectedGameIds.length
+      ? selectedGameIds.map((id) => gameReferenceTargets[id]).filter((target): target is TargetConfig => !!target)
+      : defaultTargets;
 
     const measureHost = (target: TargetConfig) => {
       return new Promise<{
@@ -68,7 +82,7 @@ async function startServer() {
         protocol: string;
         pingMs: number | null;
         jitterMs: number | null;
-        packetLossPercent: number;
+        tcpFailurePercent: number;
         tcpHandshakeState: 'Connected' | 'Timeout' | 'ConnectionRefused' | 'FilteredPort';
         samples: number[];
         isSuccess: boolean;
@@ -121,7 +135,7 @@ async function startServer() {
             protocol: `TCP:${target.port} Handshake`,
             pingMs: null,
             jitterMs: null,
-            packetLossPercent: 0,
+            tcpFailurePercent: 0,
             tcpHandshakeState: lastErrorState,
             samples: [],
             isSuccess: false,
@@ -141,7 +155,7 @@ async function startServer() {
           protocol: `TCP:${target.port} Handshake`,
           pingMs: Math.round(avg),
           jitterMs: parseFloat(jitter.toFixed(1)),
-          packetLossPercent: lossPercent,
+          tcpFailurePercent: lossPercent,
           tcpHandshakeState: 'Connected',
           samples: samples.map((s) => Math.round(s)),
           isSuccess: true,
@@ -158,9 +172,9 @@ async function startServer() {
         structuredDiagnostic: {
           whatWasTested: 'Handshake TCP:443 multi-amostra em 6 endpoints globais verificados (Valve, Riot, Epic, Cloudflare, 1.1.1.1, 8.8.8.8)',
           whatFailed: connectedCount === targets.length ? 'Nenhuma falha (0 anomalias)' : `${targets.length - connectedCount} alvo(s) com porta filtrada/timeout`,
-          evidenceFound: `${connectedCount}/${targets.length} endpoints TCP:443 conectados sem perda artificial de portas UDP.`,
-          probableCause: connectedCount > 0 ? 'Conectividade externa saudável.' : 'Sem acesso externo à internet neste ambiente.',
-          recommendedSolution: 'Mantenha a rota direta verificada quando a perda for 0% e o jitter estiver abaixo de 15 ms.',
+          evidenceFound: `${connectedCount}/${targets.length} endpoints TCP:443 aceitaram conexão; falhas representam handshakes TCP não concluídos, não perda de pacotes ICMP/UDP.`,
+          probableCause: connectedCount > 0 ? 'Há conectividade com pelo menos um endpoint de referência; falhas individuais podem indicar filtro, timeout ou indisponibilidade do serviço.' : 'Nenhum endpoint de referência aceitou conexão TCP neste ambiente; isso não identifica sozinho a causa.',
+          recommendedSolution: 'Use estes dados apenas como referência de conectividade TCP; eles não medem perda ICMP nem latência UDP do jogo.',
           verificationSteps: 'Compare o RTT e o Jitter no Network Lab e no Game Network Accelerator.',
         },
         results,

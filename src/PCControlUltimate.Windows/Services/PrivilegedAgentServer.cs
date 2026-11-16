@@ -12,19 +12,31 @@ using System.Threading;
 using System.Threading.Tasks;
 using PCControlUltimate.Core.Interfaces;
 using PCControlUltimate.Gaming.PresentMon;
+using PCControlUltimate.Gaming.Network;
 using PCControlUltimate.Security;
 
 namespace PCControlUltimate.Windows.Services;
 
 public class PrivilegedAgentServer : IDisposable
 {
+    private sealed class RequestBodyTooLargeException : Exception
+    {
+        public RequestBodyTooLargeException() : base("Request body exceeds maximum allowed size of 64 KB.") { }
+    }
+
     private readonly HttpListener _listener;
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
+    private readonly WingetSoftwareCenterService _softwareCenter = new();
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
+    // Bound concurrent handlers so loopback clients cannot create an unbounded
+    // number of fire-and-forget request tasks.
+    private readonly SemaphoreSlim _requestSlots = new(32, 32);
     private readonly ConcurrentQueue<DateTime> _requestTimestamps = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedNonces = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _recentAuditEvents = new();
+    private readonly object _lifecycleLock = new();
+    private readonly object _rateLimitLock = new();
     private CancellationTokenSource? _cts;
     private bool _disposed;
 
@@ -55,7 +67,8 @@ public class PrivilegedAgentServer : IDisposable
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:52194",
-        "http://127.0.0.1:52194"
+        "http://127.0.0.1:52194",
+        "https://app.pccontrol.local"
     };
 
     public PrivilegedAgentServer(int port = DefaultPort) : this(null, port, null)
@@ -93,11 +106,17 @@ public class PrivilegedAgentServer : IDisposable
 
     public void Start()
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(PrivilegedAgentServer));
-        _cts = new CancellationTokenSource();
-        _listener.Start();
-        WriteAuditLog("SERVER_START", $"Listening exclusively on http://127.0.0.1:{Port}/");
-        Task.Run(() => ListenLoopAsync(_cts.Token));
+        lock (_lifecycleLock)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(PrivilegedAgentServer));
+            if (_listener.IsListening) return;
+
+            var cts = new CancellationTokenSource();
+            _listener.Start();
+            _cts = cts;
+            WriteAuditLog("SERVER_START", $"Listening exclusively on http://127.0.0.1:{Port}/");
+            _ = Task.Run(() => ListenLoopAsync(cts.Token));
+        }
     }
 
     private async Task ListenLoopAsync(CancellationToken token)
@@ -107,7 +126,38 @@ public class PrivilegedAgentServer : IDisposable
             try
             {
                 var context = await _listener.GetContextAsync();
-                _ = Task.Run(() => HandleRequestWithTimeoutAsync(context, token), token);
+
+                try
+                {
+                    // Stop accepting additional requests while all handler slots
+                    // are occupied. This keeps queued work bounded by HttpListener
+                    // instead of allocating an unbounded number of managed tasks.
+                    await _requestSlots.WaitAsync(token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    try { context.Response.Abort(); } catch { }
+                    break;
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await HandleRequestWithTimeoutAsync(context, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Observe unexpected handler failures and release the
+                        // connection without leaking an unobserved task exception.
+                        WriteAuditLog("REQUEST_HANDLER_FAILURE", ex.GetType().Name);
+                        try { context.Response.Abort(); } catch { }
+                    }
+                    finally
+                    {
+                        _requestSlots.Release();
+                    }
+                }, CancellationToken.None);
             }
             catch (Exception)
             {
@@ -119,7 +169,19 @@ public class PrivilegedAgentServer : IDisposable
     private async Task HandleRequestWithTimeoutAsync(HttpListenerContext context, CancellationToken serverToken)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(serverToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        // Long-running operations need endpoint-specific limits. PresentMon captures
+        // can run for 120 seconds plus parser cleanup; winget installs can take several
+        // minutes while downloading and configuring packages. Keep ordinary API requests short.
+        string requestPath = context.Request.Url?.AbsolutePath ?? string.Empty;
+        TimeSpan requestTimeout =
+            string.Equals(requestPath, "/api/presentmon/capture", StringComparison.OrdinalIgnoreCase)
+                ? TimeSpan.FromSeconds(135)
+                : string.Equals(requestPath, "/api/software/install", StringComparison.OrdinalIgnoreCase)
+                    ? TimeSpan.FromMinutes(5)
+                    : TimeSpan.FromSeconds(15);
+
+        timeoutCts.CancelAfter(requestTimeout);
         await HandleRequestAsync(context, timeoutCts.Token);
     }
 
@@ -291,6 +353,16 @@ public class PrivilegedAgentServer : IDisposable
         DateTimeOffset requestTime;
         if (long.TryParse(timestampHeader.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long unixSeconds))
         {
+            // FromUnixTimeSeconds throws for values outside DateTimeOffset's
+            // supported range. Treat hostile/out-of-range headers as invalid
+            // input instead of allowing an exception to escape validation.
+            if (unixSeconds < DateTimeOffset.MinValue.ToUnixTimeSeconds() ||
+                unixSeconds > DateTimeOffset.MaxValue.ToUnixTimeSeconds())
+            {
+                errorCode = "INVALID_TIMESTAMP_FORMAT";
+                return false;
+            }
+
             requestTime = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
         }
         else if (!DateTimeOffset.TryParse(timestampHeader.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out requestTime))
@@ -491,8 +563,22 @@ public class PrivilegedAgentServer : IDisposable
                 await SendJsonAsync(res, new
                 {
                     policyNotice = DriverScannerService.ModulePolicyNotice,
+                    scanError = DriverScannerService.LastError,
                     drivers
                 });
+                return;
+            }
+
+            if (path == "/api/network/game-targets" && req.HttpMethod == "GET")
+            {
+                // Only closed-catalog game IDs are accepted; arbitrary hostnames are never supplied by the client.
+                string rawGameIds = req.QueryString["games"] ?? string.Empty;
+                string[] gameIds = rawGameIds.Split(
+                    ',',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+                );
+                var gameMeasurements = await _networkDiagnostics.MeasureGameReferenceTargetsAsync(gameIds, cancellationToken);
+                await SendJsonAsync(res, gameMeasurements);
                 return;
             }
 
@@ -516,6 +602,10 @@ public class PrivilegedAgentServer : IDisposable
                 var tempWin = DiskCleanerEngine.SimulateCategoryDryRun("temp-windows");
                 var tempUser = DiskCleanerEngine.SimulateCategoryDryRun("temp-user");
                 var softDist = DiskCleanerEngine.SimulateCategoryDryRun("update-cache");
+                var prefetch = DiskCleanerEngine.SimulateCategoryDryRun("temp-prefetch");
+                var deliveryOptimization = DiskCleanerEngine.SimulateCategoryDryRun("cache-delivery-optimization");
+                var werQueue = DiskCleanerEngine.SimulateCategoryDryRun("wer-report-queue");
+                var werArchive = DiskCleanerEngine.SimulateCategoryDryRun("wer-report-archive");
 
                 await SendJsonAsync(res, new
                 {
@@ -524,7 +614,11 @@ public class PrivilegedAgentServer : IDisposable
                     tempWindowsBytes = tempWin.EstimatedBytes,
                     tempUserBytes = tempUser.EstimatedBytes,
                     softwareDistributionBytes = softDist.EstimatedBytes,
-                    categories = new[] { d3d, tempWin, tempUser, softDist }
+                    prefetchBytes = prefetch.EstimatedBytes,
+                    deliveryOptimizationBytes = deliveryOptimization.EstimatedBytes,
+                    werQueueBytes = werQueue.EstimatedBytes,
+                    werArchiveBytes = werArchive.EstimatedBytes,
+                    categories = new[] { d3d, tempWin, tempUser, softDist, prefetch, deliveryOptimization, werQueue, werArchive }
                 });
                 return;
             }
@@ -574,7 +668,14 @@ public class PrivilegedAgentServer : IDisposable
                 }
 
                 var (isValid, checksum, err) = RegistrySnapshotEngine.VerifyBackupIntegrity(targetPath);
-                await SendJsonAsync(res, new { success = true, isValid, checksum, error = err });
+                await SendJsonAsync(res, new { success = isValid, isValid, checksum, error = err }, isValid ? 200 : 422);
+                return;
+            }
+
+            if (path == "/api/games/discover" && req.HttpMethod == "GET")
+            {
+                var games = GameNetworkAcceleratorService.DiscoverInstalledGames();
+                await SendJsonAsync(res, new { games, scannedAtUtc = DateTime.UtcNow.ToString("O"), scope = "Supported launcher manifests and registered game catalogs; no full-disk scan." });
                 return;
             }
 
@@ -607,6 +708,39 @@ public class PrivilegedAgentServer : IDisposable
                     registryAuditLogs = RegistryOptimizer.GetAuditLogs(),
                     stateLedgerEntries = RegistryStateLedger.GetAllEntries()
                 });
+                return;
+            }
+
+            // Read-only Registry inspection is authenticated but does not enter the mutation lock
+            // or accept any client-supplied path/value. Only the closed backend catalog is inspected.
+            if (path == "/api/tweaks/inspect" && req.HttpMethod == "GET")
+            {
+                var inspections = RegistryOptimizer.Catalog.Values
+                    .OrderBy(def => def.TweakId, StringComparer.OrdinalIgnoreCase)
+                    .Select(def =>
+                    {
+                        RegistryTweakInspectionResult inspection = RegistryOptimizer.InspectCatalogTweak(def.TweakId);
+                        LedgerValidationResult restore = RegistryStateLedger.ResolveTrustedRestoreEntry(def.TweakId);
+                        return new
+                        {
+                            tweakId = def.TweakId,
+                            state = inspection.State,
+                            isUndeterminable = inspection.IsUndeterminable,
+                            currentValue = inspection.CurrentValue,
+                            actualValueKind = inspection.ActualValueKind?.ToString(),
+                            expectedValueKind = def.ValueKind.ToString(),
+                            absenceKind = inspection.AbsenceKind,
+                            diagnosticDetail = inspection.DiagnosticDetail,
+                            recommendedValue = def.RecommendedValue,
+                            canApply = string.Equals(inspection.State, "Inativo", StringComparison.OrdinalIgnoreCase)
+                                && !inspection.IsUndeterminable,
+                            canRestore = string.Equals(inspection.State, "Ativo", StringComparison.OrdinalIgnoreCase)
+                                && restore.IsValid
+                        };
+                    })
+                    .ToArray();
+
+                await SendJsonAsync(res, new { success = true, count = inspections.Length, inspections });
                 return;
             }
 
@@ -644,6 +778,46 @@ public class PrivilegedAgentServer : IDisposable
                     }
 
                     using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
+
+                    if (path == "/api/software/install")
+                    {
+                        string packageId = doc.RootElement.TryGetProperty("packageId", out var packageIdEl)
+                            ? (packageIdEl.GetString() ?? "").Trim()
+                            : "";
+                        bool userConfirmed = doc.RootElement.TryGetProperty("userConfirmed", out var confirmEl)
+                            && confirmEl.ValueKind == JsonValueKind.True;
+
+                        if (string.IsNullOrWhiteSpace(packageId) || !userConfirmed)
+                        {
+                            await SendJsonAsync(res, new
+                            {
+                                success = false,
+                                error = "EXPLICIT_INSTALL_CONFIRMATION_REQUIRED",
+                                message = "Selecione um aplicativo do catálogo oficial e confirme a instalação antes de continuar."
+                            }, 400);
+                            return;
+                        }
+
+                        var installResult = await _softwareCenter.InstallPackageAsync(
+                            packageId,
+                            userConfirmed: true,
+                            source: "winget",
+                            cancellationToken: cancellationToken);
+
+                        WriteAuditLog("SOFTWARE_INSTALL",
+                            $"Package={installResult.PackageId} Success={installResult.Success} ExitCode={installResult.ExitCode} Status={installResult.Status}");
+
+                        await SendJsonAsync(res, new
+                        {
+                            success = installResult.Success,
+                            packageId = installResult.PackageId,
+                            status = installResult.Status,
+                            exitCode = installResult.ExitCode,
+                            message = installResult.OutputLog,
+                            signatureState = installResult.SignatureState.ToString()
+                        }, installResult.Success ? 200 : 400);
+                        return;
+                    }
 
                     // CRITICAL SECURITY FIX: /api/tweaks/apply ONLY accepts a cataloged tweakId!
                     if (path == "/api/tweaks/apply")
@@ -747,8 +921,18 @@ public class PrivilegedAgentServer : IDisposable
                             ? dEl.GetString()!
                             : "Backup dos Ajustes Suportados pelo Aplicativo";
                         var snapshotResult = RegistrySnapshotEngine.CreateBackup(desc);
-                        WriteAuditLog("SNAPSHOT_CREATE", "Registry backup snapshot created and verified on disk.");
-                        await SendJsonAsync(res, snapshotResult);
+                        bool snapshotSuccess = false;
+                        try
+                        {
+                            using var snapshotJson = JsonDocument.Parse(JsonSerializer.Serialize(snapshotResult));
+                            snapshotSuccess = snapshotJson.RootElement.TryGetProperty("success", out var successElement) &&
+                                successElement.ValueKind == JsonValueKind.True;
+                        }
+                        catch (JsonException) { }
+
+                        WriteAuditLog("SNAPSHOT_CREATE",
+                            $"Registry backup creation completed. Success={snapshotSuccess}.");
+                        await SendJsonAsync(res, snapshotResult, snapshotSuccess ? 200 : 500);
                         return;
                     }
 
@@ -779,7 +963,7 @@ public class PrivilegedAgentServer : IDisposable
                             failedKeysCount = report.FailedCount,
                             itemReports = report.ItemReports,
                             error = report.ErrorMessage
-                        });
+                        }, report.Success ? 200 : report.PartialSuccess ? 207 : 400);
                         return;
                     }
 
@@ -800,7 +984,10 @@ public class PrivilegedAgentServer : IDisposable
                             skippedLockedCount = purgeReport.SkippedLockedCount,
                             skippedSymlinksCount = purgeReport.SkippedSymlinksCount,
                             affectedItemsLog = purgeReport.AffectedItemsLog,
-                            errors = purgeReport.Errors
+                            errors = purgeReport.Errors,
+                            status = purgeReport.Status,
+                            directoryExisted = purgeReport.DirectoryExisted,
+                            warnings = purgeReport.Warnings
                         });
                         return;
                     }
@@ -848,9 +1035,24 @@ public class PrivilegedAgentServer : IDisposable
 
             await SendJsonAsync(res, new { error = "ROUTE_NOT_FOUND" }, 404);
         }
+        catch (RequestBodyTooLargeException)
+        {
+            await SendJsonAsync(res, new
+            {
+                error = "PAYLOAD_TOO_LARGE",
+                message = "Payload exceeds 64 KB limit."
+            }, 413);
+        }
         catch (JsonException)
         {
             await SendJsonAsync(res, new { error = "MALFORMED_JSON_PAYLOAD" }, 400);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Request timeout or server shutdown is an expected cancellation path.
+            // Do not misreport it as an internal server error or attempt to write
+            // a response after the listener/request has already been aborted.
+            try { res.Abort(); } catch { }
         }
         catch (Exception ex)
         {
@@ -861,17 +1063,20 @@ public class PrivilegedAgentServer : IDisposable
 
     private bool CheckRateLimit()
     {
-        var now = DateTime.UtcNow;
-        while (_requestTimestamps.TryPeek(out var oldest) && (now - oldest).TotalSeconds > 60)
+        lock (_rateLimitLock)
         {
-            _requestTimestamps.TryDequeue(out _);
+            var now = DateTime.UtcNow;
+            while (_requestTimestamps.TryPeek(out var oldest) && (now - oldest).TotalSeconds > 60)
+            {
+                _requestTimestamps.TryDequeue(out _);
+            }
+
+            if (_requestTimestamps.Count >= MaxRequestsPerMinute)
+                return false;
+
+            _requestTimestamps.Enqueue(now);
+            return true;
         }
-
-        if (_requestTimestamps.Count >= MaxRequestsPerMinute)
-            return false;
-
-        _requestTimestamps.Enqueue(now);
-        return true;
     }
 
     private static async Task<string> ReadBoundedBodyAsync(HttpListenerRequest req, CancellationToken token)
@@ -887,7 +1092,7 @@ public class PrivilegedAgentServer : IDisposable
 
             totalRead += read;
             if (totalRead > MaxRequestBodyBytes)
-                throw new InvalidOperationException("Request body exceeds maximum allowed size of 64 KB.");
+                throw new RequestBodyTooLargeException();
 
             ms.Write(buffer, 0, read);
         }
@@ -960,26 +1165,41 @@ public class PrivilegedAgentServer : IDisposable
 
     public void Stop()
     {
-        if (_disposed) return;
-        try
+        lock (_lifecycleLock)
         {
-            _cts?.Cancel();
-            if (_listener.IsListening)
+            if (_disposed) return;
+            try
             {
-                _listener.Stop();
+                _cts?.Cancel();
+                if (_listener.IsListening)
+                {
+                    _listener.Stop();
+                }
+                WriteAuditLog("SERVER_STOP", "PrivilegedAgentServer stopped cleanly.");
             }
-            WriteAuditLog("SERVER_STOP", "PrivilegedAgentServer stopped cleanly.");
+            catch { }
         }
-        catch { }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
-        Stop();
-        _disposed = true;
-        _listener.Close();
-        _mutationLock.Dispose();
-        _cts?.Dispose();
+        lock (_lifecycleLock)
+        {
+            if (_disposed) return;
+            try
+            {
+                _cts?.Cancel();
+                if (_listener.IsListening) _listener.Stop();
+            }
+            catch { }
+
+            _disposed = true;
+            _listener.Close();
+            WriteAuditLog("SERVER_DISPOSE", "PrivilegedAgentServer disposed.");
+            // Request handlers may still be unwinding and releasing/waiting on these
+            // shared synchronization primitives. Do not dispose them while requests
+            // are in flight; the server and its managed primitives can be collected
+            // together after the outstanding handlers complete.
+        }
     }
 }

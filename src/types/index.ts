@@ -30,25 +30,26 @@ export type TweakCategory =
   | 'gaming'
   | 'system';
 
-export type TweakInspectionStateCode =
-  | 'Active'
-  | 'Inactive'
-  | 'Custom'
-  | 'NotConfigured'
-  | 'AccessDenied'
-  | 'WrongType'
-  | 'Incompatible'
-  | 'ReadError';
+export interface RegistryTweakInspection {
+  tweakId: string;
+  state: string;
+  isUndeterminable: boolean;
+  currentValue: string | null;
+  actualValueKind: string | null;
+  expectedValueKind: string;
+  absenceKind: string | null;
+  diagnosticDetail: string | null;
+  recommendedValue: string;
+  canApply: boolean;
+  canRestore: boolean;
+}
 
 export interface SystemTweak {
   id: string;
   name: string;
-  nameEn?: string;
   category: TweakCategory;
   description: string;
-  descriptionEn?: string;
   expectedBenefit: string;
-  expectedBenefitEn?: string;
   risk: RiskLevel;
   level: OptimizationLevel;
   currentValue: string;
@@ -58,31 +59,26 @@ export interface SystemTweak {
   valueName?: string;
   valueKind?: 'DWord' | 'QWord' | 'String' | 'ExpandString' | 'MultiString' | 'Binary';
   targetRawValue?: string;
-  defaultOriginValue?: string;
   commandScript?: string;
   reversible: boolean;
-  whatItDoes?: string;
-  whatItDoesEn?: string;
-  problemSolved?: string;
-  problemSolvedEn?: string;
-  potentialSideEffects?: string;
-  potentialSideEffectsEn?: string;
-  requiresReboot?: boolean;
-  hardwareOrOsDependency?: string;
-  hardwareOrOsDependencyEn?: string;
-  defaultWindowsBehavior?: string;
-  defaultWindowsBehaviorEn?: string;
-  recommendationStatus?: 'Recommended' | 'Conditional' | 'NotRecommendedOrDefault';
-  isRecommendedForApply?: boolean;
-  inspectionState?: TweakInspectionStateCode;
+  registryState?: string;
+  registryDiagnostic?: string;
+  actualRegistryKind?: string;
+  expectedRegistryKind?: string;
+  canApply?: boolean;
+  canRestore?: boolean;
+  isUndeterminable?: boolean;
 }
 
 export interface GpuTelemetry {
   name: string;
   vendor: 'NVIDIA' | 'AMD' | 'Intel' | 'Outro';
   temperature: number;
+  temperatureAvailable?: boolean;
   hotspot: number;
+  hotspotAvailable?: boolean;
   memoryTemp: number;
+  memoryTempAvailable?: boolean;
   clockMHz: number;
   memoryClockMHz: number;
   utilization: number;
@@ -99,14 +95,15 @@ export interface GpuTelemetry {
 export interface CpuCore {
   coreId: number;
   load: number;
-  temp: number;
-  frequencyGHz: number;
+  temp: number | null;
+  frequencyGHz: number | null;
 }
 
 export interface CpuTelemetry {
   name: string;
   socket: string;
   temperature: number;
+  temperatureAvailable?: boolean;
   load: number;
   frequencyGHz: number;
   cores: number;
@@ -129,14 +126,15 @@ export interface RamTelemetry {
 export interface DiskDrive {
   id: string;
   model: string;
-  interface: 'NVMe' | 'SATA SSD' | 'HDD';
+  interface: 'NVMe' | 'SATA SSD' | 'HDD' | 'Outro';
   temperature: number;
   capacityGB: number;
   freeSpaceGB: number;
   healthPercent: number;
   readSpeedMBs: number;
   writeSpeedMBs: number;
-  smartStatus: 'OK' | 'Atenção' | 'Crítico';
+  smartStatus: 'OK' | 'Atenção' | 'Crítico' | 'N/D';
+  isSystemDisk?: boolean;
 }
 
 export interface MotherboardTelemetry {
@@ -147,6 +145,9 @@ export interface MotherboardTelemetry {
     system: number;
     vrm: number;
     chipset: number;
+    systemAvailable?: boolean;
+    vrmAvailable?: boolean;
+    chipsetAvailable?: boolean;
   };
   voltages: {
     v12: number;
@@ -171,12 +172,13 @@ export interface HardwareTelemetry {
   currentFps?: number;
   isSimulatedMode: boolean;
   lastUpdated: number;
+  sensors?: Array<{ identifier: string; name: string; hardwareType: string; sensorType: string; value: number | null; unit: string; isAvailable: boolean; status: string }>;
 }
 
 export interface GameProfile {
   id: string;
   title: string;
-  platform: 'Steam' | 'Epic' | 'Xbox' | 'Manual';
+  platform: 'Steam' | 'Epic' | 'Epic Games' | 'Xbox' | 'GOG' | 'Ubisoft Connect' | 'EA app' | 'Manual';
   executablePath: string;
   coverImage: string;
   processPriority: 'Normal' | 'Acima do Normal' | 'Alta' | 'Tempo Real';
@@ -198,13 +200,13 @@ export interface PresentMonSession {
   avgFps: number;
   minFps: number;
   onePercentLow: number;
-  pointOnePercentLow: number;
+  pointOnePercentLow: number | null;
   frametimeAvgMs: number;
   frametimeStDevMs: number;
-  cpuLoadAvg: number;
-  gpuLoadAvg: number;
-  cpuTempAvg: number;
-  gpuTempAvg: number;
+  cpuLoadAvg: number | null;
+  gpuLoadAvg: number | null;
+  cpuTempAvg: number | null;
+  gpuTempAvg: number | null;
   isOptimized: boolean;
 }
 
@@ -265,18 +267,19 @@ export interface RestoreItem {
 
 export interface DriverInfo {
   device: string;
-  category: 'GPU' | 'Chipset' | 'Audio' | 'Rede' | 'Armazenamento';
+  category: 'GPU' | 'Chipset' | 'Audio' | 'Rede' | 'Armazenamento' | 'Outros';
   installedVersion: string;
   releaseDate: string;
   vendor: string;
   status: 'Atualizado' | 'Atualização Recomendada' | 'Desatualizado' | 'Verificado via WMI';
+  signatureStatus?: string;
   officialUrl: string;
 }
 
 export interface SoftwareApp {
   id: string;
   name: string;
-  category: 'Runtimes' | 'Comunicação' | 'Gravação & Streaming' | 'Diagnóstico' | 'Utilitários';
+  category: 'Runtimes' | 'Comunicação' | 'Gravação & Streaming' | 'Diagnóstico' | 'Utilitários' | 'Launchers' | 'Multimídia' | 'Navegadores' | 'Produtividade';
   description: string;
   version: string;
   isInstalled: boolean;

@@ -1,13 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Trash2,
-  HardDrive,
   CheckCircle2,
   AlertTriangle,
-  RotateCcw,
   Sparkles,
   ShieldCheck,
-  Check,
   AlertCircle,
   X,
 } from 'lucide-react';
@@ -17,59 +14,50 @@ import { nativeBridge } from '../../services/nativeBridge';
 export const DebloatView: React.FC = () => {
   const { t } = useI18n();
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    new Set(['cache-dx-shaders', 'temp-windows', 'temp-user', 'delivery-cache'])
-  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(['cache-dx-shaders', 'temp-user', 'temp-prefetch']));
+  const [scan, setScan] = useState<{ d3dCacheBytes: number; tempWindowsBytes: number; tempUserBytes: number; softwareDistributionBytes: number; prefetchBytes: number; deliveryOptimizationBytes: number; werQueueBytes: number; werArchiveBytes: number } | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
 
   const [isCleaning, setIsCleaning] = useState<boolean>(false);
   const [cleanedBytes, setCleanedBytes] = useState<number | null>(null);
+  const [cleanWasPartial, setCleanWasPartial] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
+  const scanNow = useCallback(async () => {
+    setIsScanning(true);
+    try {
+      const result = await nativeBridge.scanRealDebloatDirectories();
+      setScan(result ? {
+        d3dCacheBytes: Number(result.d3dCacheBytes) || 0,
+        tempWindowsBytes: Number(result.tempWindowsBytes) || 0,
+        tempUserBytes: Number(result.tempUserBytes) || 0,
+        softwareDistributionBytes: Number(result.softwareDistributionBytes) || 0,
+        prefetchBytes: Number(result.prefetchBytes) || 0,
+        deliveryOptimizationBytes: Number(result.deliveryOptimizationBytes) || 0,
+        werQueueBytes: Number(result.werQueueBytes) || 0,
+        werArchiveBytes: Number(result.werArchiveBytes) || 0,
+      } : null);
+      if (!result) setNoticeMessage('Conecte o agente Windows para medir o espaço real que pode ser liberado.');
+
+    } catch {
+      setScan(null);
+      setErrorMessage('Não foi possível verificar as pastas de limpeza.');
+    } finally { setIsScanning(false); }
+  }, []);
+
+  useEffect(() => { void scanNow(); }, [scanNow]);
+
   const categories = [
-    {
-      id: 'cache-dx-shaders',
-      name: t.debloat.dxShaderTitle,
-      description: t.debloat.dxShaderDesc,
-      estimatedBytes: 1420 * 1024 * 1024,
-      isSafe: true,
-    },
-    {
-      id: 'temp-windows',
-      name: t.debloat.tempWindowsTitle,
-      description: t.debloat.tempWindowsDesc,
-      estimatedBytes: 2850 * 1024 * 1024,
-      isSafe: true,
-    },
-    {
-      id: 'temp-user',
-      name: t.debloat.tempUserTitle,
-      description: t.debloat.tempUserDesc,
-      estimatedBytes: 3600 * 1024 * 1024,
-      isSafe: true,
-    },
-    {
-      id: 'update-cache',
-      name: t.debloat.updateCacheTitle,
-      description: t.debloat.updateCacheDesc,
-      estimatedBytes: 4200 * 1024 * 1024,
-      isSafe: true,
-    },
-    {
-      id: 'delivery-cache',
-      name: t.debloat.deliveryCacheTitle,
-      description: t.debloat.deliveryCacheDesc,
-      estimatedBytes: 890 * 1024 * 1024,
-      isSafe: true,
-    },
-    {
-      id: 'recycle-bin',
-      name: t.debloat.recycleBinTitle,
-      description: t.debloat.recycleBinDesc,
-      estimatedBytes: 1100 * 1024 * 1024,
-      isSafe: false,
-    },
+    { id: 'cache-dx-shaders', name: t.debloat.dxShaderTitle, description: t.debloat.dxShaderDesc, estimatedBytes: scan?.d3dCacheBytes || 0, isSafe: true },
+    { id: 'temp-user', name: t.debloat.tempUserTitle, description: 'Arquivos temporários criados por aplicativos na sua conta. Arquivos em uso serão ignorados.', estimatedBytes: scan?.tempUserBytes || 0, isSafe: true },
+    { id: 'temp-windows', name: t.debloat.tempWindowsTitle, description: 'Arquivos temporários do Windows. Itens bloqueados pelo sistema serão preservados.', estimatedBytes: scan?.tempWindowsBytes || 0, isSafe: true },
+    { id: 'temp-prefetch', name: 'Cache Prefetch do Windows', description: 'Arquivos auxiliares que o Windows recria. A limpeza pode deixar a primeira abertura de programas mais lenta temporariamente.', estimatedBytes: scan?.prefetchBytes || 0, isSafe: true },
+    { id: 'update-cache', name: t.debloat.updateCacheTitle, description: t.debloat.updateCacheDesc, estimatedBytes: scan?.softwareDistributionBytes || 0, isSafe: true },
+    { id: 'cache-delivery-optimization', name: 'Cache de otimização de entrega', description: 'Arquivos temporários usados pelo Windows para distribuir atualizações. O que estiver em uso será preservado.', estimatedBytes: scan?.deliveryOptimizationBytes || 0, isSafe: true },
+    { id: 'wer-report-queue', name: 'Relatórios de erro pendentes', description: 'Relatórios de falhas do Windows ainda não enviados. Apagar remove apenas os relatórios locais, não corrige a causa da falha.', estimatedBytes: scan?.werQueueBytes || 0, isSafe: true },
+    { id: 'wer-report-archive', name: 'Relatórios antigos de erro', description: 'Relatórios antigos já arquivados pelo Windows. Podem ser apagados para liberar espaço, mas deixam de estar disponíveis para diagnóstico.', estimatedBytes: scan?.werArchiveBytes || 0, isSafe: true },
   ];
 
   const toggleSelect = (id: string) => {
@@ -100,18 +88,57 @@ export const DebloatView: React.FC = () => {
     setIsConfirmModalOpen(false);
     setIsCleaning(true);
     setErrorMessage(null);
+    setNoticeMessage(null);
+    setCleanedBytes(null);
+    setCleanWasPartial(false);
 
     let totalFreed = 0;
-    try {
-      for (const id of Array.from(selectedIds)) {
-        const freed = await nativeBridge.purgeRealDebloatDirectory(id);
-        totalFreed += freed;
+    let deletedFiles = 0;
+    let skippedLocked = 0;
+    let skippedSymlinks = 0;
+    let hasPartialResult = false;
+    const failures: string[] = [];
+
+    // Process every selected category even if one request fails. The bridge returns
+    // structured failures for HTTP errors, so success must be checked explicitly.
+    for (const id of Array.from(selectedIds)) {
+      const categoryName = categories.find((category) => category.id === id)?.name || id;
+      try {
+        const result = await nativeBridge.purgeRealDebloatDirectory(id);
+        totalFreed += result.freedBytes;
+        deletedFiles += result.deletedFilesCount;
+        skippedLocked += result.skippedLockedCount;
+        skippedSymlinks += result.skippedSymlinksCount;
+
+        if (!result.success || result.partialSuccess || result.errors.length > 0 ||
+            result.skippedLockedCount > 0 || result.skippedSymlinksCount > 0) {
+          hasPartialResult = true;
+        }
+
+        if (result.errors.length > 0) {
+          failures.push(...result.errors.slice(0, 3).map((error) => `${categoryName}: ${error}`));
+        } else if (!result.success) {
+          failures.push(`${categoryName}: operação não concluída (${result.status || 'falha sem detalhes'}).`);
+        }
+      } catch (err) {
+        hasPartialResult = true;
+        failures.push(`${categoryName}: ${err instanceof Error ? err.message : 'falha de comunicação com o agente'}.`);
       }
-      // Strict rule: if Windows service reports 0 bytes, display 0 B. NEVER substitute with estimated space!
-      setCleanedBytes(totalFreed);
-    } catch (err: any) {
-      setErrorMessage(`${t.debloat.cleanError}: ${err.message || 'Falha de I/O no Windows'}`);
-      setCleanedBytes(null);
+    }
+
+    setCleanedBytes(totalFreed);
+    setCleanWasPartial(hasPartialResult);
+    setNoticeMessage(
+      hasPartialResult
+        ? `Limpeza parcial: ${deletedFiles} arquivo(s) removido(s); ${formatBytes(totalFreed)} liberados; ${skippedLocked} arquivo(s) em uso preservado(s); ${skippedSymlinks} link(s) simbólico(s) preservado(s).`
+        : null
+    );
+    if (failures.length > 0) {
+      setErrorMessage(failures.slice(0, 5).join(' | '));
+    }
+
+    try {
+      await scanNow();
     } finally {
       setIsCleaning(false);
     }
@@ -147,7 +174,7 @@ export const DebloatView: React.FC = () => {
 
           <button
             onClick={handleStartCleanRequest}
-            disabled={isCleaning || selectedBytes === 0}
+            disabled={isCleaning || isScanning || !scan || selectedBytes === 0}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40 disabled:opacity-50"
           >
             <Sparkles className="w-4 h-4 fill-current" />
@@ -190,13 +217,17 @@ export const DebloatView: React.FC = () => {
 
       {/* Verified Clean Result (Only from Real Windows Service) */}
       {cleanedBytes !== null && (
-        <div className="p-4 rounded-xl bg-[#0f1626] border border-emerald-500/50 flex items-center justify-between text-xs animate-scale-in">
+        <div className={`p-4 rounded-xl bg-[#0f1626] border ${cleanWasPartial ? 'border-amber-500/50' : 'border-emerald-500/50'} flex items-center justify-between text-xs animate-scale-in`}>
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div className="text-emerald-200">
+            {cleanWasPartial
+              ? <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+            <div className={cleanWasPartial ? 'text-amber-200' : 'text-emerald-200'}>
               <span className="font-bold">{t.debloat.actualFreedLabel}: </span>
-              <span className="font-mono text-emerald-400 font-bold">{formatBytes(cleanedBytes)}</span>
-              {cleanedBytes === 0 ? (
+              <span className={`font-mono font-bold ${cleanWasPartial ? 'text-amber-300' : 'text-emerald-400'}`}>{formatBytes(cleanedBytes)}</span>
+              {cleanWasPartial ? (
+                <span className="ml-2">— resultado parcial; confira os detalhes acima</span>
+              ) : cleanedBytes === 0 ? (
                 <span className="text-slate-400 ml-2">({t.debloat.zeroBytesCleaned})</span>
               ) : (
                 <span className="ml-2">— {t.debloat.cleanSuccess}</span>
@@ -219,8 +250,9 @@ export const DebloatView: React.FC = () => {
             {t.debloat.itemsTitle}
           </span>
           <span className="text-slate-400 font-mono">
-            {t.debloat.estimatedSpaceLabel}: {formatBytes(categories.reduce((acc, c) => acc + c.estimatedBytes, 0))}
+            {isScanning ? 'Verificando pastas...' : scan ? `Encontrado: ${formatBytes(categories.reduce((acc, c) => acc + c.estimatedBytes, 0))}` : 'Faça uma verificação para ver o espaço real'}
           </span>
+          <button onClick={() => void scanNow()} disabled={isScanning || isCleaning} className="px-3 py-1.5 rounded-md bg-[#171b2a] border border-slate-700 text-slate-200 disabled:opacity-50">{isScanning ? 'Verificando...' : 'Verificar novamente'}</button>
         </div>
 
         <div className="divide-y divide-slate-800/80">
@@ -236,6 +268,7 @@ export const DebloatView: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={isSelected}
+                    onClick={(event) => event.stopPropagation()}
                     onChange={() => toggleSelect(c.id)}
                     className="mt-1 w-4 h-4 rounded text-purple-600 focus:ring-0 bg-[#0a0c13] border-slate-700 cursor-pointer"
                   />
@@ -257,7 +290,7 @@ export const DebloatView: React.FC = () => {
                 </div>
 
                 <div className="font-mono font-bold text-slate-300 text-xs shrink-0">
-                  {formatBytes(c.estimatedBytes)}
+                  {scan ? formatBytes(c.estimatedBytes) : 'N/D'}
                 </div>
               </div>
             );

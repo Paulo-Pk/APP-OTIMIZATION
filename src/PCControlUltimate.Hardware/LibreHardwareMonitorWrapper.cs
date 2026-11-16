@@ -13,7 +13,9 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 {
     private readonly Computer _computer;
     private Timer? _pollingTimer;
-    private bool _disposed;
+    private readonly SemaphoreSlim _captureLock = new(1, 1);
+    private readonly object _pollingLock = new();
+    private volatile bool _disposed;
 
     public bool IsAvailable { get; private set; }
     public SensorReadingStatus CurrentStatus { get; private set; } = SensorReadingStatus.ReadingUnavailable;
@@ -33,33 +35,68 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         };
     }
 
-    public Task InitializeAsync(CancellationToken cancellationToken = default)
+    internal static bool IsSystemDrive(string? driveName, string? systemDrive)
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            IsAvailable = false;
-            CurrentStatus = SensorReadingStatus.SensorNotSupported;
-            LastCommunicationError = "Leitura física via LibreHardwareMonitor requer sistema operacional Windows nativo.";
-            return Task.CompletedTask;
-        }
+        if (string.IsNullOrWhiteSpace(driveName) || string.IsNullOrWhiteSpace(systemDrive))
+            return false;
 
-        try
-        {
-            _computer.Open();
-            IsAvailable = true;
-            CurrentStatus = SensorReadingStatus.Available;
-            LastCommunicationError = null;
-        }
-        catch (Exception ex)
-        {
-            IsAvailable = false;
-            CurrentStatus = SensorReadingStatus.CommunicationFailure;
-            LastCommunicationError = $"Falha ao inicializar sensores de hardware (verifique elevação UAC): {ex.Message}";
-        }
-        return Task.CompletedTask;
+        return string.Equals(
+            driveName.Trim().TrimEnd('\\'),
+            systemDrive.Trim().TrimEnd('\\'),
+            StringComparison.OrdinalIgnoreCase);
     }
 
-    public Task<HardwareSnapshot> CaptureSnapshotAsync()
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _captureLock.Wait(cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_disposed) throw new ObjectDisposedException(nameof(LibreHardwareMonitorWrapper));
+            if (!OperatingSystem.IsWindows())
+            {
+                IsAvailable = false;
+                CurrentStatus = SensorReadingStatus.SensorNotSupported;
+                LastCommunicationError = "Leitura física via LibreHardwareMonitor requer sistema operacional Windows nativo.";
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                _computer.Open();
+                IsAvailable = true;
+                CurrentStatus = SensorReadingStatus.Available;
+                LastCommunicationError = null;
+            }
+            catch (Exception ex)
+            {
+                IsAvailable = false;
+                CurrentStatus = SensorReadingStatus.CommunicationFailure;
+                LastCommunicationError = $"Falha ao inicializar sensores de hardware (verifique elevação UAC): {ex.Message}";
+            }
+            return Task.CompletedTask;
+        }
+        finally
+        {
+            _captureLock.Release();
+        }
+    }
+
+    public async Task<HardwareSnapshot> CaptureSnapshotAsync()
+    {
+        await _captureLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await CaptureSnapshotCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _captureLock.Release();
+        }
+    }
+
+    private Task<HardwareSnapshot> CaptureSnapshotCoreAsync()
     {
         if (_disposed)
         {
@@ -83,10 +120,17 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             ));
         }
 
+        // Clear transient read errors before each fresh sample so a recovered sensor
+        // does not leave the entire monitor permanently marked as failed.
+        CurrentStatus = SensorReadingStatus.Available;
+        LastCommunicationError = null;
+
         string? cpuModel = null;
         float? cpuTemp = null;
+        int cpuTempPriority = 0;
         float? cpuLoad = null;
         float? cpuClock = null;
+        float? cpuClockFallback = null;
         float? cpuPower = null;
 
         string? gpuModel = null;
@@ -100,6 +144,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         float? gpuVramTotal = null;
 
         float? ramUsed = null;
+        float? ramAvailable = null;
         float? ramTotal = null;
 
         var sensorList = new List<SensorDataPoint>();
@@ -109,7 +154,9 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         try
         {
             // Order hardware so discrete GPUs are listed before integrated GPUs without favoring any specific vendor/model
-            var orderedHardware = new List<IHardware>(_computer.Hardware);
+            var orderedHardware = new List<IHardware>();
+            foreach (var rootHardware in _computer.Hardware)
+                AddHardwareTree(rootHardware, orderedHardware);
             orderedHardware.Sort((a, b) => GetHardwarePriorityScore(b).CompareTo(GetHardwarePriorityScore(a)));
 
             foreach (var hardware in orderedHardware)
@@ -130,7 +177,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         false,
                         SensorReadingStatus.CommunicationFailure
                     ));
-                    LastCommunicationError = hwEx.Message;
+                    CurrentStatus = SensorReadingStatus.CommunicationFailure;
+                    LastCommunicationError = $"Falha ao atualizar '{hardware.Name}': {hwEx.Message}";
                     continue;
                 }
 
@@ -156,6 +204,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                 float? adapterFanRpm = null;
                 float? adapterVramUsed = null;
                 float? adapterVramTotal = null;
+                float? adapterDedicatedVramUsed = null;
+                float? adapterDedicatedVramTotal = null;
 
                 foreach (var sensor in hardware.Sensors)
                 {
@@ -189,17 +239,25 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                     if (hardware.HardwareType == HardwareType.Cpu)
                     {
-                        if (sensor.SensorType == SensorType.Temperature &&
-                            (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
-                             sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase)))
+                        if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                         {
-                            cpuTemp ??= sensor.Value;
+                            int candidatePriority = GetCpuTemperatureSensorPriority(sensor.Name);
+                            if (cpuTemp is null || candidatePriority > cpuTempPriority)
+                            {
+                                cpuTemp = sensor.Value;
+                                cpuTempPriority = candidatePriority;
+                            }
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             cpuLoad ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.Clock && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                            cpuClock ??= sensor.Value;
+                        if (sensor.SensorType == SensorType.Clock && sensor.Value is > 0)
+                        {
+                            // Ignore zero-MHz readings from sleeping cores and report the fastest
+                            // currently active core instead of freezing on the first core sensor.
+                            cpuClockFallback = Math.Max(cpuClockFallback ?? 0, sensor.Value.Value);
+                            if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+                                cpuClock = Math.Max(cpuClock ?? 0, sensor.Value.Value);
+                        }
                         if (sensor.SensorType == SensorType.Power &&
                             (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
                              sensor.Name.Contains("Cores", StringComparison.OrdinalIgnoreCase)))
@@ -234,10 +292,24 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             adapterPower ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Fan)
                             adapterFanRpm ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.SmallData && sensor.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase))
+                        // Only the GPU's dedicated-memory sensors represent VRAM.
+                        // "D3D Shared Memory" is backed by system RAM and must never be
+                        // merged into the dedicated VRAM figures.
+                        if (sensor.SensorType == SensorType.SmallData &&
+                            sensor.Name.Equals("GPU Memory Used", StringComparison.OrdinalIgnoreCase))
                             adapterVramUsed ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.SmallData && sensor.Name.Contains("Memory Total", StringComparison.OrdinalIgnoreCase))
+                        if (sensor.SensorType == SensorType.SmallData &&
+                            sensor.Name.Equals("GPU Memory Total", StringComparison.OrdinalIgnoreCase))
                             adapterVramTotal ??= sensor.Value;
+
+                        // Some drivers expose dedicated VRAM only through the D3D counters.
+                        // Keep these as a fallback, but intentionally ignore D3D Shared Memory.
+                        if (sensor.SensorType == SensorType.SmallData &&
+                            sensor.Name.Equals("D3D Dedicated Memory Used", StringComparison.OrdinalIgnoreCase))
+                            adapterDedicatedVramUsed ??= sensor.Value;
+                        if (sensor.SensorType == SensorType.SmallData &&
+                            sensor.Name.Equals("D3D Dedicated Memory Total", StringComparison.OrdinalIgnoreCase))
+                            adapterDedicatedVramTotal ??= sensor.Value;
 
                         if (isPrimaryGpuCandidate)
                         {
@@ -251,12 +323,17 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             gpuVramTotal ??= adapterVramTotal;
                         }
                     }
-                    else if (hardware.HardwareType == HardwareType.Memory)
+                    else if (hardware.HardwareType == HardwareType.Memory &&
+                             hardware.Name.Equals("Total Memory", StringComparison.OrdinalIgnoreCase) &&
+                             hardware.Identifier.ToString().Equals("/ram", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (sensor.SensorType == SensorType.Data && sensor.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase))
+                        // LibreHardwareMonitor also reports "Virtual Memory" as HardwareType.Memory
+                        // (with a /vram identifier). That is the page file, not physical RAM or GPU VRAM.
+                        // Only the /ram hardware node is allowed to populate system RAM telemetry.
+                        if (sensor.SensorType == SensorType.Data && sensor.Name.Equals("Memory Used", StringComparison.OrdinalIgnoreCase))
                             ramUsed ??= sensor.Value;
-                        if (sensor.SensorType == SensorType.Data && sensor.Name.Contains("Memory Available", StringComparison.OrdinalIgnoreCase))
-                            ramTotal ??= (ramUsed ?? 0) + (sensor.Value ?? 0);
+                        if (sensor.SensorType == SensorType.Data && sensor.Name.Equals("Memory Available", StringComparison.OrdinalIgnoreCase))
+                            ramAvailable ??= sensor.Value;
                     }
                     else if (hardware.HardwareType == HardwareType.Storage)
                     {
@@ -267,6 +344,9 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                 if (isGpuHardware)
                 {
+                    adapterVramUsed ??= adapterDedicatedVramUsed;
+                    adapterVramTotal ??= adapterDedicatedVramTotal;
+
                     gpuAdapters.Add(new GpuAdapterTelemetryPoint(
                         Model: hardware.Name,
                         HardwareType: hardware.HardwareType.ToString(),
@@ -279,7 +359,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         VramUsedMb: adapterVramUsed,
                         VramTotalMb: adapterVramTotal,
                         DriverVersion: null,
-                        PnpDeviceId: hardware.Identifier.ToString()
+                        PnpDeviceId: hardware.Identifier.ToString(),
+                        SensorIdentifier: hardware.Identifier.ToString()
                     ));
                 }
 
@@ -315,27 +396,39 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             ));
         }
 
-        if (storageDrives.Count == 0)
+        // Also append logical fixed volumes: physical drive sensors do not expose mount-point capacity.
+        try
         {
-            try
+            foreach (var drive in DriveInfo.GetDrives())
             {
-                foreach (var drive in DriveInfo.GetDrives())
+                if (drive.IsReady && drive.DriveType == DriveType.Fixed)
                 {
-                    if (drive.IsReady && drive.DriveType == DriveType.Fixed)
-                    {
-                        float totalGb = (float)Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 1);
-                        float freeGb = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 1);
-                        storageDrives.Add(new StorageTelemetryPoint(
-                            Model: $"Volume {drive.Name} ({drive.VolumeLabel})",
-                            CapacityGb: totalGb,
-                            FreeSpaceGb: freeGb,
-                            TemperatureC: null
-                        ));
-                    }
+                    float totalGb = (float)Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 1);
+                    float freeGb = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 1);
+                    string label = string.IsNullOrWhiteSpace(drive.VolumeLabel) ? "Sem rótulo" : drive.VolumeLabel;
+                    storageDrives.Add(new StorageTelemetryPoint(
+                        Model: $"Volume {drive.Name.TrimEnd('\\')} — {label}",
+                        CapacityGb: totalGb,
+                        FreeSpaceGb: freeGb,
+                        TemperatureC: null,
+                        IsSystemDisk: IsSystemDrive(drive.Name, Environment.GetEnvironmentVariable("SystemDrive"))
+                    ));
                 }
             }
-            catch { }
         }
+        catch { }
+
+        if (ramUsed.HasValue && ramAvailable.HasValue)
+            ramTotal = ramUsed.Value + ramAvailable.Value;
+
+        // Keep the legacy top-level GPU VRAM fields consistent with the selected
+        // primary adapter, including when only the D3D dedicated-memory fallback exists.
+        var primaryGpuTelemetry = gpuAdapters.FirstOrDefault(adapter =>
+            string.Equals(adapter.Model, gpuModel, StringComparison.OrdinalIgnoreCase));
+        gpuVramUsed ??= primaryGpuTelemetry?.VramUsedMb;
+        gpuVramTotal ??= primaryGpuTelemetry?.VramTotalMb;
+
+        cpuClock ??= cpuClockFallback;
 
         var snapshot = new HardwareSnapshot(
             DateTime.UtcNow,
@@ -367,19 +460,45 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
     public void StartPolling(TimeSpan interval)
     {
-        if (_disposed) return;
-        _pollingTimer?.Dispose();
-        _pollingTimer = new Timer(async _ =>
+        if (interval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(interval), "O intervalo de telemetria deve ser maior que zero.");
+
+        lock (_pollingLock)
         {
             if (_disposed) return;
-            var snap = await CaptureSnapshotAsync();
-            TelemetryUpdated?.Invoke(this, snap);
-        }, null, TimeSpan.Zero, interval);
+
+            _pollingTimer?.Dispose();
+            _pollingTimer = new Timer(async _ =>
+            {
+                if (_disposed) return;
+                try
+                {
+                    var snap = await CaptureSnapshotAsync().ConfigureAwait(false);
+                    if (!_disposed)
+                        TelemetryUpdated?.Invoke(this, snap);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Shutdown may race with a scheduled timer callback.
+                }
+                catch (Exception ex)
+                {
+                    if (!_disposed)
+                    {
+                        LastCommunicationError = $"Falha inesperada no ciclo de telemetria: {ex.Message}";
+                        CurrentStatus = SensorReadingStatus.CommunicationFailure;
+                    }
+                }
+            }, null, TimeSpan.Zero, interval);
+        }
     }
 
     public void StopPolling()
     {
-        _pollingTimer?.Change(Timeout.Infinite, 0);
+        lock (_pollingLock)
+        {
+            _pollingTimer?.Change(Timeout.Infinite, 0);
+        }
     }
 
     public static bool IsIntegratedGpuName(string? name)
@@ -419,6 +538,40 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                name.Contains("Adreno", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Selects the most representative real CPU temperature sensor without assuming one vendor's naming convention.
+    /// AMD Ryzen sensors such as Core (Tctl/Tdie), CCDx (Tdie), and CCDs Max (Tdie) are explicitly recognized.
+    /// Any other valid temperature sensor exposed by the CPU is retained as a last-resort real reading.
+    /// </summary>
+    public static int GetCpuTemperatureSensorPriority(string? sensorName)
+    {
+        if (string.IsNullOrWhiteSpace(sensorName)) return 0;
+
+        if (sensorName.Contains("Tctl/Tdie", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (sensorName.Contains("CCDs Max", StringComparison.OrdinalIgnoreCase)) return 98;
+        if (sensorName.Contains("Tdie", StringComparison.OrdinalIgnoreCase)) return 95;
+        if (sensorName.Contains("Tctl", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (sensorName.Contains("Die", StringComparison.OrdinalIgnoreCase)) return 88;
+        if (sensorName.Contains("Package", StringComparison.OrdinalIgnoreCase)) return 85;
+        if (sensorName.Contains("CCD", StringComparison.OrdinalIgnoreCase) &&
+            sensorName.Contains("Max", StringComparison.OrdinalIgnoreCase)) return 82;
+        if (sensorName.Contains("CCD", StringComparison.OrdinalIgnoreCase)) return 78;
+        if (sensorName.Contains("Core Max", StringComparison.OrdinalIgnoreCase)) return 74;
+        if (sensorName.Contains("Core", StringComparison.OrdinalIgnoreCase)) return 68;
+        if (sensorName.Contains("CPU", StringComparison.OrdinalIgnoreCase)) return 60;
+
+        return 1;
+    }
+
+    private static void AddHardwareTree(IHardware hardware, List<IHardware> destination)
+    {
+        destination.Add(hardware);
+        // Some CPU/GPU sensor groups are exposed as child hardware nodes by LHM.
+        // Visit them explicitly; reading only the root node silently misses valid temperatures/clocks.
+        foreach (var child in hardware.SubHardware)
+            AddHardwareTree(child, destination);
+    }
+
     private static int GetHardwarePriorityScore(IHardware hardware)
     {
         if (hardware.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel)
@@ -443,16 +596,29 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        try
+        lock (_pollingLock)
         {
+            if (_disposed) return;
+            _disposed = true;
             _pollingTimer?.Change(Timeout.Infinite, 0);
             _pollingTimer?.Dispose();
             _pollingTimer = null;
+        }
+
+        // Wait for an in-flight hardware read before closing LibreHardwareMonitor.
+        _captureLock.Wait();
+        try
+        {
             _computer.Close();
         }
-        catch { }
+        catch
+        {
+            // Disposal must remain best-effort even if a hardware driver fails to close.
+        }
+        finally
+        {
+            _captureLock.Release();
+        }
         GC.SuppressFinalize(this);
     }
 }

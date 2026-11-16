@@ -30,6 +30,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
   const [records, setRecords] = useState<BenchmarkRecord[]>([]);
 
   const [activeTest, setActiveTest] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
   const [progressState, setProgressState] = useState<BenchmarkProgress>({
     status: 'idle',
     progress: 0,
@@ -38,6 +39,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
   const handleRunCpu = async () => {
     setActiveTest('CPU');
+    setTestError(null);
     try {
       const result = await runCpuBenchmark(setProgressState);
       const newRecord: BenchmarkRecord = {
@@ -53,6 +55,8 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         notes: `${result.details} (Teste Sintético Navegador V8)`,
       };
       setRecords((prev) => [newRecord, ...prev]);
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : 'Não foi possível concluir o teste do processador.');
     } finally {
       setActiveTest(null);
     }
@@ -60,21 +64,24 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
   const handleRunGpu = async () => {
     setActiveTest('GPU');
+    setTestError(null);
     try {
       const result = await runGpuBenchmark(setProgressState);
       const newRecord: BenchmarkRecord = {
         id: `bm-${Date.now()}`,
         type: 'GPU',
         score: result.score,
-        metric: 'WebGL2 Shader GFLOPS',
+        metric: 'FPS de renderização',
         date: t.benchmarks.justNow,
         hardware: telemetry.gpu.name || t.common.sensorNotAvailable,
         durationMs: Math.round(result.durationMs),
         cpuTempPeak: telemetry.cpu.temperature > 0 ? Math.round(telemetry.cpu.temperature) : 0,
         gpuTempPeak: telemetry.gpu.temperature > 0 ? Math.round(telemetry.gpu.temperature) : 0,
-        notes: `${result.details} (Teste Sintético WebGL2)`,
+        notes: result.details,
       };
       setRecords((prev) => [newRecord, ...prev]);
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : 'Não foi possível concluir o teste da placa de vídeo. Verifique se o navegador permite WebGL2.');
     } finally {
       setActiveTest(null);
     }
@@ -82,6 +89,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
   const handleRunRam = async () => {
     setActiveTest('RAM');
+    setTestError(null);
     try {
       const result = await runRamBenchmark(setProgressState);
       const newRecord: BenchmarkRecord = {
@@ -100,6 +108,8 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         notes: `${result.details} (Teste Sintético ArrayBuffer)`,
       };
       setRecords((prev) => [newRecord, ...prev]);
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : 'Não foi possível concluir o teste de memória.');
     } finally {
       setActiveTest(null);
     }
@@ -138,13 +148,33 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
         <div className="space-y-0.5">
           <div className="font-bold text-cyan-300">
-            Ambiente de Execução: Teste Sintético em Navegador (V8 Engine / WebGL2 Compute)
+            Como os testes funcionam
           </div>
           <p className="text-slate-400 leading-relaxed text-[11px]">
-            Estes testes executam no motor JavaScript (V8) e WebGL2 do navegador web para avaliar capacidade computacional sintética. Eles são estritamente separados de benchmarks nativos de hardware Windows.
+            O teste de GPU renderiza uma cena gráfica usando a aceleração disponível no navegador e mede os quadros por segundo. O resultado é uma comparação sintética, não substitui um benchmark profissional de jogos ou 3D.
           </p>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-xl border border-purple-500/30 bg-gradient-to-br from-[#171329] to-[#0f121b] p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-purple-300">Processador detectado</div>
+          <div className="mt-2 text-sm font-bold text-white truncate">{telemetry.cpu.name || 'Não identificado'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">Temperatura atual: {telemetry.cpu.temperature > 0 ? telemetry.cpu.temperature.toFixed(1) + '°C' : 'N/D'}</div>
+        </div>
+        <div className="rounded-xl border border-rose-500/30 bg-gradient-to-br from-[#21131a] to-[#0f121b] p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-rose-300">Placa de vídeo detectada</div>
+          <div className="mt-2 text-sm font-bold text-white truncate">{telemetry.gpu.name || 'Não identificada'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">Temperatura: {telemetry.gpu.temperature > 0 ? telemetry.gpu.temperature.toFixed(1) + '°C' : 'N/D'} · Uso: {telemetry.gpu.utilization > 0 ? telemetry.gpu.utilization.toFixed(0) + '%' : 'N/D'}</div>
+        </div>
+        <div className="rounded-xl border border-cyan-500/30 bg-gradient-to-br from-[#10202a] to-[#0f121b] p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Memória RAM</div>
+          <div className="mt-2 text-sm font-bold text-white">{telemetry.ram.totalGB > 0 ? telemetry.ram.totalGB + ' GB' : 'Não identificada'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">Em uso: {telemetry.ram.usedGB > 0 ? telemetry.ram.usedGB.toFixed(1) + ' GB' : 'N/D'}</div>
+        </div>
+      </div>
+
+      {testError && <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">{testError}</div>}
 
       {/* Progress status if test running */}
       {isRunning && (
@@ -192,11 +222,11 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Flame className="w-5 h-5 text-rose-400" />
-              <span className="text-[10px] font-mono text-slate-500">WebGL2 Raymarching</span>
+              <span className="text-[10px] font-mono text-slate-400">Teste gráfico acelerado</span>
             </div>
             <h3 className="font-bold text-sm text-white">{t.benchmarks.gpuTestTitle}</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              {t.benchmarks.gpuTestDesc}
+              Executa uma carga gráfica na placa de vídeo e mede quantos quadros ela consegue renderizar por segundo. Requer aceleração de hardware no navegador.
             </p>
           </div>
           <button
@@ -230,6 +260,25 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
         </div>
       </div>
 
+      {/* Visual summary of the tests actually executed */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800"><div className="text-[10px] uppercase text-slate-500">Testes nesta sessão</div><div className="text-2xl font-black text-white mt-1">{records.length}</div><div className="text-[11px] text-slate-400">Somente execuções concluídas</div></div>
+        <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800"><div className="text-[10px] uppercase text-slate-500">Último resultado</div><div className="text-2xl font-black text-purple-300 mt-1">{records.length ? records[0].score.toLocaleString() : '—'}</div><div className="text-[11px] text-slate-400">{records.length ? records[0].type + ' · ' + records[0].metric : 'Execute um teste para começar'}</div></div>
+        <div className="p-4 rounded-xl bg-[#0f121b] border border-slate-800"><div className="text-[10px] uppercase text-slate-500">Tempo do último teste</div><div className="text-2xl font-black text-cyan-300 mt-1">{records.length ? records[0].durationMs + ' ms' : '—'}</div><div className="text-[11px] text-slate-400">Duração medida pelo cronômetro</div></div>
+      </div>
+      <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
+        <div><h3 className="text-sm font-bold text-white">Comparativo visual dos resultados</h3><p className="text-[11px] text-slate-400">Cada tipo de teste é normalizado separadamente. Pontuações de CPU, GPU e RAM não são comparáveis entre si.</p></div>
+        {records.length === 0 ? <div className="h-24 flex items-center justify-center rounded-lg bg-[#0a0c13] border border-slate-800 text-xs text-slate-500">O gráfico será preenchido após os primeiros testes</div> : (
+          <div className="space-y-3">
+            {(['CPU', 'GPU', 'RAM'] as const).map((kind) => {
+              const group = records.filter((record) => record.type === kind).slice(0, 5).reverse();
+              const maxScore = Math.max(1, ...group.map((record) => record.score));
+              if (group.length === 0) return null;
+              return <div key={kind} className="space-y-2"><div className="text-[11px] font-bold text-slate-300">{kind}</div>{group.map((record) => <div key={record.id} className="grid grid-cols-[minmax(70px,0.7fr)_3fr_auto] gap-3 items-center text-[11px]"><span className="text-slate-500 truncate">{record.date}</span><div className="h-2.5 rounded-full bg-slate-800 overflow-hidden"><div className="h-full rounded-full bg-purple-500" style={{ width: (record.score / maxScore * 100) + '%' }} /></div><span className="font-mono text-slate-200">{record.score.toLocaleString()}</span></div>)}</div>;
+            })}
+          </div>
+        )}
+      </div>
       {/* Benchmark History Log Table */}
       <div className="p-5 rounded-xl bg-[#0f121b] border border-slate-800 space-y-3">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800">
