@@ -24,6 +24,7 @@ public static class DriverScannerService
         "Não baixa nem instala drivers automaticamente e não declara que uma versão é a mais recente.";
 
     public static string? LastError { get; private set; }
+    public static string? LastScanError => LastError;
 
     public static IReadOnlyList<InstalledDriverEntry> QuerySignedDrivers()
     {

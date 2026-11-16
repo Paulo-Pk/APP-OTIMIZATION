@@ -8,10 +8,10 @@
     <UseWPF>true</UseWPF>
     <LangVersion>latest</LangVersion>
     <RootNamespace>PCControlUltimate.App</RootNamespace>
-    <ApplicationIcon>Assets\pc-control.ico</ApplicationIcon>
+    <ApplicationIcon>Assets/pc-control.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <Resource Include="Assets\pc-control.ico" />
+    <Resource Include="Assets/pc-control.ico" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../PCControlUltimate.Core/PCControlUltimate.Core.csproj" />
@@ -31,9 +31,9 @@
     <PackageReference Include="Serilog" Version="4.2.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
   </ItemGroup>
-  <ItemGroup Condition="Exists('..\..\dist\index.html')">
-    <Content Include="..\..\dist\**\*">
-      <Link>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
+  <ItemGroup Condition="Exists('../../dist/index.html')">
+    <Content Include="../../dist/**/*">
+      <Link>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

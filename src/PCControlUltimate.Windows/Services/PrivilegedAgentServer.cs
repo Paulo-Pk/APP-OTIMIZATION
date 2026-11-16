@@ -11,8 +11,11 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using PCControlUltimate.Core.Interfaces;
+using PCControlUltimate.Core.Models;
+using PCControlUltimate.Diagnostics;
 using PCControlUltimate.Gaming.PresentMon;
 using PCControlUltimate.Gaming.Network;
+using PCControlUltimate.Hardware;
 using PCControlUltimate.Security;
 
 namespace PCControlUltimate.Windows.Services;
@@ -28,6 +31,8 @@ public class PrivilegedAgentServer : IDisposable
     private readonly IHardwareMonitorService? _hardwareMonitor;
     private readonly NetworkDiagnosticsService _networkDiagnostics;
     private readonly WingetSoftwareCenterService _softwareCenter = new();
+    private readonly SystemDoctorService _systemDoctor = new();
+    private readonly RecommendationEngine _recommendationEngine = new();
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
     // Bound concurrent handlers so loopback clients cannot create an unbounded
     // number of fire-and-forget request tasks.
@@ -172,14 +177,19 @@ public class PrivilegedAgentServer : IDisposable
 
         // Long-running operations need endpoint-specific limits. PresentMon captures
         // can run for 120 seconds plus parser cleanup; winget installs can take several
-        // minutes while downloading and configuring packages. Keep ordinary API requests short.
-        string requestPath = context.Request.Url?.AbsolutePath ?? string.Empty;
-        TimeSpan requestTimeout =
-            string.Equals(requestPath, "/api/presentmon/capture", StringComparison.OrdinalIgnoreCase)
-                ? TimeSpan.FromSeconds(135)
-                : string.Equals(requestPath, "/api/software/install", StringComparison.OrdinalIgnoreCase)
-                    ? TimeSpan.FromMinutes(5)
-                    : TimeSpan.FromSeconds(15);
+        // minutes while downloading and configuring packages. Match nativeBridge timeouts
+        // for cleaner scans/purges, driver/game scans, network tests, and diagnostics.
+        string requestPath = (context.Request.Url?.AbsolutePath ?? string.Empty).ToLowerInvariant();
+        TimeSpan requestTimeout = requestPath switch
+        {
+            "/api/presentmon/capture" => TimeSpan.FromSeconds(135),
+            "/api/software/install" => TimeSpan.FromMinutes(5),
+            "/api/debloat/purge" => TimeSpan.FromSeconds(120),
+            "/api/debloat/scan" or "/api/snapshot/create" or "/api/snapshot/restore" or "/api/diagnostics/repair" => TimeSpan.FromSeconds(60),
+            "/api/drivers" or "/api/games/discover" or "/api/network/throughput" => TimeSpan.FromSeconds(45),
+            "/api/network/game-targets" or "/api/network/diagnostics" or "/api/tweaks/inspect" or "/api/diagnostics/system-doctor" => TimeSpan.FromSeconds(30),
+            _ => TimeSpan.FromSeconds(15)
+        };
 
         timeoutCts.CancelAfter(requestTimeout);
         await HandleRequestAsync(context, timeoutCts.Token);
@@ -711,6 +721,69 @@ public class PrivilegedAgentServer : IDisposable
                 return;
             }
 
+            if (path == "/api/diagnostics/system-doctor" && req.HttpMethod == "GET")
+            {
+                HardwareSnapshot snapshot;
+                if (_hardwareMonitor != null)
+                {
+                    snapshot = await _hardwareMonitor.CaptureSnapshotAsync();
+                }
+                else
+                {
+                    snapshot = new HardwareSnapshot(
+                        DateTime.UtcNow, null, null, null, null, null, null, null, null,
+                        Array.Empty<SensorDataPoint>(),
+                        MonitorStatus: SensorReadingStatus.ReadingUnavailable,
+                        DiagnosticMessage: "HardwareMonitorService not initialized.");
+                }
+
+                var doctorReport = await _systemDoctor.RunComprehensiveAuditAsync(
+                    snapshot,
+                    isRunningAsAdminOverride: UacElevationBridge.IsRunningAsAdministrator(),
+                    cancellationToken: cancellationToken);
+
+                IReadOnlyList<EvidenceBasedRecommendation> recommendations = Array.Empty<EvidenceBasedRecommendation>();
+                UniversalHardwareReport? universalReport = null;
+                if (_hardwareMonitor != null)
+                {
+                    try
+                    {
+                        var universalEngine = new UniversalHardwareEngine(_hardwareMonitor);
+                        universalReport = await universalEngine.BuildUniversalReportAsync(
+                            existingSnapshot: snapshot,
+                            isRunningAsAdminOverride: UacElevationBridge.IsRunningAsAdministrator(),
+                            cancellationToken: cancellationToken);
+                        recommendations = _recommendationEngine.GenerateRecommendations(
+                            universalReport,
+                            networkReport: null,
+                            doctorReport: doctorReport);
+                    }
+                    catch { }
+                }
+
+                WindowsEnvironmentProfile? compatibilityProfile = null;
+                if (OperatingSystem.IsWindows())
+                {
+                    try
+                    {
+                        var compatEngine = new WindowsCompatibilityEngine();
+                        compatibilityProfile = compatEngine.DetectEnvironment();
+                    }
+                    catch { }
+                }
+
+                await SendJsonAsync(res, new
+                {
+                    success = true,
+                    report = doctorReport,
+                    recommendations,
+                    detectedProfile = universalReport?.DetectedProfile.ToString(),
+                    profileJustification = universalReport?.ProfileJustification,
+                    compatibilityProfile
+                });
+                return;
+            }
+
             // Read-only Registry inspection is authenticated but does not enter the mutation lock
             // or accept any client-supplied path/value. Only the closed backend catalog is inspected.
             if (path == "/api/tweaks/inspect" && req.HttpMethod == "GET")
@@ -1024,6 +1097,35 @@ public class PrivilegedAgentServer : IDisposable
                             recentFrameTimesMs = captureRes.Summary.RecentFrameTimesMs,
                             csvFilePath = captureRes.CsvFilePath
                         });
+                        return;
+                    }
+
+                    if (path == "/api/diagnostics/repair")
+                    {
+                        string repairCommandId = doc.RootElement.TryGetProperty("repairCommandId", out var rcEl)
+                            ? (rcEl.GetString() ?? "").Trim()
+                            : "";
+                        bool userConfirmed = doc.RootElement.TryGetProperty("userConfirmed", out var ucEl)
+                            && ucEl.ValueKind == JsonValueKind.True;
+
+                        var repairRes = await _systemDoctor.ExecuteVerifiedRepairToolAsync(
+                            repairCommandId,
+                            userConfirmed,
+                            cancellationToken);
+
+                        WriteAuditLog("SYSTEM_REPAIR",
+                            $"CommandId={repairRes.RepairCommandId} Success={repairRes.Success} ExitCode={repairRes.ExitCode}");
+
+                        await SendJsonAsync(res, new
+                        {
+                            success = repairRes.Success,
+                            repairCommandId = repairRes.RepairCommandId,
+                            commandExecuted = repairRes.CommandExecuted,
+                            requiresAdminElevation = repairRes.RequiresAdminElevation,
+                            exitCode = repairRes.ExitCode,
+                            outputLog = repairRes.OutputLog,
+                            executedAtUtc = repairRes.ExecutedAtUtc
+                        }, repairRes.Success ? 200 : 400);
                         return;
                     }
                 }

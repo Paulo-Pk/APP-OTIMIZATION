@@ -1,9 +1,9 @@
 <Window x:Class="PCControlUltimate.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:PCControlUltimate.App.ViewModels"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="PC Control Ultimate"
-        Icon="pack://application:,,,/Assets/pc-control.ico"
         Height="920" Width="1540" MinHeight="700" MinWidth="1100"
         WindowStartupLocation="CenterScreen"
         Background="#07090E" Foreground="#F8FAFC" FontFamily="Segoe UI Variable Display, Segoe UI">
@@ -1699,6 +1699,21 @@
                         </ItemsControl>
                     </StackPanel>
                 </Border>
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Background="{StaticResource BgBaseBrush}">
+        <Grid x:Name="NativeWpfFallback" Visibility="Collapsed">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24">
+                <ContentControl Content="{Binding CurrentView}"/>
+            </ScrollViewer>
+        </Grid>
+        <wv2:WebView2 x:Name="AppWebView" DefaultBackgroundColor="#07090E"/>
+        <Border x:Name="StartupOverlay" Background="#07090E" Visibility="Visible">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="540">
+                <TextBlock Text="PC Control Ultimate" FontSize="22" FontWeight="Bold" Foreground="#F8FAFC" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                <TextBlock x:Name="StartupStatus" Text="Inicializando interface integrada e telemetria local..." FontSize="13" Foreground="#94A3B8" TextAlignment="Center" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
     </Grid>

@@ -682,9 +682,9 @@ public static class RegistrySnapshotEngine
             bool legacyCompletenessMetadata = !string.Equals(manifest.FormatVersion, CurrentFormatVersion, StringComparison.Ordinal);
             if ((manifest.ReadFailuresCount > 0 || legacyCompletenessMetadata) && !allowIncomplete)
             {
-                string reason = legacyCompletenessMetadata
-                    ? $"Este backup usa o formato legado {manifest.FormatVersion}, que não vincula os metadados de completude ao checksum."
-                    : $"Este backup é incompleto ({manifest.ReadFailuresCount} falhas de leitura na captura).";
+                string reason = manifest.ReadFailuresCount > 0
+                    ? $"Este backup é incompleto ({manifest.ReadFailuresCount} falhas de leitura na captura)."
+                    : $"Este backup usa o formato legado {manifest.FormatVersion}, que não vincula os metadados de completude ao checksum.";
                 return new SnapshotRestoreResult(
                     false, false, false, 0, 0,
                     $"{reason} Confirmação explícita é necessária antes de restaurar."

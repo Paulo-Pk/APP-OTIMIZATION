@@ -96,6 +96,46 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
   const [issueToConfirm, setIssueToConfirm] = useState<DiagnosticIssue | null>(null);
   const [isFixing, setIsFixing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isAuditingSystemDoctor, setIsAuditingSystemDoctor] = useState<boolean>(false);
+  const [systemDoctorSummary, setSystemDoctorSummary] = useState<string | null>(null);
+  const [systemDoctorFindings, setSystemDoctorFindings] = useState<Array<{
+    category: string;
+    title: string;
+    severity: string;
+    evidence: string;
+    probableCause: string;
+    recommendedAction: string;
+    requiresAdminForRepair: boolean;
+    repairCommandId?: string | null;
+  }>>([]);
+  const [evidenceRecommendations, setEvidenceRecommendations] = useState<Array<{
+    recommendationId: string;
+    title: string;
+    problemIdentified: string;
+    evidenceCollected: string;
+    expectedImpact: string;
+    riskLevel: string;
+    recommendedAction: string;
+    targetModule: string;
+  }>>([]);
+
+  const handleRunSystemDoctorAudit = async () => {
+    setErrorMessage(null);
+    if (!nativeBridge.getStatus().isConnected) {
+      setErrorMessage(t.diagnostics.agentRequiredDiag);
+      return;
+    }
+    setIsAuditingSystemDoctor(true);
+    const res = await nativeBridge.runSystemDoctorAudit();
+    setIsAuditingSystemDoctor(false);
+    if (!res.success) {
+      setErrorMessage(res.error || 'Falha ao executar auditoria System Doctor no agente Windows.');
+      return;
+    }
+    setSystemDoctorSummary(res.executiveSummary || null);
+    setSystemDoctorFindings(res.findings);
+    setEvidenceRecommendations(res.recommendations);
+  };
 
   const handleRequestFix = (issue: DiagnosticIssue) => {
     setErrorMessage(null);
@@ -155,13 +195,24 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onOpenBoostModal}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40"
-        >
-          <Wrench className="w-4 h-4" />
-          <span>{t.diagnostics.fixWithOneClick}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleRunSystemDoctorAudit}
+            disabled={isAuditingSystemDoctor}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#181c2d] hover:bg-[#20273d] text-purple-200 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer border border-purple-500/40 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 text-purple-400 ${isAuditingSystemDoctor ? 'animate-spin' : ''}`} />
+            <span>{isAuditingSystemDoctor ? 'Verificando...' : 'Auditoria System Doctor'}</span>
+          </button>
+
+          <button
+            onClick={onOpenBoostModal}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40"
+          >
+            <Wrench className="w-4 h-4" />
+            <span>{t.diagnostics.fixWithOneClick}</span>
+          </button>
+        </div>
       </div>
 
       {/* Error Message Notice */}
@@ -177,6 +228,51 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
           >
             {t.common.close}
           </button>
+        </div>
+      )}
+
+      {/* Real System Doctor & Evidence-Based Recommendations Results */}
+      {systemDoctorSummary && (
+        <div className="p-4 rounded-xl bg-[#0f121b] border border-purple-500/40 space-y-3">
+          <div className="text-xs font-bold text-purple-300 uppercase tracking-wider">
+            Resultado da Auditoria Real (System Doctor & Recommendation Engine)
+          </div>
+          <p className="text-xs text-slate-300">{systemDoctorSummary}</p>
+          {systemDoctorFindings.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              {systemDoctorFindings.map((finding, idx) => (
+                <div key={idx} className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-purple-400 uppercase">{finding.category}</span>
+                    <span className="font-mono text-slate-400">{finding.severity}</span>
+                  </div>
+                  <div className="text-xs font-bold text-white">{finding.title}</div>
+                  <div className="text-[11px] text-slate-400">{finding.evidence}</div>
+                  <div className="text-[11px] text-emerald-300 font-mono">{finding.recommendedAction}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {evidenceRecommendations.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-slate-800/80">
+              <div className="text-[11px] font-bold text-cyan-300 uppercase">
+                Recomendações Baseadas em Evidências Reais
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {evidenceRecommendations.map((rec) => (
+                  <div key={rec.recommendationId} className="p-3 rounded-lg bg-[#0a0c13] border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-cyan-400">{rec.targetModule}</span>
+                      <span className="font-mono text-emerald-400">{rec.riskLevel}</span>
+                    </div>
+                    <div className="text-xs font-bold text-white">{rec.title}</div>
+                    <div className="text-[11px] text-slate-400">{rec.evidenceCollected}</div>
+                    <div className="text-[11px] text-purple-300 font-mono">{rec.recommendedAction}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

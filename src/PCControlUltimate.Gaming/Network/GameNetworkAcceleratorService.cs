@@ -585,7 +585,11 @@ public static class GameNetworkAcceleratorService
             string? executableName = executableElement?.Attribute("Name")?.Value?.Trim();
             if (!string.IsNullOrWhiteSpace(executableName))
             {
-                string candidate = Path.GetFullPath(Path.Combine(location, executableName));
+                string normalizedName = executableName
+                    .Replace(@"\\", "/")
+                    .Replace('\\', Path.DirectorySeparatorChar)
+                    .Replace('/', Path.DirectorySeparatorChar);
+                string candidate = Path.GetFullPath(Path.Combine(location, normalizedName));
                 string prefix = location.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                     + Path.DirectorySeparatorChar;
                 if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))

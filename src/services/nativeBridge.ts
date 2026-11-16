@@ -71,10 +71,10 @@ class NativeBridgeService {
       path === '/api/software/install' ? 5 * 60 * 1000 :
       path === '/api/presentmon/capture' ? 135 * 1000 :
       path === '/api/debloat/purge' ? 120 * 1000 :
-      path === '/api/debloat/scan' || path === '/api/snapshot/create' || path === '/api/snapshot/restore' ? 60 * 1000 :
+      path === '/api/debloat/scan' || path === '/api/snapshot/create' || path === '/api/snapshot/restore' || path === '/api/diagnostics/repair' ? 60 * 1000 :
       path === '/api/drivers' || path === '/api/games/discover' ? 45 * 1000 :
       path === '/api/network/throughput' ? 45 * 1000 :
-      path === '/api/network/game-targets' || path === '/api/network/diagnostics' || path === '/api/tweaks/inspect' ? 30 * 1000 :
+      path === '/api/network/game-targets' || path === '/api/network/diagnostics' || path === '/api/tweaks/inspect' || path === '/api/diagnostics/system-doctor' ? 30 * 1000 :
       15 * 1000;
 
     // Keep the deadline active while the caller consumes the response body,
@@ -202,7 +202,10 @@ class NativeBridgeService {
               return sensorIdentifier === primaryGpuIdentifier || sensorIdentifier.startsWith(primaryGpuIdentifier + '/');
             })
           : gpuSensors;
-        const cpuClockCandidates = cpuSensors.filter((sensor: any) => sensor.sensorType.toLowerCase() === 'clock').map((sensor: any) => Number(sensor.value)).filter((value: number) => Number.isFinite(value));
+        const cpuClockCandidates = cpuSensors
+          .filter((sensor: any) => sensor.sensorType.toLowerCase() === 'clock' && !/\bbus\b/i.test(String(sensor.name || '')))
+          .map((sensor: any) => Number(sensor.value))
+          .filter((value: number) => Number.isFinite(value));
         const cpuClockFallback = cpuClockCandidates.length ? Math.max(...cpuClockCandidates) : 0;
         // Build per-core readings only from sensors explicitly labeled with a core index.
         // A core is included only when an actual per-core Load reading exists; missing
@@ -273,6 +276,15 @@ class NativeBridgeService {
         const storage = Array.isArray(rawStorage) ? rawStorage : [];
         const vendorText = String(read(gpuAdapter, 'hardwareType') || '').toLowerCase();
         const gpuVendor = vendorText.includes('nvidia') ? 'NVIDIA' : vendorText.includes('amd') ? 'AMD' : vendorText.includes('intel') ? 'Intel' : 'Outro';
+        const cpuVoltageReading = firstAvailableReading(
+          findSensor(cpuSensors, 'Voltage', /core|vcore|svi2|vid|cpu/i),
+          findSensor(motherboardSensors, 'Voltage', /vcore|cpu\s*core/i),
+        );
+        const cpuPhysicalCores = numeric(read(data, 'cpuPhysicalCores'));
+        const cpuLogicalProcessors = numeric(read(data, 'cpuLogicalProcessors'));
+        const ramSpeedMt = numeric(read(data, 'ramSpeedMt'));
+        const ramGeneration = String(read(data, 'ramGeneration') || 'Não informado');
+        const motherboardModel = String(read(data, 'motherboardModelName') || 'Não informado');
         return {
           isSimulatedMode: false,
           overallScore: 0,
@@ -281,7 +293,7 @@ class NativeBridgeService {
           cpu: {
             name: String(read(data, 'cpuModelName') || ''), socket: 'Não informado', temperature: cpuTemp, temperatureAvailable: cpuTempReading !== null,
             load: numeric(read(data, 'cpuTotalLoad')), frequencyGHz: cpuClockMhz / 1000,
-            cores: 0, threads: 0, powerWatts: numeric(read(data, 'cpuPowerWatts')), voltageV: 0, coreList: cpuCoreList,
+            cores: cpuPhysicalCores, threads: cpuLogicalProcessors, powerWatts: numeric(read(data, 'cpuPowerWatts')), voltageV: cpuVoltageReading ?? 0, coreList: cpuCoreList,
           },
           gpu: {
             name: String(read(data, 'gpuModelName') || read(gpuAdapter, 'model') || ''), vendor: gpuVendor,
@@ -297,7 +309,7 @@ class NativeBridgeService {
           ram: {
             totalGB: ramTotal, usedGB: ramUsed, availableGB: Math.max(0, ramTotal - ramUsed),
             percentage: ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0,
-            speedMT: 0, channels: 'Não informado', type: 'Não informado',
+            speedMT: ramSpeedMt, channels: 'Não informado', type: ramGeneration,
           },
           disks: storage.map((drive: any, index: number) => {
             const model = String(read(drive, 'model') || 'Unidade ' + (index + 1));
@@ -310,7 +322,7 @@ class NativeBridgeService {
             };
           }),
           motherboard: {
-            model: 'Não informado', chipset: 'Não informado', biosVersion: 'Não informado',
+            model: motherboardModel, chipset: 'Não informado', biosVersion: 'Não informado',
             temperatures: { system: motherboardSystemTemp ?? 0, vrm: motherboardVrmTemp ?? 0, chipset: motherboardChipsetTemp ?? 0, systemAvailable: motherboardSystemTemp !== null, vrmAvailable: motherboardVrmTemp !== null, chipsetAvailable: motherboardChipsetTemp !== null },
             voltages: { v12: motherboard12v ?? 0, v5: motherboard5v ?? 0, v33: motherboard33v ?? 0 },
             fans: { cpuFanRPM: motherboardCpuFan ?? 0, pumpRPM: motherboardPumpFan ?? 0, caseFansRPM: motherboardCaseFans },
@@ -859,6 +871,143 @@ class NativeBridgeService {
       available: false,
       nativeRefreshRateHz: null,
     };
+  }
+
+  public async runSystemDoctorAudit(): Promise<{
+    success: boolean;
+    healthScore?: number;
+    executiveSummary?: string;
+    isRunningAsAdministrator?: boolean;
+    findings: Array<{
+      category: string;
+      title: string;
+      severity: string;
+      evidence: string;
+      probableCause: string;
+      recommendedAction: string;
+      requiresAdminForRepair: boolean;
+      repairCommandId?: string | null;
+    }>;
+    recommendations: Array<{
+      recommendationId: string;
+      title: string;
+      problemIdentified: string;
+      evidenceCollected: string;
+      expectedImpact: string;
+      riskLevel: string;
+      recommendedAction: string;
+      targetModule: string;
+    }>;
+    detectedProfile?: string;
+    profileJustification?: string;
+    error?: string;
+  }> {
+    if (!this.agentStatus.isConnected) {
+      return { success: false, findings: [], recommendations: [], error: 'AGENT_DISCONNECTED' };
+    }
+
+    try {
+      const res = await this.fetchWithTimeout(
+        `${LOCAL_AGENT_URL}/api/diagnostics/system-doctor`,
+        { headers: this.getAuthHeaders() }
+      );
+      const data = await res.json();
+      if (!res.ok || data.success !== true) {
+        return {
+          success: false,
+          findings: [],
+          recommendations: [],
+          error: data.error || data.message || `HTTP ${res.status}`,
+        };
+      }
+      const read = (obj: any, key: string) => obj?.[key] ?? obj?.[key.charAt(0).toUpperCase() + key.slice(1)];
+      const report = read(data, 'report') || {};
+      const rawFindings = read(report, 'findings');
+      const rawRecs = read(data, 'recommendations');
+      const severityNames = ['Informativo', 'Baixo', 'Moderado', 'Alto', 'Critico'];
+      const findings = (Array.isArray(rawFindings) ? rawFindings : []).map((f: any) => {
+        const rawSev = read(f, 'severity');
+        const sevStr = typeof rawSev === 'number' ? (severityNames[rawSev] || 'Informativo') : String(rawSev || 'Informativo');
+        return {
+          category: String(read(f, 'category') || 'Sistema'),
+          title: String(read(f, 'title') || ''),
+          severity: sevStr,
+          evidence: String(read(f, 'evidence') || ''),
+          probableCause: String(read(f, 'probableCause') || ''),
+          recommendedAction: String(read(f, 'recommendedAction') || ''),
+          requiresAdminForRepair: Boolean(read(f, 'requiresAdminForRepair')),
+          repairCommandId: read(f, 'repairCommandId') ?? null,
+        };
+      });
+      const recommendations = (Array.isArray(rawRecs) ? rawRecs : []).map((r: any) => ({
+        recommendationId: String(read(r, 'recommendationId') || ''),
+        title: String(read(r, 'title') || ''),
+        problemIdentified: String(read(r, 'problemIdentified') || ''),
+        evidenceCollected: String(read(r, 'evidenceCollected') || ''),
+        expectedImpact: String(read(r, 'expectedImpact') || ''),
+        riskLevel: String(read(r, 'riskLevel') || 'Seguro'),
+        recommendedAction: String(read(r, 'recommendedAction') || ''),
+        targetModule: String(read(r, 'targetModule') || ''),
+      }));
+      return {
+        success: true,
+        healthScore: Number(read(report, 'healthScore') ?? 0),
+        executiveSummary: String(read(report, 'executiveSummary') || ''),
+        isRunningAsAdministrator: Boolean(read(report, 'isRunningAsAdministrator')),
+        findings,
+        recommendations,
+        detectedProfile: read(data, 'detectedProfile') ? String(read(data, 'detectedProfile')) : undefined,
+        profileJustification: read(data, 'profileJustification') ? String(read(data, 'profileJustification')) : undefined,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        findings: [],
+        recommendations: [],
+        error: err?.message || 'Falha ao executar auditoria System Doctor no agente Windows.',
+      };
+    }
+  }
+
+  public async executeSystemRepair(
+    repairCommandId: string,
+    userConfirmed: boolean
+  ): Promise<{
+    success: boolean;
+    commandExecuted?: string;
+    requiresAdminElevation?: boolean;
+    exitCode?: number;
+    outputLog?: string;
+    error?: string;
+  }> {
+    if (!this.agentStatus.isConnected) {
+      return { success: false, error: 'AGENT_DISCONNECTED' };
+    }
+
+    try {
+      const res = await this.fetchWithTimeout(
+        `${LOCAL_AGENT_URL}/api/diagnostics/repair`,
+        {
+          method: 'POST',
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify({ repairCommandId, userConfirmed }),
+        }
+      );
+      const data = await res.json();
+      return {
+        success: res.ok && data.success === true,
+        commandExecuted: data.commandExecuted,
+        requiresAdminElevation: Boolean(data.requiresAdminElevation),
+        exitCode: data.exitCode,
+        outputLog: data.outputLog,
+        error: data.error || (!data.success ? data.outputLog : undefined),
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || 'Falha ao executar ferramenta de reparo no agente Windows.',
+      };
+    }
   }
 }
 

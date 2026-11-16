@@ -85,7 +85,12 @@ public record HardwareSnapshot(
     IReadOnlyList<StorageTelemetryPoint>? StorageDrives = null,
     SensorReadingStatus MonitorStatus = SensorReadingStatus.Available,
     string? DiagnosticMessage = null,
-    IReadOnlyList<GpuAdapterTelemetryPoint>? GpuAdapters = null
+    IReadOnlyList<GpuAdapterTelemetryPoint>? GpuAdapters = null,
+    int? CpuPhysicalCores = null,
+    int? CpuLogicalProcessors = null,
+    string? RamGeneration = null,
+    int? RamSpeedMt = null,
+    string? MotherboardModelName = null
 )
 {
     public SensorReadingStatus Status => MonitorStatus;

@@ -21,6 +21,7 @@ public sealed class GameDiscoveryTests : IDisposable
     [Fact]
     public void DiscoverInstalledGames_ReadsCurrentUserGogCatalogFrom64BitRegistryView()
     {
+        if (!OperatingSystem.IsWindows()) return;
         string installRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-game-tests-64-{Guid.NewGuid():N}");
         Directory.CreateDirectory(installRoot);
 
@@ -56,6 +57,7 @@ public sealed class GameDiscoveryTests : IDisposable
     [Fact]
     public void DiscoverInstalledGames_ReadsCurrentUserGogCatalog_AndKeepsExecutablesInsideInstallFolder()
     {
+        if (!OperatingSystem.IsWindows()) return;
         Directory.CreateDirectory(_installRoot);
         string validExecutable = Path.Combine(_installRoot, "game.exe");
         File.WriteAllText(validExecutable, "test");
@@ -105,6 +107,7 @@ public sealed class GameDiscoveryTests : IDisposable
     [InlineData(RegistryView.Registry64)]
     public void DiscoverInstalledGames_ReadsSteamRegistryRootAndAdditionalLibrary(RegistryView registryView)
     {
+        if (!OperatingSystem.IsWindows()) return;
         string steamRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-steam-root-{Guid.NewGuid():N}");
         string libraryRoot = Path.Combine(Path.GetTempPath(), $"pccontrol-steam-library-{Guid.NewGuid():N}");
         string appId = "987" + (Convert.ToUInt64(Guid.NewGuid().ToString("N")[..12], 16) % 10_000_000).ToString("D7");
@@ -168,6 +171,7 @@ public sealed class GameDiscoveryTests : IDisposable
     [InlineData(RegistryView.Registry64)]
     public void DiscoverInstalledGames_ReadsUbisoftConnectMachineCatalog(RegistryView registryView)
     {
+        if (!OperatingSystem.IsWindows()) return;
         string entryName = $"PCControlUbisoft_{Guid.NewGuid():N}";
         string installRoot = Path.Combine(Path.GetTempPath(), entryName);
         string catalogPath = $@"Software\Ubisoft\Launcher\Installs\{entryName}";
@@ -207,6 +211,7 @@ public sealed class GameDiscoveryTests : IDisposable
     [InlineData(RegistryView.Registry64)]
     public void DiscoverInstalledGames_ReadsEaAppMachineCatalog(RegistryView registryView)
     {
+        if (!OperatingSystem.IsWindows()) return;
         string entryName = $"PCControlEa_{Guid.NewGuid():N}";
         string installRoot = Path.Combine(Path.GetTempPath(), entryName);
         string catalogPath = $@"Software\EA Games\{entryName}";

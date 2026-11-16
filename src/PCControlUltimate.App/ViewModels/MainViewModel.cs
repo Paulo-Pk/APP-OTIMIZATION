@@ -19,6 +19,7 @@ using PCControlUltimate.Core.Models;
 using PCControlUltimate.Diagnostics;
 using PCControlUltimate.Gaming.Network;
 using PCControlUltimate.Gaming.PresentMon;
+using PCControlUltimate.Hardware;
 using PCControlUltimate.Infrastructure.Data;
 using PCControlUltimate.Infrastructure.Services;
 using PCControlUltimate.Windows.Services;
@@ -238,6 +239,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly NetworkDiagnosticsService _networkDiagnostics;
     private readonly WingetSoftwareCenterService _softwareCenter = new();
     private readonly SystemDoctorService _systemDoctor = new();
+    private readonly RecommendationEngine _recommendationEngine = new();
     private CancellationTokenSource? _presentMonCts;
     private readonly SemaphoreSlim _telemetryRefreshGate = new(1, 1);
     private readonly DispatcherTimer _telemetryRefreshTimer;
@@ -2216,12 +2218,31 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void RefreshAssistantInsights()
+    private void RefreshAssistantInsights(HardwareSnapshot? latestSnapshot = null)
     {
         AssistantDiagnosticInsights.Clear();
         AssistantDiagnosticInsights.Add($"Placa de vídeo: {GpuModel} | Temperatura da GPU: {GpuTemp} | Hotspot: {GpuHotspot}. {GpuThermalDiagnosisText}");
         AssistantDiagnosticInsights.Add($"Conexão de jogos: {RouteVerdictText}");
         AssistantDiagnosticInsights.Add($"Segurança e restauração: {SecurityPostureText} Última cópia de segurança: {LastBackupStatus}");
+        if (latestSnapshot != null && _hardwareMonitor != null)
+        {
+            try
+            {
+                var universalEngine = new UniversalHardwareEngine(_hardwareMonitor);
+                var universalReport = universalEngine.BuildUniversalReportAsync(
+                    existingSnapshot: latestSnapshot,
+                    isRunningAsAdminOverride: IsAdmin,
+                    physicalCoresOverride: latestSnapshot.CpuPhysicalCores,
+                    logicalProcessorsOverride: latestSnapshot.CpuLogicalProcessors,
+                    memoryGenerationOverride: latestSnapshot.RamGeneration,
+                    memorySpeedMtOverride: latestSnapshot.RamSpeedMt).GetAwaiter().GetResult();
+                foreach (var rec in _recommendationEngine.GenerateRecommendations(universalReport))
+                {
+                    AssistantDiagnosticInsights.Add($"[{rec.TargetModule}] {rec.Title}: {rec.RecommendedAction} (Evidência: {rec.EvidenceCollected})");
+                }
+            }
+            catch { }
+        }
         AssistantDiagnosticInsights.Add("O PC Control não altera drivers, voltagem ou proteções importantes do Windows automaticamente. As mudanças disponíveis podem ser conferidas e restauradas quando há histórico seguro.");
     }
 
@@ -2468,6 +2489,7 @@ public class MainViewModel : INotifyPropertyChanged
                         .Where(sensor => sensor.IsAvailable &&
                             string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
                             string.Equals(sensor.SensorType, "Clock", StringComparison.OrdinalIgnoreCase) &&
+                            !sensor.Name.Contains("Bus", StringComparison.OrdinalIgnoreCase) &&
                             sensor.Value.HasValue && sensor.Value.Value > 0)
                         .Select(sensor => sensor.Value)
                         .Max();
@@ -2491,6 +2513,14 @@ public class MainViewModel : INotifyPropertyChanged
                 if (snap.GpuVramUsedMb.HasValue && snap.GpuVramTotalMb.HasValue && snap.GpuVramTotalMb.Value > 0)
                 {
                     GpuVram = $"{snap.GpuVramUsedMb.Value:F0} MB / {snap.GpuVramTotalMb.Value:F0} MB";
+                }
+                else if (snap.GpuVramUsedMb.HasValue && snap.GpuVramUsedMb.Value > 0)
+                {
+                    GpuVram = $"{snap.GpuVramUsedMb.Value:F0} MB em uso";
+                }
+                else if (snap.GpuVramTotalMb.HasValue && snap.GpuVramTotalMb.Value > 0)
+                {
+                    GpuVram = $"{snap.GpuVramTotalMb.Value:F0} MB";
                 }
                 else
                 {
@@ -2519,9 +2549,14 @@ public class MainViewModel : INotifyPropertyChanged
                     double used = snap.RamUsedGb.Value;
                     double total = snap.RamTotalGb.Value;
                     double avail = Math.Max(0, total - used);
+                    string ramSpec = !string.IsNullOrWhiteSpace(snap.RamGeneration)
+                        ? (snap.RamSpeedMt.HasValue && snap.RamSpeedMt.Value > 0
+                            ? $"{snap.RamGeneration} @ {snap.RamSpeedMt.Value} MT/s"
+                            : snap.RamGeneration!)
+                        : "Physical RAM";
                     RamUsage = $"{used:F1} GB / {total:F1} GB";
                     RamUsagePercent = Math.Round((used / total) * 100.0, 1);
-                    RamTotalAndTypeText = $"{total:F0} GB Physical RAM";
+                    RamTotalAndTypeText = $"{total:F0} GB {ramSpec}";
                     RamUsedText = $"{used:F1} GB";
                     RamAvailableText = $"{avail:F1} GB";
                 }
@@ -2535,10 +2570,10 @@ public class MainViewModel : INotifyPropertyChanged
                 }
                 OnPropertyChanged(nameof(RamUsageWithPercent));
 
-                UpdatePrimaryDiskAndProfileTelemetry(snap.GpuModelName, snap.RamTotalGb);
+                UpdatePrimaryDiskAndProfileTelemetry(snap.GpuModelName, snap.RamTotalGb, snap.CpuPhysicalCores, snap.CpuLogicalProcessors);
                 AppendTelemetryChartSample(snap.CpuTotalLoad ?? 0, snap.GpuLoadPercent ?? 0, cpuTemperatureReading);
 
-                RefreshAssistantInsights();
+                RefreshAssistantInsights(snap);
                 return;
             }
         }
@@ -2570,7 +2605,7 @@ public class MainViewModel : INotifyPropertyChanged
         RamUsedText = unavailable;
         RamAvailableText = unavailable;
         OnPropertyChanged(nameof(RamUsageWithPercent));
-        UpdatePrimaryDiskAndProfileTelemetry(null, null);
+        UpdatePrimaryDiskAndProfileTelemetry(null, null, null, null);
         OverallHealthScore = "N/D";
         RefreshAssistantInsights();
         }
@@ -2579,9 +2614,12 @@ public class MainViewModel : INotifyPropertyChanged
             _telemetryRefreshGate.Release();
         }
     }
-    private void UpdatePrimaryDiskAndProfileTelemetry(string? gpuName, double? ramTotalGb)
+    private void UpdatePrimaryDiskAndProfileTelemetry(string? gpuName, double? ramTotalGb, int? cpuPhysicalCores = null, int? cpuLogicalProcessors = null)
     {
-        CpuCoresThreadsText = $"{Math.Max(1, Environment.ProcessorCount / 2)} Cores / {Environment.ProcessorCount} Threads";
+        int threads = cpuLogicalProcessors ?? Environment.ProcessorCount;
+        CpuCoresThreadsText = cpuPhysicalCores.HasValue && cpuPhysicalCores.Value > 0
+            ? $"{cpuPhysicalCores.Value} Cores / {threads} Threads"
+            : $"{threads} Threads";
 
         try
         {

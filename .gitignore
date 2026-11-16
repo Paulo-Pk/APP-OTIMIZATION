@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+server-assets/*.zip
+**/bin/
+**/obj/

@@ -11,6 +11,7 @@ import {
 import { TabId } from '../types';
 import { useI18n } from '../i18n';
 import { nativeBridge, NativeAgentStatus } from '../services/nativeBridge';
+import { downloadCompiledWindowsApp } from '../services/solutionExporter';
 
 interface HeaderProps {
   currentTab: TabId;
@@ -31,6 +32,7 @@ export const Header: React.FC<HeaderProps> = ({
   const { language, setLanguage, t } = useI18n();
   const [agentStatus, setAgentStatus] = useState<NativeAgentStatus>(nativeBridge.getStatus());
   const [isCheckingAgent, setIsCheckingAgent] = useState<boolean>(false);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
   useEffect(() => {
     return nativeBridge.subscribe((status) => {
@@ -42,6 +44,18 @@ export const Header: React.FC<HeaderProps> = ({
     setIsCheckingAgent(true);
     await nativeBridge.checkConnection();
     setIsCheckingAgent(false);
+  };
+
+  const handleDownloadExe = async () => {
+    if (downloadProgress !== null) return;
+    setDownloadProgress(0);
+    try {
+      await downloadCompiledWindowsApp((percent) => setDownloadProgress(percent));
+    } catch (err) {
+      console.error('Failed to download compiled Windows app:', err);
+    } finally {
+      setDownloadProgress(null);
+    }
   };
 
   const toggleLanguage = () => {
@@ -132,6 +146,19 @@ export const Header: React.FC<HeaderProps> = ({
             {overallScore}/100
           </span>
         </div>
+
+        {/* Compiled Windows x64 App Download (chunked transfer with ZIP verification) */}
+        <button
+          onClick={handleDownloadExe}
+          disabled={downloadProgress !== null}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-950/80 hover:bg-emerald-900/80 disabled:opacity-75 border border-emerald-500/50 text-emerald-300 hover:text-emerald-100 text-xs font-bold transition-colors cursor-pointer shadow-sm"
+          title="Baixar Aplicativo Windows x64 Compilado Pronto (PCControlUltimate.App.exe)"
+        >
+          <Download className={`w-3.5 h-3.5 text-emerald-400 ${downloadProgress !== null ? 'animate-bounce' : ''}`} />
+          <span className="hidden sm:inline">
+            {downloadProgress !== null ? `Baixando ${downloadProgress}%` : 'Baixar App (.EXE)'}
+          </span>
+        </button>
 
         {/* Quick Solution Download */}
         <button

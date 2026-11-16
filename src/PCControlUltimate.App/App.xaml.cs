@@ -45,44 +45,44 @@ public partial class App : Application
 
         Log.Information("PC Control Ultimate v2.5.0 starting up...");
 
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Log.Error(args.Exception, "Unhandled UI dispatcher exception.");
+            args.Handled = true;
+        };
+
         try
         {
             _databaseService = new DatabaseService();
-            await _databaseService.InitializeAndVerifyAsync();
+            try
+            {
+                await _databaseService.InitializeAndVerifyAsync();
+            }
+            catch (Exception dbEx)
+            {
+                Log.Warning(dbEx, "SQLite initialization warning; continuing startup.");
+            }
 
             _hardwareMonitor = new LibreHardwareMonitorWrapper();
-            await _hardwareMonitor.InitializeAsync();
-
-            if (_hardwareMonitor.IsAvailable)
+            try
             {
-                var startupSnapshot = await _hardwareMonitor.CaptureSnapshotAsync();
-                string cpuTemperatureSensors = string.Join(" | ", startupSnapshot.Sensors
-                    .Where(sensor =>
-                        string.Equals(sensor.HardwareType, "Cpu", StringComparison.OrdinalIgnoreCase) &&
-                        string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase))
-                    .Take(20)
-                    .Select(sensor => $"{sensor.Name}: {sensor.FormattedValue}"));
-
-                Log.Information(
-                    "Hardware monitor ready. Status={Status}; CPU={CpuModel}; CPU temperature={CpuTemperature}; CPU temperature sensors={CpuSensors}; Diagnostic={Diagnostic}",
-                    startupSnapshot.Status,
-                    startupSnapshot.CpuModelName ?? "N/D",
-                    startupSnapshot.CpuPackageTemp?.ToString("F1") ?? "N/D",
-                    string.IsNullOrWhiteSpace(cpuTemperatureSensors) ? "Nenhum sensor térmico de CPU exposto" : cpuTemperatureSensors,
-                    startupSnapshot.DiagnosticReason
-                );
+                await _hardwareMonitor.InitializeAsync();
             }
-            else
+            catch (Exception hwEx)
             {
-                Log.Warning(
-                    "Hardware monitor unavailable. Status={Status}; Error={Error}",
-                    _hardwareMonitor.CurrentStatus,
-                    _hardwareMonitor.LastCommunicationError
-                );
+                Log.Warning(hwEx, "Hardware monitor initialization warning; continuing startup.");
             }
 
             // Single-instance check for the local Privileged Agent
-            _agentMutex = new Mutex(true, @"Local\PCControlUltimate_PrivilegedAgent_Mutex_v25", out _ownsAgentMutex);
+            try
+            {
+                _agentMutex = new Mutex(true, @"Local\PCControlUltimate_PrivilegedAgent_Mutex_v25", out _ownsAgentMutex);
+            }
+            catch
+            {
+                _ownsAgentMutex = true;
+            }
 
             var networkDiagnosticsService = new NetworkDiagnosticsService();
             string? inMemoryToken = null;
@@ -174,12 +174,27 @@ public partial class App : Application
             _serviceProvider = services.BuildServiceProvider();
 
             var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
+            try
+            {
+                mainWindow.DataContext = _serviceProvider.GetRequiredService<MainViewModel>();
+            }
+            catch (Exception vmEx)
+            {
+                Log.Warning(vmEx, "Could not attach MainViewModel DataContext; continuing with WebView2 shell.");
+            }
             MainWindow = mainWindow;
             mainWindow.Show();
+            mainWindow.Activate();
         }
         catch (Exception ex)
         {
             Log.Fatal(ex, "Critical error during application startup.");
+            MessageBox.Show(
+                $"Erro ao iniciar o PC Control Ultimate:\n\n{ex.Message}\n\nDetalhes foram gravados em {Path.Combine(logDir, "wpf_app.log")}",
+                "PC Control Ultimate — Erro de Inicialização",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown(1);
         }
     }
 

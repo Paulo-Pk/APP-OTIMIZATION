@@ -69,6 +69,8 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
                 Socket {telemetry.cpu.socket} ·{' '}
                 {telemetry.cpu.cores > 0
                   ? `${telemetry.cpu.cores} Cores / ${telemetry.cpu.threads} Threads`
+                  : telemetry.cpu.threads > 0
+                  ? `${telemetry.cpu.threads} Threads`
                   : t.common.sensorNotAvailable}
               </span>
             </div>
@@ -254,13 +256,17 @@ export const HardwareMonitorView: React.FC<HardwareMonitorViewProps> = ({
               {t.hardwareMonitor.vramAllocation}
             </span>
             <span className="text-base font-mono font-bold text-cyan-300">
-              {vramTotalMB !== null && vramTotalMB > 0 && vramUsedMB !== null
+              {vramUsedMB !== null
                 ? `${(vramUsedMB / 1024).toFixed(1)} GB`
+                : vramTotalMB !== null && vramTotalMB > 0
+                ? `${(vramTotalMB / 1024).toFixed(0)} GB`
                 : t.common.sensorNotAvailable}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">
               {vramTotalMB !== null && vramTotalMB > 0
                 ? `${t.hardwareMonitor.of} ${(vramTotalMB / 1024).toFixed(0)} GB`
+                : vramUsedMB !== null
+                ? 'Em uso dedicado'
                 : '--'}
             </span>
           </div>

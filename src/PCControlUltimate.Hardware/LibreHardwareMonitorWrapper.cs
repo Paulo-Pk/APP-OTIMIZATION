@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Management;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using LibreHardwareMonitor.Hardware;
@@ -11,11 +14,22 @@ namespace PCControlUltimate.Hardware;
 
 public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 {
-    private readonly Computer _computer;
+    private object? _computer;
     private Timer? _pollingTimer;
     private readonly SemaphoreSlim _captureLock = new(1, 1);
     private readonly object _pollingLock = new();
     private volatile bool _disposed;
+
+    private bool _staticWmiProbed;
+    private string? _cachedWmiCpuName;
+    private int? _cachedPhysicalCores;
+    private int? _cachedLogicalProcessors;
+    private string? _cachedRamGeneration;
+    private int? _cachedRamSpeedMt;
+    private DateTime _lastWmiGpuProbeUtc = DateTime.MinValue;
+    private IReadOnlyList<GpuAdapterTelemetryPoint> _cachedWmiGpuAdapters = Array.Empty<GpuAdapterTelemetryPoint>();
+    private DateTime _lastWmiCpuClockProbeUtc = DateTime.MinValue;
+    private float? _cachedWmiCpuClockMhz;
 
     public bool IsAvailable { get; private set; }
     public SensorReadingStatus CurrentStatus { get; private set; } = SensorReadingStatus.ReadingUnavailable;
@@ -24,7 +38,15 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
     public LibreHardwareMonitorWrapper()
     {
-        _computer = new Computer
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private Computer EnsureComputer()
+    {
+        if (_computer is Computer existing)
+            return existing;
+
+        var created = new Computer
         {
             IsCpuEnabled = true,
             IsGpuEnabled = true,
@@ -33,9 +55,11 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             IsStorageEnabled = true,
             IsNetworkEnabled = false
         };
+        _computer = created;
+        return created;
     }
 
-    internal static bool IsSystemDrive(string? driveName, string? systemDrive)
+    public static bool IsSystemDrive(string? driveName, string? systemDrive)
     {
         if (string.IsNullOrWhiteSpace(driveName) || string.IsNullOrWhiteSpace(systemDrive))
             return false;
@@ -64,7 +88,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
             try
             {
-                _computer.Open();
+                EnsureComputer().Open();
                 IsAvailable = true;
                 CurrentStatus = SensorReadingStatus.Available;
                 LastCommunicationError = null;
@@ -146,6 +170,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         float? ramUsed = null;
         float? ramAvailable = null;
         float? ramTotal = null;
+        string? motherboardModel = null;
 
         var sensorList = new List<SensorDataPoint>();
         var storageDrives = new List<StorageTelemetryPoint>();
@@ -155,7 +180,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         {
             // Order hardware so discrete GPUs are listed before integrated GPUs without favoring any specific vendor/model
             var orderedHardware = new List<IHardware>();
-            foreach (var rootHardware in _computer.Hardware)
+            foreach (var rootHardware in EnsureComputer().Hardware)
                 AddHardwareTree(rootHardware, orderedHardware);
             orderedHardware.Sort((a, b) => GetHardwarePriorityScore(b).CompareTo(GetHardwarePriorityScore(a)));
 
@@ -188,6 +213,10 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                 if (hardware.HardwareType == HardwareType.Cpu && string.IsNullOrWhiteSpace(cpuModel))
                 {
                     cpuModel = hardware.Name;
+                }
+                else if (hardware.HardwareType == HardwareType.Motherboard && string.IsNullOrWhiteSpace(motherboardModel))
+                {
+                    motherboardModel = hardware.Name;
                 }
                 else if (isGpuHardware && string.IsNullOrWhiteSpace(gpuModel))
                 {
@@ -242,7 +271,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                         {
                             int candidatePriority = GetCpuTemperatureSensorPriority(sensor.Name);
-                            if (cpuTemp is null || candidatePriority > cpuTempPriority)
+                            if (cpuTemp is null || candidatePriority > cpuTempPriority ||
+                                (candidatePriority == cpuTempPriority && sensor.Value.Value > cpuTemp.Value))
                             {
                                 cpuTemp = sensor.Value;
                                 cpuTempPriority = candidatePriority;
@@ -252,9 +282,12 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             cpuLoad ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Clock && sensor.Value is > 0)
                         {
-                            // Ignore zero-MHz readings from sleeping cores and report the fastest
-                            // currently active core instead of freezing on the first core sensor.
-                            cpuClockFallback = Math.Max(cpuClockFallback ?? 0, sensor.Value.Value);
+                            // Ignore zero-MHz readings from sleeping cores and bus-clock sensors (e.g. 100 MHz Bus Speed),
+                            // reporting the fastest currently active core instead of freezing on the first core sensor.
+                            if (!sensor.Name.Contains("Bus", StringComparison.OrdinalIgnoreCase))
+                            {
+                                cpuClockFallback = Math.Max(cpuClockFallback ?? 0, sensor.Value.Value);
+                            }
                             if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
                                 cpuClock = Math.Max(cpuClock ?? 0, sensor.Value.Value);
                         }
@@ -265,9 +298,26 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                             cpuPower ??= sensor.Value;
                         }
                     }
+                    else if (hardware.HardwareType is HardwareType.Motherboard or HardwareType.SuperIO)
+                    {
+                        // When Windows 11 HVCI / Memory Integrity blocks direct CPU MSR temperature sensors,
+                        // some boards expose the real CPU socket/package sensor on the Motherboard/SuperIO node.
+                        if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0 &&
+                            (sensor.Name.Contains("CPU", StringComparison.OrdinalIgnoreCase) ||
+                             sensor.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
+                             sensor.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            const int motherboardCpuTempPriority = 5;
+                            if (cpuTemp is null || motherboardCpuTempPriority > cpuTempPriority)
+                            {
+                                cpuTemp = sensor.Value;
+                                cpuTempPriority = motherboardCpuTempPriority;
+                            }
+                        }
+                    }
                     else if (isGpuHardware)
                     {
-                        if (sensor.SensorType == SensorType.Temperature)
+                        if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                         {
                             if (sensor.Name.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase) ||
                                 sensor.Name.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
@@ -276,6 +326,8 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                                 adapterHotspot ??= sensor.Value;
                             }
                             else if ((sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
+                                      sensor.Name.Contains("Edge", StringComparison.OrdinalIgnoreCase) ||
+                                      sensor.Name.Contains("GPU Temp", StringComparison.OrdinalIgnoreCase) ||
                                       sensor.Name.Equals("GPU", StringComparison.OrdinalIgnoreCase) ||
                                       sensor.Name.Equals("GPU Temperature", StringComparison.OrdinalIgnoreCase)) &&
                                      !sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase) &&
@@ -324,12 +376,12 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         }
                     }
                     else if (hardware.HardwareType == HardwareType.Memory &&
-                             hardware.Name.Equals("Total Memory", StringComparison.OrdinalIgnoreCase) &&
-                             hardware.Identifier.ToString().Equals("/ram", StringComparison.OrdinalIgnoreCase))
+                             hardware.Identifier.ToString().Equals("/ram", StringComparison.OrdinalIgnoreCase) &&
+                             !hardware.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
                     {
                         // LibreHardwareMonitor also reports "Virtual Memory" as HardwareType.Memory
                         // (with a /vram identifier). That is the page file, not physical RAM or GPU VRAM.
-                        // Only the /ram hardware node is allowed to populate system RAM telemetry.
+                        // The physical RAM node (/ram) may be named "Total Memory" or "Generic Memory" depending on SMBIOS.
                         if (sensor.SensorType == SensorType.Data && sensor.Name.Equals("Memory Used", StringComparison.OrdinalIgnoreCase))
                             ramUsed ??= sensor.Value;
                         if (sensor.SensorType == SensorType.Data && sensor.Name.Equals("Memory Available", StringComparison.OrdinalIgnoreCase))
@@ -337,7 +389,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                     }
                     else if (hardware.HardwareType == HardwareType.Storage)
                     {
-                        if (sensor.SensorType == SensorType.Temperature)
+                        if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                             driveTemp ??= sensor.Value;
                     }
                 }
@@ -381,6 +433,59 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             LastCommunicationError = $"Erro de comunicação ao ler sensores: {ex.Message}";
         }
 
+        // Enrich with cached Windows WMI / Registry / Win32 counters when running on Windows
+        if (OperatingSystem.IsWindows())
+        {
+            EnsureStaticHardwareMetadataProbed();
+
+            if (string.IsNullOrWhiteSpace(cpuModel) && !string.IsNullOrWhiteSpace(_cachedWmiCpuName))
+            {
+                cpuModel = _cachedWmiCpuName;
+            }
+
+            // Merge complementary WMI & Registry GPU adapters (which provide 64-bit qwMemorySize VRAM Total, DriverVersion, and PNPDeviceID)
+            if ((DateTime.UtcNow - _lastWmiGpuProbeUtc).TotalSeconds >= 30)
+            {
+                _cachedWmiGpuAdapters = UniversalHardwareEngine.QueryWmiAndRegistryGpuAdapters();
+                _lastWmiGpuProbeUtc = DateTime.UtcNow;
+            }
+
+            if (_cachedWmiGpuAdapters.Count > 0)
+            {
+                var mergedAdapters = UniversalHardwareEngine.MergeGpuAdapters(gpuAdapters, _cachedWmiGpuAdapters);
+                var physicalMerged = mergedAdapters
+                    .Where(a =>
+                    {
+                        var kind = UniversalHardwareEngine.ClassifyGpuAdapterKind(a.Model, a.PnpDeviceId, null, a.HardwareType);
+                        return kind is GpuAdapterKind.PhysicalDiscrete or GpuAdapterKind.PhysicalIntegrated;
+                    })
+                    .OrderByDescending(a =>
+                        UniversalHardwareEngine.ClassifyGpuAdapterKind(a.Model, a.PnpDeviceId, null, a.HardwareType) == GpuAdapterKind.PhysicalDiscrete)
+                    .ThenByDescending(a => a.CoreTempC.HasValue || a.LoadPercent.HasValue)
+                    .ThenByDescending(a => a.VramTotalMb ?? 0f)
+                    .ToList();
+
+                if (physicalMerged.Count > 0)
+                {
+                    gpuAdapters = physicalMerged;
+                    var primaryPhysical = physicalMerged[0];
+                    gpuModel ??= primaryPhysical.Model;
+                    if (string.Equals(primaryPhysical.Model, gpuModel, StringComparison.OrdinalIgnoreCase) || gpuTemp is null)
+                    {
+                        gpuModel = primaryPhysical.Model;
+                        gpuTemp ??= primaryPhysical.CoreTempC;
+                        gpuHotspot ??= primaryPhysical.HotspotTempC;
+                        gpuLoad ??= primaryPhysical.LoadPercent;
+                        gpuClock ??= primaryPhysical.CoreClockMhz;
+                        gpuPower ??= primaryPhysical.PowerWatts;
+                        gpuFanRpm ??= primaryPhysical.FanRpm;
+                        gpuVramUsed ??= primaryPhysical.VramUsedMb;
+                        gpuVramTotal ??= primaryPhysical.VramTotalMb;
+                    }
+                }
+            }
+        }
+
         // Explicitly record SensorNotSupported if GPU is present but Hotspot sensor is not exposed by the hardware
         if (!string.IsNullOrWhiteSpace(gpuModel) && !gpuHotspot.HasValue)
         {
@@ -397,6 +502,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         }
 
         // Also append logical fixed volumes: physical drive sensors do not expose mount-point capacity.
+        float? primaryPhysicalDriveTemp = storageDrives.FirstOrDefault(d => d.TemperatureC.HasValue)?.TemperatureC;
         try
         {
             foreach (var drive in DriveInfo.GetDrives())
@@ -406,12 +512,13 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                     float totalGb = (float)Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 1);
                     float freeGb = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 1);
                     string label = string.IsNullOrWhiteSpace(drive.VolumeLabel) ? "Sem rótulo" : drive.VolumeLabel;
+                    bool isSys = IsSystemDrive(drive.Name, Environment.GetEnvironmentVariable("SystemDrive"));
                     storageDrives.Add(new StorageTelemetryPoint(
                         Model: $"Volume {drive.Name.TrimEnd('\\')} — {label}",
                         CapacityGb: totalGb,
                         FreeSpaceGb: freeGb,
-                        TemperatureC: null,
-                        IsSystemDisk: IsSystemDrive(drive.Name, Environment.GetEnvironmentVariable("SystemDrive"))
+                        TemperatureC: isSys ? primaryPhysicalDriveTemp : null,
+                        IsSystemDisk: isSys
                     ));
                 }
             }
@@ -421,14 +528,26 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         if (ramUsed.HasValue && ramAvailable.HasValue)
             ramTotal = ramUsed.Value + ramAvailable.Value;
 
+        if (OperatingSystem.IsWindows() && (!ramUsed.HasValue || !ramTotal.HasValue))
+        {
+            var (winTotalGb, winUsedGb) = TryReadWin32PhysicalMemoryGb();
+            ramTotal ??= winTotalGb;
+            ramUsed ??= winUsedGb;
+        }
+
         // Keep the legacy top-level GPU VRAM fields consistent with the selected
         // primary adapter, including when only the D3D dedicated-memory fallback exists.
         var primaryGpuTelemetry = gpuAdapters.FirstOrDefault(adapter =>
-            string.Equals(adapter.Model, gpuModel, StringComparison.OrdinalIgnoreCase));
+            string.Equals(adapter.Model, gpuModel, StringComparison.OrdinalIgnoreCase))
+            ?? gpuAdapters.FirstOrDefault();
         gpuVramUsed ??= primaryGpuTelemetry?.VramUsedMb;
         gpuVramTotal ??= primaryGpuTelemetry?.VramTotalMb;
 
         cpuClock ??= cpuClockFallback;
+        if (OperatingSystem.IsWindows() && !cpuClock.HasValue)
+        {
+            cpuClock = TryGetWmiCpuCurrentClockMhz();
+        }
 
         var snapshot = new HardwareSnapshot(
             DateTime.UtcNow,
@@ -452,10 +571,105 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
             storageDrives,
             CurrentStatus,
             LastCommunicationError,
-            gpuAdapters
+            gpuAdapters,
+            _cachedPhysicalCores,
+            _cachedLogicalProcessors,
+            _cachedRamGeneration,
+            _cachedRamSpeedMt,
+            motherboardModel
         );
 
         return Task.FromResult(snapshot);
+    }
+
+    private void EnsureStaticHardwareMetadataProbed()
+    {
+        if (_staticWmiProbed || !OperatingSystem.IsWindows()) return;
+        _staticWmiProbed = true;
+
+        try
+        {
+            var (cpuName, physCores, logCores) = UniversalHardwareEngine.QueryWmiCpuDetails();
+            _cachedWmiCpuName = cpuName;
+            _cachedPhysicalCores = physCores;
+            _cachedLogicalProcessors = logCores ?? Math.Max(1, Environment.ProcessorCount);
+        }
+        catch
+        {
+            _cachedLogicalProcessors = Math.Max(1, Environment.ProcessorCount);
+        }
+
+        try
+        {
+            var (memGen, memSpeed) = UniversalHardwareEngine.QueryWmiMemoryDetails();
+            _cachedRamGeneration = memGen;
+            _cachedRamSpeedMt = memSpeed;
+        }
+        catch { }
+    }
+
+    private float? TryGetWmiCpuCurrentClockMhz()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        if ((DateTime.UtcNow - _lastWmiCpuClockProbeUtc).TotalSeconds < 3)
+            return _cachedWmiCpuClockMhz;
+
+        _lastWmiCpuClockProbeUtc = DateTime.UtcNow;
+        try
+        {
+            using var searcher = new ManagementObjectSearcher("SELECT CurrentClockSpeed FROM Win32_Processor");
+            using var collection = searcher.Get();
+            float maxClock = 0f;
+            foreach (ManagementBaseObject obj in collection)
+            {
+                if (obj["CurrentClockSpeed"] != null &&
+                    float.TryParse(obj["CurrentClockSpeed"].ToString(), out float clk) &&
+                    clk > maxClock)
+                {
+                    maxClock = clk;
+                }
+            }
+            _cachedWmiCpuClockMhz = maxClock > 0 ? maxClock : null;
+        }
+        catch { }
+
+        return _cachedWmiCpuClockMhz;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MEMORYSTATUSEX
+    {
+        public uint dwLength;
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys;
+        public ulong ullAvailPhys;
+        public ulong ullTotalPageFile;
+        public ulong ullAvailPageFile;
+        public ulong ullTotalVirtual;
+        public ulong ullAvailVirtual;
+        public ulong ullAvailExtendedVirtual;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+    private static (float? TotalGb, float? UsedGb) TryReadWin32PhysicalMemoryGb()
+    {
+        if (!OperatingSystem.IsWindows()) return (null, null);
+        try
+        {
+            var mem = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() };
+            if (GlobalMemoryStatusEx(ref mem) && mem.ullTotalPhys > 0)
+            {
+                double totalGb = mem.ullTotalPhys / (1024.0 * 1024.0 * 1024.0);
+                double availGb = mem.ullAvailPhys / (1024.0 * 1024.0 * 1024.0);
+                double usedGb = Math.Max(0.0, totalGb - availGb);
+                return ((float)Math.Round(totalGb, 1), (float)Math.Round(usedGb, 1));
+            }
+        }
+        catch { }
+        return (null, null);
     }
 
     public void StartPolling(TimeSpan interval)
@@ -594,6 +808,12 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         };
     }
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void CloseComputerCore()
+    {
+        (_computer as Computer)?.Close();
+    }
+
     public void Dispose()
     {
         lock (_pollingLock)
@@ -609,7 +829,10 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
         _captureLock.Wait();
         try
         {
-            _computer.Close();
+            if (IsAvailable && OperatingSystem.IsWindows())
+            {
+                CloseComputerCore();
+            }
         }
         catch
         {

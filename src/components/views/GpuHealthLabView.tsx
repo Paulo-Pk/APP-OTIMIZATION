@@ -197,6 +197,8 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
             <div className="text-lg font-bold text-white font-mono">
               {gpu.vramTotalMB > 0
                 ? `${(gpu.vramUsedMB / 1024).toFixed(1)} GB / ${(gpu.vramTotalMB / 1024).toFixed(0)} GB`
+                : gpu.vramUsedMB > 0
+                ? `${(gpu.vramUsedMB / 1024).toFixed(1)} GB em uso`
                 : t.common.sensorNotAvailable}
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
@@ -294,6 +296,8 @@ export const GpuHealthLabView: React.FC<GpuHealthLabViewProps> = ({ gpu, sensors
                 • VRAM Usage:{' '}
                 {gpu.vramTotalMB > 0
                   ? `${(gpu.vramUsedMB / 1024).toFixed(1)} GB / ${(gpu.vramTotalMB / 1024).toFixed(0)} GB`
+                  : gpu.vramUsedMB > 0
+                  ? `${(gpu.vramUsedMB / 1024).toFixed(1)} GB em uso`
                   : t.common.sensorNotAvailable}
               </div>
               <div>

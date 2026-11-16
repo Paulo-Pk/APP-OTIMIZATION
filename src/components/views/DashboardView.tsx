@@ -219,6 +219,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="font-mono text-slate-200">
                 {telemetry.cpu.cores > 0
                   ? `${telemetry.cpu.cores}C / ${telemetry.cpu.threads}T`
+                  : telemetry.cpu.threads > 0
+                  ? `${telemetry.cpu.threads}T`
                   : t.common.sensorNotAvailable}
               </span>
             </div>
@@ -287,6 +289,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="font-mono text-slate-200">
                 {telemetry.gpu.vramTotalMB > 0
                   ? `${(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} / ${(telemetry.gpu.vramTotalMB / 1024).toFixed(0)} GB`
+                  : telemetry.gpu.vramUsedMB > 0
+                  ? `${(telemetry.gpu.vramUsedMB / 1024).toFixed(1)} GB em uso`
                   : t.common.sensorNotAvailable}
               </span>
             </div>

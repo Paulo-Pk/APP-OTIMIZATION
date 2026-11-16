@@ -624,7 +624,7 @@ public static class RegistryOptimizer
         string fullKeyPath = $"{def.Hive}\\{def.SubKeyPath}";
         RegistryValueKind targetKind = def.ValueKind;
 
-        if (!OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows() && RegistryBackend is WindowsRegistryBackend)
         {
             RecordAudit("APPLY_UNSUPPORTED_OS", def.TweakId, fullKeyPath, def.ValueName, targetKind.ToString(),
                 null, serializedTargetValue, null, false, "Operação de Registro requer plataforma Windows nativa.");
@@ -1176,7 +1176,7 @@ public static class RegistryOptimizer
 
         string fullKeyPath = $"{def.Hive}\\{def.SubKeyPath}";
 
-        if (!OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows() && RegistryBackend is WindowsRegistryBackend)
         {
             // In non-Windows environments (e.g., automated xUnit verification of trusted ledger / snapshot state rules),
             // report verified logical restoration after passing all cryptographic and catalog validations.
@@ -1348,7 +1348,7 @@ public static class RegistryOptimizer
         if (string.IsNullOrWhiteSpace(tweakId) || !Catalog.TryGetValue(tweakId.Trim(), out var def))
             return new RegistryTweakInspectionResult("Não Suportado", true);
 
-        if (!OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows() && RegistryBackend is WindowsRegistryBackend)
             return new RegistryTweakInspectionResult("Não Disponível Neste Sistema", true);
 
         try

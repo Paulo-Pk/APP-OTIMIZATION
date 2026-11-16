@@ -269,7 +269,11 @@ public class AgentClientService : IDisposable
             "cache-dx-shaders",
             "temp-windows",
             "temp-user",
-            "update-cache"
+            "update-cache",
+            "temp-prefetch",
+            "cache-delivery-optimization",
+            "wer-report-queue",
+            "wer-report-archive"
         };
 
     public async Task<(bool success, string details)> ScanCleanerCategoriesAsync()

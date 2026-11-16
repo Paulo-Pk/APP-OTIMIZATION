@@ -46,7 +46,7 @@ public partial class MainWindow : Window
             AppWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
             AppWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             AppWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                AppHost, webRoot, CoreWebView2HostResourceAccessKind.DenyCors);
+                AppHost, webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
             // Only the bundled first-party app is allowed to navigate inside the WebView.
             AppWebView.CoreWebView2.NavigationStarting += (_, args) =>
@@ -65,7 +65,7 @@ public partial class MainWindow : Window
                 $"window.__PCCONTROL_AGENT_TOKEN__ = {tokenLiteral};");
 
             AppWebView.CoreWebView2.ProcessFailed += (_, _) =>
-                Dispatcher.Invoke(() => ShowStartupError("A interface foi interrompida pelo WebView2. Feche e abra o PC Control Ultimate novamente."));
+                Dispatcher.Invoke(() => ActivateNativeFallbackOrShowError("A interface WebView2 foi interrompida; alternando para interface nativa."));
 
             AppWebView.NavigationCompleted += (_, args) =>
             {
@@ -75,7 +75,7 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    ShowStartupError($"Falha ao carregar a interface React (WebErrorStatus: {args.WebErrorStatus}).");
+                    ActivateNativeFallbackOrShowError($"Falha ao carregar a interface React (WebErrorStatus: {args.WebErrorStatus}).");
                 }
             };
 
@@ -83,13 +83,57 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowStartupError($"Não foi possível iniciar a interface integrada: {ex.Message}");
+            ActivateNativeFallbackOrShowError($"Não foi possível iniciar o WebView2 ({ex.Message}).");
         }
+    }
+
+    private void ActivateNativeFallbackOrShowError(string message)
+    {
+        if (DataContext is ViewModels.MainViewModel)
+        {
+            AppWebView.Visibility = Visibility.Collapsed;
+            StartupOverlay.Visibility = Visibility.Collapsed;
+            NativeWpfFallback.Visibility = Visibility.Visible;
+            return;
+        }
+        ShowStartupError(message);
     }
 
     private void ShowStartupError(string message)
     {
         StartupOverlay.Visibility = Visibility.Visible;
         StartupStatus.Text = message;
+    }
+
+    private void PeripheralTestArea_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (DataContext is ViewModels.MainViewModel vm)
+        {
+            vm.RecordPeripheralKey(e.Key.ToString());
+        }
+    }
+
+    private void PeripheralTestArea_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (DataContext is ViewModels.MainViewModel vm)
+        {
+            vm.RecordPeripheralMouseButton(e.ChangedButton.ToString());
+        }
+    }
+
+    private void PeripheralTestArea_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (DataContext is ViewModels.MainViewModel vm)
+        {
+            vm.RecordPeripheralMouseMove();
+        }
+    }
+
+    private void PeripheralTestArea_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if (DataContext is ViewModels.MainViewModel vm)
+        {
+            vm.RecordPeripheralMouseWheel();
+        }
     }
 }

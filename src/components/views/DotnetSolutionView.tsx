@@ -13,6 +13,7 @@ import {
 import { dotnetSolutionFiles } from '../../data/solutionFiles';
 import { DotnetProjectFile } from '../../types';
 import { useI18n } from '../../i18n';
+import { downloadCompiledWindowsApp } from '../../services/solutionExporter';
 
 interface DotnetSolutionViewProps {
   onDownloadSolution: () => void;
@@ -24,11 +25,26 @@ export const DotnetSolutionView: React.FC<DotnetSolutionViewProps> = ({
   const { t } = useI18n();
   const [selectedFile, setSelectedFile] = useState<DotnetProjectFile>(dotnetSolutionFiles[0]);
   const [copied, setCopied] = useState<boolean>(false);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(selectedFile.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadExe = async () => {
+    if (downloadProgress !== null) return;
+    setDownloadError(null);
+    setDownloadProgress(0);
+    try {
+      await downloadCompiledWindowsApp((percent) => setDownloadProgress(percent));
+    } catch (err: any) {
+      setDownloadError(err?.message || 'Falha ao baixar o pacote compilado.');
+    } finally {
+      setDownloadProgress(null);
+    }
   };
 
   return (
@@ -47,14 +63,35 @@ export const DotnetSolutionView: React.FC<DotnetSolutionViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onDownloadSolution}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/40 transition-all cursor-pointer border border-purple-400/40 active:scale-95"
-        >
-          <Download className="w-4 h-4" />
-          <span>{t.dotnetSolution.downloadZip}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={handleDownloadExe}
+            disabled={downloadProgress !== null}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-75 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all cursor-pointer border border-emerald-400/40 active:scale-95"
+          >
+            <Download className={`w-4 h-4 ${downloadProgress !== null ? 'animate-bounce' : ''}`} />
+            <span>
+              {downloadProgress !== null
+                ? `Baixando Pacote (${downloadProgress}%)...`
+                : 'Baixar App Compilado (.EXE x64)'}
+            </span>
+          </button>
+
+          <button
+            onClick={onDownloadSolution}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/40 transition-all cursor-pointer border border-purple-400/40 active:scale-95"
+          >
+            <Download className="w-4 h-4" />
+            <span>{t.dotnetSolution.downloadZip}</span>
+          </button>
+        </div>
       </div>
+
+      {downloadError && (
+        <div className="p-3 rounded-lg bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
+          {downloadError}
+        </div>
+      )}
 
       {/* Code Explorer Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[650px]">

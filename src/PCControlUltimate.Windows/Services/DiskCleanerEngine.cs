@@ -111,8 +111,10 @@ public static class DiskCleanerEngine
         {
             string tempPath = Path.GetFullPath(Path.GetTempPath())
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (string.IsNullOrWhiteSpace(tempPath) ||
-                !string.Equals(Path.GetFileName(tempPath), "Temp", StringComparison.OrdinalIgnoreCase))
+            string folderName = Path.GetFileName(tempPath);
+            bool isExpectedTempName = string.Equals(folderName, "Temp", StringComparison.OrdinalIgnoreCase)
+                || (!OperatingSystem.IsWindows() && string.Equals(folderName, "tmp", StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrWhiteSpace(tempPath) || !isExpectedTempName)
                 return null;
 
             return tempPath;
