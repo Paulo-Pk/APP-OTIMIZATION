@@ -37,7 +37,8 @@ public record StorageTelemetryPoint(
     string Model,
     float? CapacityGb,
     float? FreeSpaceGb,
-    float? TemperatureC
+    float? TemperatureC,
+    bool IsSystemDisk = false
 );
 
 /// <summary>
@@ -56,7 +57,8 @@ public record GpuAdapterTelemetryPoint(
     float? VramUsedMb,
     float? VramTotalMb,
     string? DriverVersion = null,
-    string? PnpDeviceId = null
+    string? PnpDeviceId = null,
+    string? SensorIdentifier = null
 );
 
 public record HardwareSnapshot(
