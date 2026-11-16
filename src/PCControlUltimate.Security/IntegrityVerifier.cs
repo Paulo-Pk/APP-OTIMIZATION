@@ -18,8 +18,6 @@ public record TokenProtectionResult(
 public static class IntegrityVerifier
 {
     private static readonly byte[] DpapiEntropy = Encoding.UTF8.GetBytes("PCControlUltimate_v2.5_IPC_Salt");
-    private static readonly byte[] LedgerHmacSalt = Encoding.UTF8.GetBytes("PCControlUltimate_v2.5_Ledger_HMAC_Key");
-
     public static string ComputeCanonicalSha256(string canonicalText)
     {
         using var sha = SHA256.Create();
@@ -30,9 +28,10 @@ public static class IntegrityVerifier
 
     public static string ComputeHmacSha256(string secretKey, string canonicalPayload)
     {
-        byte[] keyBytes = string.IsNullOrEmpty(secretKey)
-            ? LedgerHmacSalt
-            : Encoding.UTF8.GetBytes(secretKey);
+        if (string.IsNullOrWhiteSpace(secretKey))
+            throw new ArgumentException("A chave HMAC não pode ser vazia.", nameof(secretKey));
+
+        byte[] keyBytes = Encoding.UTF8.GetBytes(secretKey);
         using var hmac = new HMACSHA256(keyBytes);
         byte[] payloadBytes = Encoding.UTF8.GetBytes(canonicalPayload ?? string.Empty);
         byte[] mac = hmac.ComputeHash(payloadBytes);
@@ -41,7 +40,7 @@ public static class IntegrityVerifier
 
     public static bool VerifyHmacSha256(string secretKey, string canonicalPayload, string? expectedHmacHex)
     {
-        if (string.IsNullOrWhiteSpace(expectedHmacHex)) return false;
+        if (string.IsNullOrWhiteSpace(secretKey) || string.IsNullOrWhiteSpace(expectedHmacHex)) return false;
         string computed = ComputeHmacSha256(secretKey, canonicalPayload);
         byte[] computedBytes = Encoding.UTF8.GetBytes(computed);
         byte[] expectedBytes = Encoding.UTF8.GetBytes(expectedHmacHex.Trim().ToLowerInvariant());
@@ -60,9 +59,12 @@ public static class IntegrityVerifier
         string nonce,
         string? bodyContent)
     {
+        if (string.IsNullOrWhiteSpace(sessionToken))
+            throw new ArgumentException("O token de sessão não pode ser vazio.", nameof(sessionToken));
+
         string bodyHash = ComputeCanonicalSha256(bodyContent ?? string.Empty);
         string canonicalRequest = $"{httpMethod.Trim().ToUpperInvariant()}|{pathAndQuery.Trim().ToLowerInvariant()}|{timestamp.Trim()}|{nonce.Trim()}|{bodyHash}";
-        return ComputeHmacSha256(sessionToken.Trim(), canonicalRequest);
+        return ComputeHmacSha256(sessionToken, canonicalRequest);
     }
 
     public static bool VerifyRequestHmacSha256(
@@ -122,10 +124,8 @@ public static class IntegrityVerifier
             if (!string.IsNullOrEmpty(dir))
             {
                 Directory.CreateDirectory(dir);
-                if (OperatingSystem.IsWindows())
-                {
-                    TryRestrictDirectoryAclToCurrentUser(dir, out _);
-                }
+                if (OperatingSystem.IsWindows() && !TryRestrictDirectoryAclToCurrentUser(dir, out string? directoryAclError))
+                    return new TokenProtectionResult(false, false, false, $"NTFS directory ACL restriction failed: {directoryAclError}");
             }
 
             byte[] plainBytes = Encoding.UTF8.GetBytes(plainToken);
