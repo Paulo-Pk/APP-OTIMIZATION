@@ -523,4 +523,54 @@ public class GameNetworkAcceleratorTests
         Assert.False(uninstallBlocked.Success);
         Assert.Equal("USER_CONSENT_REQUIRED", uninstallBlocked.ErrorCode);
     }
+    [Fact]
+    public void SelectiveRoutingCapability_DoesNotClaimRoutingIsActiveWithoutTunnel()
+    {
+        var report = GameNetworkAcceleratorService.GetSelectiveRoutingCapabilityReport();
+
+        Assert.True(report.DestinationIpSelectiveRoutingSupported);
+        Assert.False(report.KernelWfpProcessSplitTunnelEnabled);
+        Assert.Contains("Not active by default", report.ActiveMechanism);
+        Assert.Contains("only after", report.WfpLimitationExplanationEn);
+    }
+
+    [Fact]
+    public void RelayRegistration_RejectsEmptyGameTargetNetworks()
+    {
+        GameNetworkAcceleratorService.ClearNodesForTesting();
+
+        var result = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "relay-test", "Relay Test", "BR", "relay.example.com", 51820,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=", Array.Empty<string>());
+
+        Assert.False(result.success);
+        Assert.Contains("EMPTY_GAME_TARGET_CIDRS", result.errorReason);
+    }
+
+    [Fact]
+    public void RelayRegistration_RejectsMissingPublicKey()
+    {
+        GameNetworkAcceleratorService.ClearNodesForTesting();
+
+        var result = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "relay-test", "Relay Test", "BR", "relay.example.com", 51820,
+            string.Empty, new[] { "10.20.0.0/16" });
+
+        Assert.False(result.success);
+        Assert.Contains("INVALID_RELAY_PUBLIC_KEY", result.errorReason);
+    }
+
+    [Fact]
+    public void RelayRegistration_RejectsHostWithEmbeddedPort()
+    {
+        GameNetworkAcceleratorService.ClearNodesForTesting();
+
+        var result = GameNetworkAcceleratorService.RegisterOrUpdateRelayNode(
+            "relay-test", "Relay Test", "BR", "relay.example.com:443", 51820,
+            "mF8R3p9L2xQ7vK4nZ1wY6tB5cD8jH0sG3fA9eP2uV1M=", new[] { "10.20.0.0/16" });
+
+        Assert.False(result.success);
+        Assert.Contains("INVALID_ENDPOINT_HOST", result.errorReason);
+    }
+
 }
