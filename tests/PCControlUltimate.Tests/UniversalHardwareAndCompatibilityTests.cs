@@ -1010,4 +1010,35 @@ Mozilla Firefox                  Mozilla.Firefox                   131.0.3      
         Assert.NotEmpty(recommendations);
         Assert.Contains(recommendations, r => r.RecommendationId == "rec-memory-pressure");
     }
+    [Theory]
+    [InlineData("GPU Hot Spot", true)]
+    [InlineData("GPU Hotspot", true)]
+    [InlineData("GPU Junction", true)]
+    [InlineData("Memory Junction", false)]
+    [InlineData("GPU Memory Junction", false)]
+    [InlineData("VRAM Hotspot", false)]
+    [InlineData("GPU Core", false)]
+    [InlineData(null, false)]
+    public void GpuHotspotSensorClassification_NeverTreatsMemoryJunctionAsGpuDieHotspot(string? sensorName, bool expected)
+    {
+        Assert.Equal(expected, LibreHardwareMonitorWrapper.IsGpuHotspotTemperatureSensor(sensorName));
+    }
+
+    [Theory]
+    [InlineData(null, 0, 55f, 68, true)]
+    [InlineData(82f, 68, 71f, 68, false)]
+    [InlineData(62f, 68, 74f, 68, true)]
+    [InlineData(88f, 68, 70f, 85, true)]
+    [InlineData(70f, 85, 91f, 68, false)]
+    public void CpuTemperatureSelection_PrefersBestSensorClassAndHottestReadingWithinSameClass(
+        float? currentTemperature,
+        int currentPriority,
+        float candidateTemperature,
+        int candidatePriority,
+        bool expected)
+    {
+        Assert.Equal(expected, LibreHardwareMonitorWrapper.IsBetterCpuTemperatureReading(
+            currentTemperature, currentPriority, candidateTemperature, candidatePriority));
+    }
+
 }
