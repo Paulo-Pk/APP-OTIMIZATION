@@ -163,14 +163,20 @@ public static class DiskCleanerEngine
                 }
             }
 
-            // Block any personal directory subtree
+            // Block personal folders, including Downloads, and every descendant.
+            string userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string downloadsPath = string.IsNullOrWhiteSpace(userProfilePath)
+                ? string.Empty
+                : Path.Combine(userProfilePath, "Downloads");
+
             var personalSubtrees = new[]
             {
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
                 Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
-                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                downloadsPath
             };
 
             foreach (var personal in personalSubtrees)

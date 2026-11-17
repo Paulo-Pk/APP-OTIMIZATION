@@ -29,61 +29,6 @@ async function startServer() {
     });
   }
 
-  // Chunked download endpoints for the compiled Windows x64 package (avoids 32MB proxy response limits)
-  const appPackagePath = path.resolve(__dirname, 'server-assets', 'PCControlUltimate-win-x64-Pronto.zip');
-  const CHUNK_SIZE_BYTES = 4 * 1024 * 1024; // 4 MiB per chunk
-
-  app.get('/api/app-package/manifest', async (_req: Request, res: Response) => {
-    try {
-      const fs = await import('fs/promises');
-      const stat = await fs.stat(appPackagePath);
-      const totalBytes = stat.size;
-      const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE_BYTES);
-      res.setHeader('Cache-Control', 'no-store');
-      return res.json({
-        available: true,
-        filename: 'PCControlUltimate-win-x64-Pronto.zip',
-        totalBytes,
-        chunkSizeBytes: CHUNK_SIZE_BYTES,
-        totalChunks,
-      });
-    } catch {
-      return res.status(404).json({
-        available: false,
-        error: 'Pacote compilado PCControlUltimate-win-x64-Pronto.zip não encontrado no servidor.',
-      });
-    }
-  });
-
-  app.get('/api/app-package/chunk/:index', async (req: Request, res: Response) => {
-    try {
-      const chunkIndex = Number.parseInt(req.params.index, 10);
-      if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
-        return res.status(400).json({ error: 'Índice de chunk inválido.' });
-      }
-      const fs = await import('fs/promises');
-      const stat = await fs.stat(appPackagePath);
-      const start = chunkIndex * CHUNK_SIZE_BYTES;
-      if (start >= stat.size) {
-        return res.status(416).json({ error: 'Chunk fora do intervalo do arquivo.' });
-      }
-      const length = Math.min(CHUNK_SIZE_BYTES, stat.size - start);
-      const buffer = Buffer.allocUnsafe(length);
-      const handle = await fs.open(appPackagePath, 'r');
-      try {
-        await handle.read(buffer, 0, length, start);
-      } finally {
-        await handle.close();
-      }
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Length', String(length));
-      res.setHeader('Cache-Control', 'no-store');
-      return res.send(buffer);
-    } catch {
-      return res.status(500).json({ error: 'Falha ao ler chunk do pacote compilado.' });
-    }
-  });
-
   // Local server IPC latency check (explicitly distinguished from external internet ping)
   app.get('/api/network/ping', (_req: Request, res: Response) => {
     res.json({
