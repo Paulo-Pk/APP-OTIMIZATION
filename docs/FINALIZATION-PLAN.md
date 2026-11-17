@@ -13,7 +13,7 @@ Atualizado em 2026-11-17.
 
 A `main` não foi alterada. Nenhuma PR foi mesclada.
 
-Comparação consultada em 2026-11-17: a branch de finalização está **56 commits à frente, 0 atrás**, com **22 arquivos alterados** em relação à `main` (base SHA acima).
+Comparação consultada em 2026-11-17: a branch de finalização está **59 commits à frente, 0 atrás**, com **22 arquivos alterados** em relação à `main` (base SHA acima).
 
 ## Correções registradas nesta rodada
 
