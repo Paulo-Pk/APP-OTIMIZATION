@@ -323,10 +323,19 @@ public static class DiskCleanerEngine
             return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
-        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) && !confirmServiceStop)
+        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase))
         {
-            errors.Add("A limpeza do cache do Windows Update exige confirmação explícita do usuário.");
-            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
+            if (!confirmServiceStop)
+            {
+                errors.Add("A limpeza do cache do Windows Update exige confirmação explícita do usuário.");
+                return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors, Status: "Blocked");
+            }
+
+            // The privileged-agent flow currently forwards user confirmation but does not
+            // stop and restart the Windows Update services. Never delete this live cache
+            // while the service lifecycle is unverified.
+            errors.Add("Limpeza bloqueada: esta versão ainda não interrompe e reinicia com segurança os serviços do Windows Update. Nenhum arquivo foi removido.");
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors, Status: "Blocked");
         }
 
         return PurgeAuthorizedDirectory(categoryKey, targetDir);
