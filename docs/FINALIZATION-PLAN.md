@@ -13,6 +13,8 @@ Atualizado em 2026-11-17.
 
 A `main` não foi alterada. Nenhuma PR foi mesclada.
 
+Comparação consultada em 2026-11-17: a branch de finalização está **56 commits à frente, 0 atrás**, com **22 arquivos alterados** em relação à `main` (base SHA acima).
+
 ## Correções registradas nesta rodada
 
 - `src/App.tsx`: as rotinas periódicas de telemetria e descoberta de jogos capturam falhas transitórias, evitando rejeições não tratadas e preservando a última lista de jogos quando uma consulta falha temporariamente. Commit: `4dadaa49f468e39d161b2d404daca6e76351ed22`.
