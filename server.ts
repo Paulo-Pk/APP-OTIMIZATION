@@ -72,6 +72,15 @@ async function startServer() {
     const targets: TargetConfig[] = selectedGameIds.length
       ? selectedGameIds.map((id) => gameReferenceTargets[id]).filter((target): target is TargetConfig => !!target)
       : defaultTargets;
+    const ignoredGameIds = selectedGameIds.filter((id) => !gameReferenceTargets[id]);
+
+    if (targets.length === 0) {
+      return res.status(400).json({
+        error: 'Nenhum identificador de jogo válido foi informado para o diagnóstico.',
+        ignoredGameIds,
+        results: [],
+      });
+    }
 
     const measureHost = (target: TargetConfig) => {
       return new Promise<{
@@ -126,7 +135,7 @@ async function startServer() {
         }
 
         if (samples.length === 0) {
-          // Do not conflate a blocked/refused TCP port with 100% network packet loss if other targets succeed
+          // Report failed TCP handshakes separately; this is not ICMP or UDP packet loss.
           return resolve({
             id: target.id,
             server: target.server,
@@ -135,7 +144,7 @@ async function startServer() {
             protocol: `TCP:${target.port} Handshake`,
             pingMs: null,
             jitterMs: null,
-            tcpFailurePercent: 0,
+            tcpFailurePercent: Math.round((failedCount / totalProbes) * 100),
             tcpHandshakeState: lastErrorState,
             samples: [],
             isSuccess: false,
@@ -170,13 +179,14 @@ async function startServer() {
         measurementMethod: 'TCP_HANDSHAKE_RTT_SEPARATED_FROM_ICMP',
         tcpReachabilityPercent: Math.round((connectedCount / targets.length) * 100),
         structuredDiagnostic: {
-          whatWasTested: 'Handshake TCP:443 multi-amostra em 6 endpoints globais verificados (Valve, Riot, Epic, Cloudflare, 1.1.1.1, 8.8.8.8)',
+          whatWasTested: `Handshake TCP multi-amostra em ${targets.length} endpoint(s) de referência: ${targets.map((target) => target.server).join(', ')}.`,
           whatFailed: connectedCount === targets.length ? 'Nenhuma falha (0 anomalias)' : `${targets.length - connectedCount} alvo(s) com porta filtrada/timeout`,
           evidenceFound: `${connectedCount}/${targets.length} endpoints TCP:443 aceitaram conexão; falhas representam handshakes TCP não concluídos, não perda de pacotes ICMP/UDP.`,
           probableCause: connectedCount > 0 ? 'Há conectividade com pelo menos um endpoint de referência; falhas individuais podem indicar filtro, timeout ou indisponibilidade do serviço.' : 'Nenhum endpoint de referência aceitou conexão TCP neste ambiente; isso não identifica sozinho a causa.',
           recommendedSolution: 'Use estes dados apenas como referência de conectividade TCP; eles não medem perda ICMP nem latência UDP do jogo.',
           verificationSteps: 'Compare o RTT e o Jitter no Network Lab e no Game Network Accelerator.',
         },
+        ignoredGameIds,
         results,
       });
     } catch {
