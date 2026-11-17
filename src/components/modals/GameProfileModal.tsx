@@ -22,9 +22,9 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
 }) => {
   const { t } = useI18n();
 
-  const [priority, setPriority] = useState('Normal');
-  const [affinity, setAffinity] = useState('Todos');
-  const [powerProfile, setPowerProfile] = useState('Equilibrado');
+  const [priority, setPriority] = useState<GameProfile['processPriority']>('Normal');
+  const [affinity, setAffinity] = useState<GameProfile['cpuAffinity']>('Todos');
+  const [powerProfile, setPowerProfile] = useState<GameProfile['powerProfile']>('Equilibrado');
 
   useEffect(() => {
     if (!game) return;
