@@ -241,7 +241,22 @@ export default function App() {
             processPriority: "Normal", cpuAffinity: "Todos", gpuPreference: "Alto Desempenho", powerProfile: "Equilibrado",
             monitorFps: true, monitorTemps: true, boostEnabled: false,
           }));
-        setGames(mapped);
+        setGames((previous) => mapped.map((detected) => {
+          const existing = previous.find((game) => game.id === detected.id);
+          if (!existing) return detected;
+          return {
+            ...detected,
+            processPriority: existing.processPriority,
+            cpuAffinity: existing.cpuAffinity,
+            gpuPreference: existing.gpuPreference,
+            powerProfile: existing.powerProfile,
+            monitorFps: existing.monitorFps,
+            monitorTemps: existing.monitorTemps,
+            boostEnabled: existing.boostEnabled,
+            averageFps: existing.averageFps,
+            lastPlayed: existing.lastPlayed,
+          };
+        }));
       } finally {
         discoveryInFlight = false;
       }
