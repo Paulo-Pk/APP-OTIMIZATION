@@ -71,18 +71,14 @@ public static class DriverScannerService
             signedQueryError = $"Consulta de pacotes assinados indisponível ({ex.GetType().Name}: {ex.Message}).";
         }
 
-        if (results.Count > 0)
-        {
-            return results
-                .GroupBy(d => d.Device, StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                .OrderBy(d => d.Category, StringComparer.CurrentCultureIgnoreCase)
-                .ThenBy(d => d.Device, StringComparer.CurrentCultureIgnoreCase)
-                .ToList();
-        }
+        // Merge the Plug and Play inventory even when signed-driver metadata exists.
+        // Win32_PnPSignedDriver can omit devices; the PnP list adds those devices while
+        // preserving package version/date/signature for entries already found above.
+        int pnpOnlyEntriesAdded = 0;
+        var seenDeviceNames = new HashSet<string>(
+            results.Select(entry => entry.Device),
+            StringComparer.OrdinalIgnoreCase);
 
-        // Fallback: list actual Plug and Play devices. Driver version/date/signature remain
-        // explicitly N/D when Windows does not expose those fields through this class.
         try
         {
             using var pnpSearcher = new ManagementObjectSearcher(
@@ -97,6 +93,9 @@ public static class DriverScannerService
                     continue;
 
                 string name = obj["Name"]?.ToString() ?? "Dispositivo sem nome";
+                if (!seenDeviceNames.Add(name))
+                    continue;
+
                 string deviceClass = obj["PNPClass"]?.ToString() ?? string.Empty;
                 string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante não informado";
 
@@ -121,13 +120,16 @@ public static class DriverScannerService
                     isSigned,
                     deviceStatus
                 ));
+                pnpOnlyEntriesAdded++;
             }
         }
         catch (Exception ex)
         {
-            LastError = $"Não foi possível consultar os dispositivos Plug and Play via WMI ({ex.GetType().Name}: {ex.Message})." +
-                        (signedQueryError == null ? string.Empty : $" {signedQueryError}");
-            return results;
+            LastError = results.Count > 0
+                ? $"Inventário complementar Plug and Play indisponível ({ex.GetType().Name}: {ex.Message}); foram mantidos os metadados de drivers assinados já encontrados."
+                : $"Não foi possível consultar os dispositivos Plug and Play via WMI ({ex.GetType().Name}: {ex.Message})." +
+                  (signedQueryError == null ? string.Empty : $" {signedQueryError}");
+            return SortResults(results);
         }
 
         if (results.Count == 0)
@@ -137,16 +139,22 @@ public static class DriverScannerService
             return results;
         }
 
-        LastError = "O Windows não forneceu metadados completos dos pacotes de driver; a lista abaixo é o inventário Plug and Play. Versão, data e assinatura aparecem como N/D quando não foram informadas." +
-                    (signedQueryError == null ? string.Empty : $" {signedQueryError}");
+        if (pnpOnlyEntriesAdded > 0 || signedQueryError != null)
+        {
+            LastError = $"Inventário combinado: {pnpOnlyEntriesAdded} dispositivo(s) Plug and Play sem metadados completos de pacote; campos não informados permanecem como N/D." +
+                        (signedQueryError == null ? string.Empty : $" {signedQueryError}");
+        }
 
-        return results
+        return SortResults(results);
+    }
+
+    private static IReadOnlyList<InstalledDriverEntry> SortResults(IEnumerable<InstalledDriverEntry> entries) =>
+        entries
             .GroupBy(d => d.Device, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .OrderBy(d => d.Category, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(d => d.Device, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
-    }
 
     private static InstalledDriverEntry CreateEntry(
         string deviceName,
