@@ -82,8 +82,7 @@ async function startServer() {
       });
     }
 
-    const measureHost = (target: TargetConfig) => {
-      return new Promise<{
+    const measureHost = async (target: TargetConfig): Promise<{
         id: string;
         server: string;
         location: string;
@@ -95,7 +94,7 @@ async function startServer() {
         tcpHandshakeState: 'Connected' | 'Timeout' | 'ConnectionRefused' | 'FilteredPort';
         samples: number[];
         isSuccess: boolean;
-      }>(async (resolve) => {
+      }> => {
         const samples: number[] = [];
         let failedCount = 0;
         let lastErrorState: 'Connected' | 'Timeout' | 'ConnectionRefused' | 'FilteredPort' = 'Connected';
@@ -136,7 +135,7 @@ async function startServer() {
 
         if (samples.length === 0) {
           // Report failed TCP handshakes separately; this is not ICMP or UDP packet loss.
-          return resolve({
+          return {
             id: target.id,
             server: target.server,
             location: target.location,
@@ -148,7 +147,7 @@ async function startServer() {
             tcpHandshakeState: lastErrorState,
             samples: [],
             isSuccess: false,
-          });
+          };
         }
 
         const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
@@ -156,7 +155,7 @@ async function startServer() {
         const jitter = Math.sqrt(variance);
         const lossPercent = Math.round((failedCount / totalProbes) * 100);
 
-        resolve({
+        return {
           id: target.id,
           server: target.server,
           location: target.location,
@@ -168,8 +167,7 @@ async function startServer() {
           tcpHandshakeState: 'Connected',
           samples: samples.map((s) => Math.round(s)),
           isSuccess: true,
-        });
-      });
+        };
     };
 
     try {
