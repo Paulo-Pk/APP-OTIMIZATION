@@ -210,7 +210,8 @@ export default function App() {
       } finally {
         telemetryRefreshInFlight = false;
       }
-    }, 2000);
+    // Atualiza os sensores reais a cada segundo, sem sobrepor consultas lentas.
+    }, 1000);
 
     return () => {
       unsubscribe();
