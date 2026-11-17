@@ -14,7 +14,8 @@ public record InstalledDriverEntry(
     string Vendor,
     string Status,
     string OfficialUrl,
-    string VerificationScopeNotice = "Inventário somente-leitura via WMI. A presença do dispositivo não significa que o driver seja o mais recente."
+    string VerificationScopeNotice = "Inventário somente-leitura via WMI. A presença do dispositivo não significa que o driver seja o mais recente.",
+    string DeviceInstanceId = ""
 );
 
 public static class DriverScannerService
@@ -49,20 +50,29 @@ public static class DriverScannerService
             );
 
             var seenSignedDeviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenSignedNamesWithoutId = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (ManagementObject obj in signedSearcher.Get())
             {
                 string? deviceId = obj["DeviceID"]?.ToString();
-                if (!string.IsNullOrWhiteSpace(deviceId) && !seenSignedDeviceIds.Add(deviceId))
+                string deviceName = obj["DeviceName"]?.ToString() ?? "Dispositivo sem nome";
+                if (!string.IsNullOrWhiteSpace(deviceId))
+                {
+                    if (!seenSignedDeviceIds.Add(deviceId)) continue;
+                }
+                else if (!seenSignedNamesWithoutId.Add(deviceName))
+                {
                     continue;
+                }
 
                 results.Add(CreateEntry(
-                    obj["DeviceName"]?.ToString() ?? "Dispositivo sem nome",
+                    deviceName,
                     obj["DeviceClass"]?.ToString() ?? string.Empty,
                     obj["DriverVersion"]?.ToString(),
                     obj["DriverDate"]?.ToString(),
                     obj["Manufacturer"]?.ToString(),
                     obj["IsSigned"] is bool signed ? signed : null,
-                    null
+                    null,
+                    deviceId
                 ));
             }
         }
@@ -75,8 +85,13 @@ public static class DriverScannerService
         // Win32_PnPSignedDriver can omit devices; the PnP list adds those devices while
         // preserving package version/date/signature for entries already found above.
         int pnpOnlyEntriesAdded = 0;
-        var seenDeviceNames = new HashSet<string>(
-            results.Select(entry => entry.Device),
+        var seenDeviceIds = new HashSet<string>(
+            results.Select(entry => entry.DeviceInstanceId)
+                .Where(id => !string.IsNullOrWhiteSpace(id)),
+            StringComparer.OrdinalIgnoreCase);
+        var seenDeviceNamesWithoutId = new HashSet<string>(
+            results.Where(entry => string.IsNullOrWhiteSpace(entry.DeviceInstanceId))
+                .Select(entry => entry.Device),
             StringComparer.OrdinalIgnoreCase);
 
         try
@@ -93,8 +108,16 @@ public static class DriverScannerService
                     continue;
 
                 string name = obj["Name"]?.ToString() ?? "Dispositivo sem nome";
-                if (!seenDeviceNames.Add(name))
+                if (!string.IsNullOrWhiteSpace(deviceId))
+                {
+                    // Device instance IDs identify hardware instances; equal display names
+                    // must not cause distinct adapters or peripherals to disappear.
+                    if (!seenDeviceIds.Add(deviceId)) continue;
+                }
+                else if (!seenDeviceNamesWithoutId.Add(name))
+                {
                     continue;
+                }
 
                 string deviceClass = obj["PNPClass"]?.ToString() ?? string.Empty;
                 string manufacturer = obj["Manufacturer"]?.ToString() ?? "Fabricante não informado";
@@ -118,7 +141,8 @@ public static class DriverScannerService
                     null,
                     manufacturer,
                     isSigned,
-                    deviceStatus
+                    deviceStatus,
+                    deviceId
                 ));
                 pnpOnlyEntriesAdded++;
             }
@@ -150,7 +174,9 @@ public static class DriverScannerService
 
     private static IReadOnlyList<InstalledDriverEntry> SortResults(IEnumerable<InstalledDriverEntry> entries) =>
         entries
-            .GroupBy(d => d.Device, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(d => string.IsNullOrWhiteSpace(d.DeviceInstanceId)
+                ? $"name:{d.Device}"
+                : $"id:{d.DeviceInstanceId}", StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .OrderBy(d => d.Category, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(d => d.Device, StringComparer.CurrentCultureIgnoreCase)
@@ -163,7 +189,8 @@ public static class DriverScannerService
         string? rawDate,
         string? manufacturer,
         bool? isSigned,
-        string? deviceStatus)
+        string? deviceStatus,
+        string? deviceInstanceId = null)
     {
         string formattedDate = "N/D";
         if (!string.IsNullOrWhiteSpace(rawDate) && rawDate.Length >= 8 &&
@@ -196,7 +223,8 @@ public static class DriverScannerService
             ReleaseDate: formattedDate,
             Vendor: vendor,
             Status: status,
-            OfficialUrl: ResolveVendorSupportUrl(deviceName, vendor)
+            OfficialUrl: ResolveVendorSupportUrl(deviceName, vendor),
+            DeviceInstanceId: deviceInstanceId ?? string.Empty
         );
     }
 
