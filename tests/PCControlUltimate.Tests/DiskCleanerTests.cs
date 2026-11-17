@@ -51,6 +51,17 @@ public class DiskCleanerTests
     }
 
     [Fact]
+    public void IsPathSafe_DownloadsAndDescendants_ReturnsFalse()
+    {
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(userProfile)) return;
+
+        string downloads = Path.Combine(userProfile, "Downloads");
+        Assert.False(DiskCleanerEngine.IsPathSafe(downloads));
+        Assert.False(DiskCleanerEngine.IsPathSafe(Path.Combine(downloads, "PersonalFiles", "important.txt")));
+    }
+
+    [Fact]
     public void IsPathSafe_PathTraversalSequence_ReturnsFalse()
     {
         string tempPath = Path.GetTempPath();
