@@ -13,11 +13,12 @@ Atualizado em 2026-11-17.
 
 A `main` não foi alterada. Nenhuma PR foi mesclada.
 
-## Correção registrada nesta rodada
+## Correções registradas nesta rodada
 
-Em `src/App.tsx`, as rotinas periódicas de telemetria e descoberta de jogos agora capturam falhas transitórias. Isso evita rejeições não tratadas originadas por timers e mantém a última lista de jogos quando uma consulta temporariamente falha.
+- `src/App.tsx`: as rotinas periódicas de telemetria e descoberta de jogos capturam falhas transitórias, evitando rejeições não tratadas e preservando a última lista de jogos quando uma consulta falha temporariamente. Commit: `4dadaa49f468e39d161b2d404daca6e76351ed22`.
+- `server.ts`: o diagnóstico TCP agora informa 100% de falha de handshake quando todas as três tentativas falham, sem chamar isso de perda ICMP/UDP; rejeita listas de jogos sem IDs válidos em vez de calcular uma porcentagem indefinida; e descreve dinamicamente os endpoints realmente consultados. Commit: `6bd540d2a403a8d74d981b8d95acce38996580b3`.
 
-Commit: `4dadaa49f468e39d161b2d404daca6e76351ed22`.
+Essas são correções por inspeção estática; ainda não foram executadas compilação nem testes.
 
 ## Situação das Pull Requests
 
@@ -41,9 +42,9 @@ Não repetir Actions nem solicitar aumento de limite/cobrança.
 ## Etapas obrigatórias antes de declarar versão final
 
 1. Revisar e integrar manualmente as alterações necessárias das PRs #10, #11 e #12 na branch de finalização, resolvendo conflitos por arquivo e preservando a interface existente.
-2. Executar localmente no Windows: `.scripts\test-local.ps1` (Bun + .NET 10 SDK).
+2. Executar localmente no Windows: `.\scripts\test-local.ps1` (Bun + .NET 10 SDK).
 3. Corrigir cada falha real de TypeScript, build .NET ou xUnit.
-4. Executar publicação: `.scripts\test-local.ps1 -Publish`.
+4. Executar publicação: `.\scripts\test-local.ps1 -Publish`.
 5. Testar o executável em Windows real: sensores, CPU/GPU/VRAM/discos, drivers, limpeza com relatório, ajustes/restauração do Registro, descoberta de jogos, PresentMon, diagnósticos ICMP/TCP/DNS e rede WireGuard sem alteração de rota sem consentimento.
 6. Fazer revisão visual comparando a interface com a Preview original.
 7. Somente depois da validação, preparar uma PR final revisável. Não mesclar em `main` sem autorização explícita.
