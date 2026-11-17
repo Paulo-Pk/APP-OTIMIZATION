@@ -19,6 +19,7 @@ Comparação consultada em 2026-11-17: a branch de finalização está **56 comm
 
 - `src/App.tsx`: as rotinas periódicas de telemetria e descoberta de jogos capturam falhas transitórias, evitando rejeições não tratadas e preservando a última lista de jogos quando uma consulta falha temporariamente. Commit: `4dadaa49f468e39d161b2d404daca6e76351ed22`.
 - `server.ts`: o diagnóstico TCP agora informa 100% de falha de handshake quando todas as três tentativas falham, sem chamar isso de perda ICMP/UDP; rejeita listas de jogos sem IDs válidos em vez de calcular uma porcentagem indefinida; e descreve dinamicamente os endpoints realmente consultados. Commit: `6bd540d2a403a8d74d981b8d95acce38996580b3`.
+- `server.ts`: a medição TCP foi refatorada para remover um executor `async` dentro de `new Promise`, padrão que podia deixar a requisição pendurada se uma exceção ocorresse no executor. A função agora é diretamente `async` e erros propagam para o `Promise.all`/tratamento HTTP. Commit: `ff564a4edfc41b3451acf4ba37e1cfd7c7ee0f65`.
 
 Essas são correções por inspeção estática; ainda não foram executadas compilação nem testes.
 
