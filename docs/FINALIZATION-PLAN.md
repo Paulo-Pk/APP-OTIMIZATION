@@ -20,6 +20,14 @@ A `main` não foi alterada. Nenhuma PR foi mesclada.
 
 Essas são correções por inspeção estática; ainda não foram executadas compilação nem testes.
 
+## Auditoria estática complementar — 2026-11-17
+
+- `LibreHardwareMonitorWrapper.cs`: leitura de CPU usa sensores reais do LibreHardwareMonitor e, quando não há clock disponível, consulta `Win32_Processor.CurrentClockSpeed` com cache de 3 segundos. A temperatura da CPU também considera sensores expostos por Motherboard/SuperIO; não há uma fonte universal para notebooks/placas que não exponham sensor. RAM física é isolada pelo identificador `/ram`; os contadores de VRAM aceitos são apenas memória dedicada, sem somar `D3D Shared Memory`. Volumes fixos são enumerados via `DriveInfo`, além dos dispositivos físicos com sensor. Isso reduz confusões de RAM/VRAM e permite listar várias unidades, mas depende do que o Windows/driver expõe.
+- `WireGuardTunnelManager.cs` e `GameNetworkAcceleratorService.cs`: o código deixa explícito que roteamento por processo via WFP está desativado, exige CIDRs de destino e valida a configuração WireGuard; rejeita hooks de script e DNS global, além de bloquear cobertura de rota padrão sem consentimento. Não há base para prometer aceleração tipo ExitLag sem relay funcional, túnel instalado e handshake/tráfego confirmados. A auditoria de configuração, por si só, não ativa o túnel.
+- `DiskCleanerEngine.cs`: o mecanismo exige confirmação para a categoria `update-cache`, valida caminhos, evita reparse points/symlinks e reporta itens removidos/preservados. O método de baixo nível **não para nem reinicia o serviço Windows Update**; ele apenas verifica o parâmetro de confirmação e remove arquivos. Ainda é necessário localizar e auditar o orquestrador que fornece essa confirmação antes de afirmar que o fluxo completo interrompe/reinicia o serviço corretamente. O método legado `PurgeCategory` não confirma essa categoria e, portanto, não limpa o cache do Windows Update.
+- `BenchmarkCenterView.tsx`: o histórico armazenava leituras pontuais de temperatura em campos chamados `*TempPeak`, embora não houvesse amostragem contínua durante o benchmark. Corrigido o rótulo da interface para “Temperatura registrada” e incluída explicação de que não representa pico térmico. Commit: `43dd8a3719c956a838490a111dbc1c032df06024`.
+- A auditoria do wrapper de hardware confirma que o intervalo de polling é configurável e rejeita valores não positivos; a chamada efetiva com intervalo de 1 segundo ainda deve ser confirmada no ponto de composição/inicialização do serviço.
+
 ## Situação das Pull Requests
 
 - PR #10 — Draft, 304 commits; base `fix/cpu-telemetry-and-ux-audit`.
