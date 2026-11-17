@@ -2458,7 +2458,19 @@ public class MainViewModel : INotifyPropertyChanged
                 _ => $"{Loc["SensorStatusUnavailable"]} ({snap.DiagnosticReason})"
             };
 
-            if (snap.IsHardwareMonitorAvailable)
+            // A single sensor/adapter communication failure must not hide other valid readings
+            // already collected from LHM, WMI, D3D, or Windows volume APIs.
+            bool hasPartialTelemetry =
+                snap.Sensors.Count > 0 ||
+                !string.IsNullOrWhiteSpace(snap.CpuModelName) ||
+                snap.CpuTotalLoad.HasValue ||
+                snap.CpuClockMhz.HasValue ||
+                !string.IsNullOrWhiteSpace(snap.GpuModelName) ||
+                snap.GpuLoadPercent.HasValue ||
+                snap.RamTotalGb.HasValue ||
+                (snap.StorageDrives?.Count ?? 0) > 0;
+
+            if (snap.IsHardwareMonitorAvailable || hasPartialTelemetry)
             {
                 foreach (var drive in snap.StorageDrives ?? Array.Empty<StorageTelemetryPoint>())
                     StorageDrives.Add(drive);
