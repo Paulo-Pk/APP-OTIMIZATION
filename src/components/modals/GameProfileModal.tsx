@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Gamepad2,
   X,
@@ -22,11 +22,18 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
 }) => {
   const { t } = useI18n();
 
-  if (!isOpen || !game) return null;
+  const [priority, setPriority] = useState('Normal');
+  const [affinity, setAffinity] = useState('Todos');
+  const [powerProfile, setPowerProfile] = useState('Equilibrado');
 
-  const [priority, setPriority] = useState(game.processPriority);
-  const [affinity, setAffinity] = useState(game.cpuAffinity);
-  const [powerProfile, setPowerProfile] = useState(game.powerProfile);
+  useEffect(() => {
+    if (!game) return;
+    setPriority(game.processPriority);
+    setAffinity(game.cpuAffinity);
+    setPowerProfile(game.powerProfile);
+  }, [game]);
+
+  if (!isOpen || !game) return null;
 
   const handleSave = () => {
     onSave({
