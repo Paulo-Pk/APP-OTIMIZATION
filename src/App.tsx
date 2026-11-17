@@ -207,6 +207,10 @@ export default function App() {
         if (real) {
           setTelemetry(real);
         }
+      } catch (error) {
+        // A temporary sensor/agent failure must not create an unhandled rejection
+        // from the polling timer or stop future telemetry refresh attempts.
+        console.warn('Falha temporária ao atualizar a telemetria do hardware:', error);
       } finally {
         telemetryRefreshInFlight = false;
       }
@@ -257,6 +261,9 @@ export default function App() {
             lastPlayed: existing.lastPlayed,
           };
         }));
+      } catch (error) {
+        // Keep the last known game list if a launcher/WMI scan temporarily fails.
+        console.warn('Falha temporária ao atualizar a lista de jogos instalados:', error);
       } finally {
         discoveryInFlight = false;
       }
