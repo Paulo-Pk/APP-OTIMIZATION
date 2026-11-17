@@ -117,11 +117,11 @@ export const GameCenterView: React.FC<GameCenterViewProps> = ({
                 {/* Per-Game Config Badges */}
                 <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-800/80">
                   <div className="p-2 rounded bg-[#0a0c13] border border-slate-900">
-                    <span className="text-slate-500 block text-[9px] uppercase">{t.gameCenter.priorityCpu}</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Prioridade local</span>
                     <span className="font-semibold text-purple-300">{game.processPriority}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0a0c13] border border-slate-900">
-                    <span className="text-slate-500 block text-[9px] uppercase">{t.gameCenter.affinity}</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Afinidade local</span>
                     <span className="font-semibold text-cyan-300">{game.cpuAffinity}</span>
                   </div>
                 </div>
