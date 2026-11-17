@@ -46,8 +46,8 @@ public class NetworkDiagnosticsServiceTests
             TcpConnectionProbeState.Connected, 13.0);
 
         Assert.Equal(IcmpProbeStatus.PartialLoss, result.IcmpStatus);
-        Assert.Equal(50.0, result.IcmpPacketLossPercent);
-        Assert.Equal(11.0, result.IcmpLatencyMs);
+        Assert.Equal(50.0, result.IcmpPacketLossPercent!.Value);
+        Assert.Equal(11.0, result.IcmpLatencyMs!.Value);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class NetworkDiagnosticsServiceTests
             TcpConnectionProbeState.Timeout, null);
 
         Assert.Equal(IcmpProbeStatus.Unreachable, result.IcmpStatus);
-        Assert.Equal(100.0, result.IcmpPacketLossPercent);
+        Assert.Equal(100.0, result.IcmpPacketLossPercent!.Value);
         Assert.False(result.IsTcpConnected);
     }
 }
