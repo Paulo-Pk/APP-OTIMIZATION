@@ -174,6 +174,19 @@ public class SystemDoctorService
 
         // 4. Windows Event Viewer Stability Audit (WHEA / Kernel-Power 41 / Display 4101)
         var stabilityReport = await _stabilityAuditor.AuditRecentEventsAsync(7, cancellationToken);
+        if (!stabilityReport.EventLogAccessible)
+        {
+            findings.Add(new SystemDoctorFinding(
+                Category: "Estabilidade do Windows",
+                Title: "Não foi possível verificar o histórico de falhas",
+                Severity: DiagnosticSeverityLevel.Baixo,
+                Evidence: stabilityReport.DiagnosticSummary,
+                ProbableCause: "O acesso ao Visualizador de Eventos pode estar restrito por permissões ou políticas deste computador.",
+                RecommendedAction: "Se quiser uma análise completa, abra o PC Control com uma conta autorizada ou peça ao administrador para liberar a leitura do log Sistema. Nenhuma falha foi presumida.",
+                RequiresAdminForRepair: false
+            ));
+        }
+
         if (!stabilityReport.IsSystemStable)
         {
             foreach (var ev in stabilityReport.CriticalEvents.Take(5))
