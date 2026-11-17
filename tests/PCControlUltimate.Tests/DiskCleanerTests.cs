@@ -101,6 +101,18 @@ public class DiskCleanerTests
     }
 
     [Fact]
+    public void PurgeCategoryWithReport_UpdateCacheWithConfirmation_IsStillBlockedUntilServicesAreManaged()
+    {
+        var report = DiskCleanerEngine.PurgeCategoryWithReport("update-cache", confirmServiceStop: true);
+
+        Assert.False(report.Success);
+        Assert.Equal("Blocked", report.Status);
+        Assert.Equal(0, report.BytesFreed);
+        Assert.Equal(0, report.DeletedFilesCount);
+        Assert.Contains(report.Errors, error => error.Contains("não interrompe e reinicia", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void SimulateCategoryDryRun_WithInvalidCategory_ReturnsFailureWithoutDeleting()
     {
         var dryRun = DiskCleanerEngine.SimulateCategoryDryRun("forbidden-category");
