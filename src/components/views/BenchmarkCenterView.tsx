@@ -233,7 +233,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
             Como os testes funcionam
           </div>
           <p className="text-slate-400 leading-relaxed text-[11px]">
-            A bateria executa testes sintéticos separados de CPU, GPU (WebGL) e RAM (ArrayBuffer). Não grava no disco nem altera configurações do Windows. Os resultados dependem do navegador e não substituem benchmarks profissionais.
+            A bateria executa testes sintéticos separados de CPU, GPU (WebGL) e RAM (ArrayBuffer). Não grava no disco nem altera configurações do Windows. A temperatura exibida no histórico é uma leitura pontual do sensor, não o pico térmico medido durante o teste. Os resultados dependem do navegador e não substituem benchmarks profissionais.
           </p>
         </div>
       </div>
@@ -415,7 +415,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[9px] uppercase">
-                      {t.benchmarks.peakTemp}
+                      Temperatura registrada
                     </span>
                     <span className="text-slate-300">
                       {r.cpuTempPeak > 0
