@@ -2365,11 +2365,15 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 InstalledDrivers.Clear();
                 foreach (var driver in drivers) InstalledDrivers.Add(driver);
-                DriverScanStatusText = !string.IsNullOrWhiteSpace(DriverScannerService.LastScanError)
-                    ? $"A leitura de drivers não foi concluída: {DriverScannerService.LastScanError}"
+                string? scanNotice = DriverScannerService.LastScanError;
+                bool hasPartialInventory = scanNotice?.StartsWith("Inventário combinado", StringComparison.OrdinalIgnoreCase) == true;
+                DriverScanStatusText = !string.IsNullOrWhiteSpace(scanNotice)
+                    ? hasPartialInventory
+                        ? $"Inventário concluído com dados parciais: {scanNotice}"
+                        : $"Não foi possível concluir a leitura: {scanNotice}"
                     : InstalledDrivers.Count > 0
-                        ? $"Escaneamento concluído: {InstalledDrivers.Count} driver(s) instalados encontrados no Windows. O status informa assinatura, não atualização."
-                        : "O Windows não retornou drivers nesta consulta. Verifique o serviço WMI e tente novamente.";
+                        ? $"Inventário concluído: {InstalledDrivers.Count} dispositivo(s) e pacote(s) de driver reportados pelo Windows. Campos N/D indicam metadados indisponíveis; o status não confirma que a versão seja a mais recente."
+                        : "O Windows não retornou dispositivos nesta consulta. Verifique o serviço WMI e tente novamente.";
             });
         }
         catch (Exception ex)
