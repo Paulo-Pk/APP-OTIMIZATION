@@ -2255,16 +2255,16 @@ public class MainViewModel : INotifyPropertyChanged
             new ModuleCapabilityMatrixItem(2, "Hardware Monitor", "Funcional", "UniversalHardwareEngine + LHM + WMI", "Logs / Sessão", "Pipeline multi-fonte com proveniência por métrica; N/D quando não suportado."),
             new ModuleCapabilityMatrixItem(3, "GPU Health Lab", "Funcional", "GpuThermalAuditor (Multi-Vendor)", "Logs / Sessão", "Suporte universal AMD Radeon, NVIDIA GeForce/RTX, Intel Arc e Qualcomm Adreno; avalia Core vs Hotspot ΔT."),
             new ModuleCapabilityMatrixItem(4, "Boost Center", "Funcional (Perfis)", "RegistryOptimizer + CompatibilityEngine", "SQLite + Ledger DPAPI", "Aplica perfis reversíveis com verificação de compatibilidade e backup SHA-256."),
-            new ModuleCapabilityMatrixItem(5, "Game Center", "Funcional (biblioteca + processos)", "GameNetworkAcceleratorService", "Sessão", "Descobre jogos por catálogos Steam, Epic, GOG, Ubisoft, EA e Xbox/Microsoft Store; identifica processos e conexões TCP/UDP em execução."),
-            new ModuleCapabilityMatrixItem(6, "Performance Lab", "Funcional", "PresentMonSessionParser", "Arquivos CSV", "Captura frametimes reais (Média, 1% Low, 0.1% Low) via Intel PresentMon CLI."),
-            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Parcial (CPU e buffer de memória)", "Benchmark local da MainViewModel", "Sessão", "Mede operações aritméticas de CPU e taxa de escrita de um buffer de 32 MiB; não mede a largura de banda física da RAM e ainda não executa benchmarks dedicados de GPU nem de armazenamento."),
+            new ModuleCapabilityMatrixItem(5, "Game Center", "Parcial (biblioteca + preferências locais)", "GameNetworkAcceleratorService", "Sessão", "Descobre jogos instalados e processos em execução; permite salvar preferências locais por jogo. Prioridade e afinidade ainda não são aplicadas ao processo do Windows por esta tela."),
+            new ModuleCapabilityMatrixItem(6, "Performance Lab", "Funcional (captura real)", "PresentMonSessionParser", "Arquivos CSV", "Captura frametimes reais via Intel PresentMon e calcula FPS médio, FPS mínimo e 1% Low. O indicador 0.1% Low ainda não é calculado nesta versão."),
+            new ModuleCapabilityMatrixItem(7, "Benchmark Center", "Parcial (CPU, GPU WebGL e RAM sintética)", "Benchmark local do navegador", "Sessão", "Executa teste aritmético de CPU, carga gráfica WebGL e transferência de buffer ArrayBuffer. Não mede a largura de banda física da RAM nem executa benchmark de armazenamento; temperaturas do histórico são leituras pontuais, não picos térmicos."),
             new ModuleCapabilityMatrixItem(8, "Diagnostics / System Doctor", "Funcional (auditoria em leitura)", "SystemDoctorService + IntegrityVerifier", "Registro + EventLog + sessão", "Executa auditoria abrangente sob demanda, apresenta evidências e ações recomendadas; a verificação não altera configurações do Windows."),
             new ModuleCapabilityMatrixItem(9, "Windows Tweaks", "Funcional (leitura, aplicação e reversão)", "RegistryOptimizer + Agente Privilegiado", "Ledger DPAPI+HMAC + SQLite", "Consulta estados reais dos 23 ajustes, permite atualizar a leitura sem gravar no Registro e exibe explicações curtas em português, com aplicação e reversão verificadas pelo agente."),
-            new ModuleCapabilityMatrixItem(10, "Debloat & Cleaner", "Funcional (6 categorias)", "DiskCleanerEngine", "Relatório de Sessão", "Faz varredura e exclusão real em seis áreas autorizadas, incluindo Prefetch e cache de Entrega do Windows; arquivos em uso são preservados."),
+            new ModuleCapabilityMatrixItem(10, "Debloat & Cleaner", "Parcial (7 categorias ativas)", "DiskCleanerEngine", "Relatório de Sessão", "Faz varredura e limpeza em áreas autorizadas; arquivos em uso e links são preservados e reportados. O cache do Windows Update permanece bloqueado até haver parada e reinício seguros dos serviços."),
             new ModuleCapabilityMatrixItem(11, "Network Lab", "Funcional", "NetworkDiagnosticsService", "Histórico em Memória", "ICMP Echo, TCP:443 multi-alvo, DNS e Throughput separados; zero perda TCP artificial."),
             new ModuleCapabilityMatrixItem(12, "Game Network Accelerator", "Parcial (sem provedor incluso)", "GameNetworkAcceleratorService + WireGuard", "SQLite + ACL Restrita", "Mede rota direta e permite avaliar um relay/VPS próprio; não inclui rede global de roteamento nem divisão por processo via WFP nesta versão."),
             new ModuleCapabilityMatrixItem(13, "Peripheral Test", "Parcial (somente monitor)", "DisplaySettingsService + Stopwatch", "Sessão", "Mostra informações do monitor e frequência do contador do Windows; não mede polling real de mouse/teclado nem perda de eventos."),
-            new ModuleCapabilityMatrixItem(14, "Driver Center", "Parcial (inventário)", "DriverScannerService (WMI)", "Somente Leitura", "Lista drivers de algumas classes de dispositivos; ainda não identifica com segurança todos os dispositivos sem driver nem compara versões com as versões oficiais atuais."),
+            new ModuleCapabilityMatrixItem(14, "Driver Center", "Parcial (inventário)", "DriverScannerService (WMI / Plug and Play)", "Somente Leitura", "Inventaria dispositivos Plug and Play e metadados de pacotes de driver que o Windows disponibiliza; campos ausentes ficam como N/D. Ainda não compara versões com catálogos oficiais nem identifica todos os dispositivos sem driver."),
             new ModuleCapabilityMatrixItem(15, "Software Hub", "Funcional (14 Categorias)", "WingetSoftwareCenterService", "Fila Verificada", "Busca, verifica, instala, atualiza e desinstala pacotes oficiais via winget com confirmação."),
             new ModuleCapabilityMatrixItem(16, "Restore Center", "Funcional", "RegistrySnapshotEngine + Ledger", "JSON SHA-256 + DPAPI", "Verificação SHA-256 obrigatória, histórico de alterações e rollback transacional."),
             new ModuleCapabilityMatrixItem(17, "AI Assistant", "Consultivo Baseado em Evidências", "RecommendationEngine + Diagnóstico Local", "Somente Leitura", "Gera recomendações baseadas exclusivamente em evidências reais sem viés de fabricante.")
@@ -2365,11 +2365,15 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 InstalledDrivers.Clear();
                 foreach (var driver in drivers) InstalledDrivers.Add(driver);
-                DriverScanStatusText = !string.IsNullOrWhiteSpace(DriverScannerService.LastScanError)
-                    ? $"A leitura de drivers não foi concluída: {DriverScannerService.LastScanError}"
+                string? scanNotice = DriverScannerService.LastScanError;
+                bool hasPartialInventory = scanNotice?.StartsWith("Inventário combinado", StringComparison.OrdinalIgnoreCase) == true;
+                DriverScanStatusText = !string.IsNullOrWhiteSpace(scanNotice)
+                    ? hasPartialInventory
+                        ? $"Inventário concluído com dados parciais: {scanNotice}"
+                        : $"Não foi possível concluir a leitura: {scanNotice}"
                     : InstalledDrivers.Count > 0
-                        ? $"Escaneamento concluído: {InstalledDrivers.Count} driver(s) instalados encontrados no Windows. O status informa assinatura, não atualização."
-                        : "O Windows não retornou drivers nesta consulta. Verifique o serviço WMI e tente novamente.";
+                        ? $"Inventário concluído: {InstalledDrivers.Count} dispositivo(s) e pacote(s) de driver reportados pelo Windows. Campos N/D indicam metadados indisponíveis; o status não confirma que a versão seja a mais recente."
+                        : "O Windows não retornou dispositivos nesta consulta. Verifique o serviço WMI e tente novamente.";
             });
         }
         catch (Exception ex)
@@ -2458,7 +2462,19 @@ public class MainViewModel : INotifyPropertyChanged
                 _ => $"{Loc["SensorStatusUnavailable"]} ({snap.DiagnosticReason})"
             };
 
-            if (snap.IsHardwareMonitorAvailable)
+            // A single sensor/adapter communication failure must not hide other valid readings
+            // already collected from LHM, WMI, D3D, or Windows volume APIs.
+            bool hasPartialTelemetry =
+                snap.Sensors.Count > 0 ||
+                !string.IsNullOrWhiteSpace(snap.CpuModelName) ||
+                snap.CpuTotalLoad.HasValue ||
+                snap.CpuClockMhz.HasValue ||
+                !string.IsNullOrWhiteSpace(snap.GpuModelName) ||
+                snap.GpuLoadPercent.HasValue ||
+                snap.RamTotalGb.HasValue ||
+                (snap.StorageDrives?.Count ?? 0) > 0;
+
+            if (snap.IsHardwareMonitorAvailable || hasPartialTelemetry)
             {
                 foreach (var drive in snap.StorageDrives ?? Array.Empty<StorageTelemetryPoint>())
                     StorageDrives.Add(drive);

@@ -159,10 +159,10 @@ public static class GameNetworkAcceleratorService
         new(
             DestinationIpSelectiveRoutingSupported: true,
             KernelWfpProcessSplitTunnelEnabled: false,
-            ActiveMechanism: "Policy-Based Destination CIDR Routing (WireGuard AllowedIPs per Game Server Subnet)",
-            AntiCheatSafetyGuarantee: "Zero DLL injection, zero user-mode socket hooks, zero memory manipulation, zero unsigned kernel drivers (reduces anti-cheat conflict surface without promising absolute immunity from third-party policies).",
-            WfpLimitationExplanationPt: "Roteamento Seletivo por Sub-rede de Destino (AllowedIPs) está ATIVO: apenas o tráfego destinado aos IPs dos servidores do jogo é encaminhado pelo túnel, preservando a rota padrão do Windows para os demais aplicativos. O redirecionamento exclusivo por PID/executável via Driver Kernel WFP (Windows Filtering Platform Callout Driver) permanece DESATIVADO nesta versão para evitar hooks invasivos e reduzir o risco de conflito com sistemas anti-cheat (Vanguard, Ricochet, EAC, BattlEye), sem prometer imunidade absoluta frente a políticas externas de terceiros.",
-            WfpLimitationExplanationEn: "Destination-Subnet Selective Routing (AllowedIPs) is ACTIVE: only traffic addressed to the game server IP ranges is routed through the tunnel, preserving the Windows default route for all other apps. Per-process PID split-tunneling via a custom WFP Kernel Callout Driver remains DISABLED in this version to avoid invasive hooks and reduce conflict risk with anti-cheat systems (Vanguard, Ricochet, EAC, BattlEye), without promising absolute immunity from third-party policies."
+            ActiveMechanism: "Not active by default — validated WireGuard AllowedIPs configuration is required",
+            AntiCheatSafetyGuarantee: "No DLL injection, user-mode socket hooks, memory manipulation, or custom unsigned kernel driver is used by the configuration audit. This reduces invasive integration, but does not guarantee compatibility with every anti-cheat policy.",
+            WfpLimitationExplanationPt: "O roteamento seletivo por sub-rede só fica ativo quando um túnel WireGuard com AllowedIPs validados é instalado e confirmado em execução. Esta versão não presume que exista túnel ativo e não altera rotas automaticamente. O redirecionamento exclusivo por PID/executável via Driver Kernel WFP permanece DESATIVADO.",
+            WfpLimitationExplanationEn: "Destination-subnet routing becomes active only after a WireGuard tunnel with validated AllowedIPs is installed and confirmed running. This version does not assume a tunnel is active and does not change routes automatically. Per-process PID/executable routing through a custom WFP kernel callout driver remains DISABLED."
         );
 
     public static (bool success, string errorReason, RelayNodeCandidate? node) RegisterOrUpdateRelayNode(
@@ -191,9 +191,15 @@ public static class GameNetworkAcceleratorService
         }
 
         var cidrs = (gameTargetCidrs ?? Array.Empty<string>())
-            .Select(c => c.Trim())
             .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        if (cidrs.Count == 0)
+        {
+            return (false, "EMPTY_GAME_TARGET_CIDRS: Informe ao menos uma sub-rede de destino do jogo para registrar o nó.", null);
+        }
 
         foreach (var cidr in cidrs)
         {
@@ -201,6 +207,11 @@ public static class GameNetworkAcceleratorService
             {
                 return (false, $"INVALID_CIDR_BLOCK: O bloco CIDR '{cidr}' não é uma sub-rede IPv4/IPv6 válida.", null);
             }
+        }
+
+        if (!WireGuardTunnelManager.IsValidWireGuardKey(publicKey))
+        {
+            return (false, "INVALID_RELAY_PUBLIC_KEY: A chave pública WireGuard do nó está ausente ou fora do formato Curve25519 Base64.", null);
         }
 
         var candidate = new RelayNodeCandidate(
@@ -229,7 +240,8 @@ public static class GameNetworkAcceleratorService
         string trimmed = hostOrIp.Trim();
         if (!SafeHostOrIpRegex.IsMatch(trimmed)) return false;
         if (trimmed.Contains("..") || trimmed.StartsWith('-') || trimmed.EndsWith('-')) return false;
-        return true;
+        if (IPAddress.TryParse(trimmed, out _)) return true;
+        return !trimmed.Contains(':') && Uri.CheckHostName(trimmed) == UriHostNameType.Dns;
     }
 
     private static bool IsMainGameTitle(string? title)

@@ -51,6 +51,17 @@ public class DiskCleanerTests
     }
 
     [Fact]
+    public void IsPathSafe_DownloadsAndDescendants_ReturnsFalse()
+    {
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(userProfile)) return;
+
+        string downloads = Path.Combine(userProfile, "Downloads");
+        Assert.False(DiskCleanerEngine.IsPathSafe(downloads));
+        Assert.False(DiskCleanerEngine.IsPathSafe(Path.Combine(downloads, "PersonalFiles", "important.txt")));
+    }
+
+    [Fact]
     public void IsPathSafe_PathTraversalSequence_ReturnsFalse()
     {
         string tempPath = Path.GetTempPath();
@@ -87,6 +98,18 @@ public class DiskCleanerTests
         var report = DiskCleanerEngine.PurgeCategoryWithReport("update-cache", confirmServiceStop: false);
         Assert.False(report.Success);
         Assert.Equal(0, report.BytesFreed);
+    }
+
+    [Fact]
+    public void PurgeCategoryWithReport_UpdateCacheWithConfirmation_IsStillBlockedUntilServicesAreManaged()
+    {
+        var report = DiskCleanerEngine.PurgeCategoryWithReport("update-cache", confirmServiceStop: true);
+
+        Assert.False(report.Success);
+        Assert.Equal("Blocked", report.Status);
+        Assert.Equal(0, report.BytesFreed);
+        Assert.Equal(0, report.DeletedFilesCount);
+        Assert.Contains(report.Errors, error => error.Contains("não interrompe e reinicia", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

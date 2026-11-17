@@ -159,6 +159,33 @@ public class UniversalHardwareAndCompatibilityTests
     }
 
     [Fact]
+    public async Task UniversalHardwareEngine_ReportsDedicatedGpuVramSeparatelyFromSystemRam()
+    {
+        var snapshot = CreateSnapshot(
+            cpuModel: "AMD Ryzen 7 7800X3D",
+            cpuTemp: 58f,
+            gpuModel: "NVIDIA GeForce RTX 4070",
+            gpuTemp: 62f,
+            gpuHotspot: 75f,
+            vramTotalMb: 8192f,
+            ramUsedGb: 7.5f,
+            ramTotalGb: 32f);
+
+        using var stub = new ConfigurableHardwareMonitorStub(snapshot);
+        var engine = new UniversalHardwareEngine(stub);
+
+        var report = await engine.BuildUniversalReportAsync(
+            snapshot,
+            isRunningAsAdminOverride: true);
+
+        Assert.NotNull(report.PrimaryGpu);
+        Assert.Equal(2048f, report.PrimaryGpu!.VramUsedMb.Value);
+        Assert.Equal(8192f, report.PrimaryGpu.VramTotalMb.Value);
+        Assert.Equal(7.5f, report.Memory.UsedGb.Value);
+        Assert.Equal(32f, report.Memory.TotalGb.Value);
+    }
+
+    [Fact]
     public async Task UniversalHardwareEngine_EnumeratesMultipleGpusIndependently_InHybridAndMultiGpuSystems()
     {
         // Hybrid Laptop with AMD Radeon 780M iGPU + NVIDIA GeForce RTX 4070 Laptop dGPU
@@ -1010,4 +1037,35 @@ Mozilla Firefox                  Mozilla.Firefox                   131.0.3      
         Assert.NotEmpty(recommendations);
         Assert.Contains(recommendations, r => r.RecommendationId == "rec-memory-pressure");
     }
+    [Theory]
+    [InlineData("GPU Hot Spot", true)]
+    [InlineData("GPU Hotspot", true)]
+    [InlineData("GPU Junction", true)]
+    [InlineData("Memory Junction", false)]
+    [InlineData("GPU Memory Junction", false)]
+    [InlineData("VRAM Hotspot", false)]
+    [InlineData("GPU Core", false)]
+    [InlineData(null, false)]
+    public void GpuHotspotSensorClassification_NeverTreatsMemoryJunctionAsGpuDieHotspot(string? sensorName, bool expected)
+    {
+        Assert.Equal(expected, LibreHardwareMonitorWrapper.IsGpuHotspotTemperatureSensor(sensorName));
+    }
+
+    [Theory]
+    [InlineData(null, 0, 55f, 68, true)]
+    [InlineData(82f, 68, 71f, 68, false)]
+    [InlineData(62f, 68, 74f, 68, true)]
+    [InlineData(88f, 68, 70f, 85, true)]
+    [InlineData(70f, 85, 91f, 68, false)]
+    public void CpuTemperatureSelection_PrefersBestSensorClassAndHottestReadingWithinSameClass(
+        float? currentTemperature,
+        int currentPriority,
+        float candidateTemperature,
+        int candidatePriority,
+        bool expected)
+    {
+        Assert.Equal(expected, LibreHardwareMonitorWrapper.IsBetterCpuTemperatureReading(
+            currentTemperature, currentPriority, candidateTemperature, candidatePriority));
+    }
+
 }

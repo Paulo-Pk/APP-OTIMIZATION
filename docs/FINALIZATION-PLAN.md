@@ -1,0 +1,72 @@
+# PC Control Ultimate — plano de finalização
+
+Atualizado em 2026-11-17.
+
+## Base preservada
+
+- Repositório: `Paulo-Pk/APP-OTIMIZATION`
+- Branch padrão: `main`
+- HEAD da `main` observado: `ff031355e60fc188dea6f0efd723a2b1c4e765ee`
+- Branch de integração: `integration/selective-mainline-2026-11-16`
+- HEAD de integração observado: `4dadaa49f468e39d161b2d404daca6e76351ed22`
+- Branch de trabalho sem PR/CI automático: `finalization/pc-control-ultimate-2026-11-17`
+
+A `main` não foi alterada. Nenhuma PR foi mesclada.
+
+Comparação consultada em 2026-11-17: a branch de finalização está **59 commits à frente, 0 atrás**, com **22 arquivos alterados** em relação à `main` (base SHA acima).
+
+## Correções registradas nesta rodada
+
+- `src/App.tsx`: as rotinas periódicas de telemetria e descoberta de jogos capturam falhas transitórias, evitando rejeições não tratadas e preservando a última lista de jogos quando uma consulta falha temporariamente. Commit: `4dadaa49f468e39d161b2d404daca6e76351ed22`.
+- `server.ts`: o diagnóstico TCP agora informa 100% de falha de handshake quando todas as três tentativas falham, sem chamar isso de perda ICMP/UDP; rejeita listas de jogos sem IDs válidos em vez de calcular uma porcentagem indefinida; e descreve dinamicamente os endpoints realmente consultados. Commit: `6bd540d2a403a8d74d981b8d95acce38996580b3`.
+- `server.ts`: a medição TCP foi refatorada para remover um executor `async` dentro de `new Promise`, padrão que podia deixar a requisição pendurada se uma exceção ocorresse no executor. A função agora é diretamente `async` e erros propagam para o `Promise.all`/tratamento HTTP. Commit: `ff564a4edfc41b3451acf4ba37e1cfd7c7ee0f65`.
+
+Essas são correções por inspeção estática; ainda não foram executadas compilação nem testes.
+
+## Auditoria estática complementar — 2026-11-17
+
+- `LibreHardwareMonitorWrapper.cs`: leitura de CPU usa sensores reais do LibreHardwareMonitor e, quando não há clock disponível, consulta `Win32_Processor.CurrentClockSpeed` com cache de 3 segundos. A temperatura da CPU também considera sensores expostos por Motherboard/SuperIO; não há uma fonte universal para notebooks/placas que não exponham sensor. RAM física é isolada pelo identificador `/ram`; os contadores de VRAM aceitos são apenas memória dedicada, sem somar `D3D Shared Memory`. Volumes fixos são enumerados via `DriveInfo`, além dos dispositivos físicos com sensor. Isso reduz confusões de RAM/VRAM e permite listar várias unidades, mas depende do que o Windows/driver expõe.
+- `WireGuardTunnelManager.cs` e `GameNetworkAcceleratorService.cs`: o código deixa explícito que roteamento por processo via WFP está desativado, exige CIDRs de destino e valida a configuração WireGuard; rejeita hooks de script e DNS global, além de bloquear cobertura de rota padrão sem consentimento. Não há base para prometer aceleração tipo ExitLag sem relay funcional, túnel instalado e handshake/tráfego confirmados. A auditoria de configuração, por si só, não ativa o túnel.
+- `DiskCleanerEngine.cs`: o mecanismo valida caminhos, evita reparse points/symlinks e reporta itens removidos/preservados. A auditoria do agente privilegiado confirmou que o fluxo apenas repassava a confirmação do usuário e não interrompia/reiniciava os serviços do Windows Update. Por segurança, `update-cache` foi bloqueado também quando confirmado; nenhuma exclusão ocorre até que a parada/reinício e a recuperação do serviço sejam implementados e testados. O método legado `PurgeCategory` também não limpa essa categoria.
+- `BenchmarkCenterView.tsx`: o histórico armazenava leituras pontuais de temperatura em campos chamados `*TempPeak`, embora não houvesse amostragem contínua durante o benchmark. Corrigido o rótulo da interface para “Temperatura registrada” e incluída explicação de que não representa pico térmico. Commit: `43dd8a3719c956a838490a111dbc1c032df06024`.
+- `DiskCleanerEngine.cs` / `DiskCleanerTests.cs`: o fluxo do agente privilegiado apenas encaminhava a confirmação do usuário; não parava nem reiniciava `wuauserv`/serviços relacionados. Para evitar que a UI prometa uma limpeza segura que o código não executa, a limpeza de `update-cache` agora permanece bloqueada mesmo após confirmação, até existir uma rotina de ciclo de serviço com recuperação verificada. Incluído teste para garantir zero arquivos removidos nesse estado. Commits: `94431e326189de478d5bfeb986e991ed95375dc9` e `4f8856d3034e1687e848007c3d5577491e110495`.
+- `DriverScannerService.cs` / Driver Center: a implementação consulta `Win32_PnPSignedDriver` e complementa com inventário `Win32_PnPEntity`; a matriz foi alinhada ao escopo e deixa claro que não há comparação com catálogo oficial de versões. Uma revisão posterior encontrou deduplicação por nome que podia ocultar dispositivos diferentes com nomes iguais. Corrigido para preservar o `DeviceInstanceId` do Windows e deduplicar por identidade PnP; nomes só são usados como fallback quando o identificador não existe. A interface também distingue inventário parcial de falha de consulta e não chama cada dispositivo PnP de driver instalado. Commits: `c9495dcc6f2efad7bd204804a1d5f365751d1857` e `0956b878fef23007325c95f3c28a6f50b2ff9d55`. Ainda requer build e teste em Windows.
+- `MainViewModel.cs` / telemetria parcial: a interface descartava todo o snapshot quando o monitor marcava `CommunicationFailure`, mesmo que outras leituras válidas já tivessem sido coletadas por LHM/WMI/Windows. A condição agora mantém as métricas efetivamente disponíveis e continua exibindo o estado de comunicação degradado, sem inventar valores. Commit: `eee0a5900fd6ef4f3d7062953f742084c92365f0`.
+- `PresentMonSessionParser.cs` / Performance Lab: o parser calcula FPS médio, mínimo e 1% Low; o campo 0.1% Low permanece nulo na captura. A matriz de capacidades foi corrigida para não anunciar 0.1% Low como métrica disponível. Commit: `35f22274804284ab2c43f179bf4aabc9ac4b3d98`.
+- `MainViewModel.cs` / Game Center: a matriz chamava o módulo de funcional sem deixar claro que prioridade e afinidade são apenas preferências locais e não são aplicadas ao processo. O estado foi corrigido para parcial e a limitação foi explicitada; não foi implementada alteração de prioridade/afinidade sem fluxo de consentimento e restauração. Commit: `d7fdd5ae55c88baaf62d178e21035200c194f5ef`.
+- `SystemDoctorService.cs`: quando o Visualizador de Eventos não podia ser lido, o auditor retornava `EventLogAccessible=false`, mas o System Doctor não mostrava nenhum alerta específico; o usuário podia interpretar a auditoria como completa. Agora a tela recebe um achado explícito de verificação indisponível, com causa provável e orientação, sem presumir que houve falha no sistema. Commit: `1adc19b2a49b38bc2313c05089b60f4289c022f7`.
+- `MainViewModel.cs`: a matriz interna de capacidades descrevia incorretamente o Benchmark Center como se não houvesse teste de GPU, apesar do teste WebGL existente, e indicava seis categorias de limpeza sem refletir o bloqueio do Windows Update. Os textos foram alinhados ao comportamento real: CPU/GPU WebGL/RAM sintética, sem benchmark de disco ou RAM física, e sete categorias ativas com `update-cache` bloqueado. Commit: `b604480c71823c7fe4b8fa9c078c2fe87a42c6b5`.
+- A auditoria do wrapper de hardware confirma que o intervalo de polling é configurável e rejeita valores não positivos. O `MainViewModel` da aplicação WPF usa `DispatcherTimer` de 1 segundo e chama `RefreshTelemetryAndStatusAsync`, que captura um novo snapshot; portanto, a intenção de atualização a cada segundo está implementada no fluxo principal. A atualização real pode atrasar se a leitura de sensores levar mais tempo ou estiver bloqueada.
+
+## Situação das Pull Requests
+
+- PR #10 — Draft, 304 commits; base `fix/cpu-telemetry-and-ux-audit`.
+- PR #11 — Draft, 346 commits; empilhada sobre PR #10.
+- PR #12 — Draft, 9 commits; integração seletiva de hardware/rede/telemetria, base de recuperação.
+- PR #13 — integração seletiva para `main`, 30 commits, 18 arquivos alterados, sem conflitos reportados no último estado consultado.
+
+As linhas #10, #11 e #12 divergem da branch de integração. Não mesclar ou cherry-pick em massa: a comparação indica históricos divergentes e risco de duplicação/conflito.
+
+## Validação — ainda não aprovada
+
+O workflow Windows x64 foi acionado automaticamente ao atualizar a branch da PR #13. O GitHub encerrou a execução em aproximadamente 2–3 segundos, com `runner_id=0` e `steps=[]`. Nenhuma etapa de checkout, instalação, compilação ou teste foi iniciada. Isso é falha de alocação/execução do runner, não um resultado de compilação.
+
+Execuções observadas:
+- Run `44084505312`, commit `db50ed14ecb5ff3a0882598363eef391d087f860`.
+- Run `44092896654`, commit `4dadaa49f468e39d161b2d404daca6e76351ed22`.
+
+Não repetir Actions nem solicitar aumento de limite/cobrança.
+
+## Etapas obrigatórias antes de declarar versão final
+
+1. Concluir a revisão seletiva das PRs #10, #11 e #12 na branch de finalização, resolvendo conflitos por arquivo e preservando a interface existente. Não integrar históricos inteiros nem cherry-pick em massa.
+2. Executar localmente no Windows: `.\scripts\test-local.ps1` (Bun + .NET 10 SDK).
+3. Corrigir cada falha real de TypeScript, build .NET ou xUnit.
+4. Executar publicação: `.\scripts\test-local.ps1 -Publish`.
+5. Testar o executável em Windows real: sensores, CPU/GPU/VRAM/discos, drivers, limpeza com relatório, ajustes/restauração do Registro, descoberta de jogos, PresentMon, diagnósticos ICMP/TCP/DNS e rede WireGuard sem alteração de rota sem consentimento.
+6. Fazer revisão visual comparando a interface com a Preview original.
+7. Somente depois da validação, preparar uma PR final revisável. Não mesclar em `main` sem autorização explícita.
+
+## Critério de conclusão
+
+O projeto só pode ser marcado como finalizado quando o build, os testes automatizados, a publicação x64 e os testes funcionais em Windows forem comprovados. O estado atual é **em consolidação; validação pendente**.

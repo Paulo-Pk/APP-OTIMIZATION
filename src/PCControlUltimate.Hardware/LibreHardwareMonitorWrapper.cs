@@ -226,6 +226,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                 float? driveTemp = null;
                 float? adapterCoreTemp = null;
+                float? adapterFallbackCoreTemp = null;
                 float? adapterHotspot = null;
                 float? adapterLoad = null;
                 float? adapterClock = null;
@@ -271,8 +272,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                         if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                         {
                             int candidatePriority = GetCpuTemperatureSensorPriority(sensor.Name);
-                            if (cpuTemp is null || candidatePriority > cpuTempPriority ||
-                                (candidatePriority == cpuTempPriority && sensor.Value.Value > cpuTemp.Value))
+                            if (IsBetterCpuTemperatureReading(cpuTemp, cpuTempPriority, sensor.Value.Value, candidatePriority))
                             {
                                 cpuTemp = sensor.Value;
                                 cpuTempPriority = candidatePriority;
@@ -319,21 +319,23 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
                     {
                         if (sensor.SensorType == SensorType.Temperature && sensor.Value is > 0)
                         {
-                            if (sensor.Name.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase) ||
-                                sensor.Name.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
-                                sensor.Name.Contains("Junction", StringComparison.OrdinalIgnoreCase))
+                            // Memory Junction is VRAM temperature, not the GPU die hotspot.
+                            bool isMemoryTemperature = sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase) ||
+                                sensor.Name.Contains("VRAM", StringComparison.OrdinalIgnoreCase);
+                            if (IsGpuHotspotTemperatureSensor(sensor.Name))
                             {
                                 adapterHotspot ??= sensor.Value;
                             }
-                            else if ((sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
-                                      sensor.Name.Contains("Edge", StringComparison.OrdinalIgnoreCase) ||
-                                      sensor.Name.Contains("GPU Temp", StringComparison.OrdinalIgnoreCase) ||
-                                      sensor.Name.Equals("GPU", StringComparison.OrdinalIgnoreCase) ||
-                                      sensor.Name.Equals("GPU Temperature", StringComparison.OrdinalIgnoreCase)) &&
-                                     !sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase) &&
-                                     !sensor.Name.Contains("SoC", StringComparison.OrdinalIgnoreCase))
+                            else if (!isMemoryTemperature && !sensor.Name.Contains("SoC", StringComparison.OrdinalIgnoreCase))
                             {
-                                adapterCoreTemp ??= sensor.Value;
+                                if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
+                                    sensor.Name.Contains("Edge", StringComparison.OrdinalIgnoreCase) ||
+                                    sensor.Name.Contains("GPU Temp", StringComparison.OrdinalIgnoreCase) ||
+                                    sensor.Name.Equals("GPU", StringComparison.OrdinalIgnoreCase) ||
+                                    sensor.Name.Equals("GPU Temperature", StringComparison.OrdinalIgnoreCase))
+                                    adapterCoreTemp ??= sensor.Value;
+                                else
+                                    adapterFallbackCoreTemp ??= sensor.Value;
                             }
                         }
                         if (sensor.SensorType == SensorType.Load && sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
@@ -365,7 +367,7 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
 
                         if (isPrimaryGpuCandidate)
                         {
-                            gpuTemp ??= adapterCoreTemp;
+                            gpuTemp ??= adapterCoreTemp ?? adapterFallbackCoreTemp;
                             gpuHotspot ??= adapterHotspot;
                             gpuLoad ??= adapterLoad;
                             gpuClock ??= adapterClock;
@@ -757,6 +759,28 @@ public class LibreHardwareMonitorWrapper : IHardwareMonitorService
     /// AMD Ryzen sensors such as Core (Tctl/Tdie), CCDx (Tdie), and CCDs Max (Tdie) are explicitly recognized.
     /// Any other valid temperature sensor exposed by the CPU is retained as a last-resort real reading.
     /// </summary>
+    internal static bool IsBetterCpuTemperatureReading(
+        float? currentTemperature,
+        int currentPriority,
+        float candidateTemperature,
+        int candidatePriority)
+    {
+        return !currentTemperature.HasValue ||
+            candidatePriority > currentPriority ||
+            (candidatePriority == currentPriority && candidateTemperature > currentTemperature.Value);
+    }
+
+    internal static bool IsGpuHotspotTemperatureSensor(string? sensorName)
+    {
+        if (string.IsNullOrWhiteSpace(sensorName)) return false;
+        if (sensorName.Contains("Memory", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("VRAM", StringComparison.OrdinalIgnoreCase)) return false;
+
+        return sensorName.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
+            sensorName.Contains("Junction", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static int GetCpuTemperatureSensorPriority(string? sensorName)
     {
         if (string.IsNullOrWhiteSpace(sensorName)) return 0;

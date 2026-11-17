@@ -29,61 +29,6 @@ async function startServer() {
     });
   }
 
-  // Chunked download endpoints for the compiled Windows x64 package (avoids 32MB proxy response limits)
-  const appPackagePath = path.resolve(__dirname, 'server-assets', 'PCControlUltimate-win-x64-Pronto.zip');
-  const CHUNK_SIZE_BYTES = 4 * 1024 * 1024; // 4 MiB per chunk
-
-  app.get('/api/app-package/manifest', async (_req: Request, res: Response) => {
-    try {
-      const fs = await import('fs/promises');
-      const stat = await fs.stat(appPackagePath);
-      const totalBytes = stat.size;
-      const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE_BYTES);
-      res.setHeader('Cache-Control', 'no-store');
-      return res.json({
-        available: true,
-        filename: 'PCControlUltimate-win-x64-Pronto.zip',
-        totalBytes,
-        chunkSizeBytes: CHUNK_SIZE_BYTES,
-        totalChunks,
-      });
-    } catch {
-      return res.status(404).json({
-        available: false,
-        error: 'Pacote compilado PCControlUltimate-win-x64-Pronto.zip não encontrado no servidor.',
-      });
-    }
-  });
-
-  app.get('/api/app-package/chunk/:index', async (req: Request, res: Response) => {
-    try {
-      const chunkIndex = Number.parseInt(req.params.index, 10);
-      if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
-        return res.status(400).json({ error: 'Índice de chunk inválido.' });
-      }
-      const fs = await import('fs/promises');
-      const stat = await fs.stat(appPackagePath);
-      const start = chunkIndex * CHUNK_SIZE_BYTES;
-      if (start >= stat.size) {
-        return res.status(416).json({ error: 'Chunk fora do intervalo do arquivo.' });
-      }
-      const length = Math.min(CHUNK_SIZE_BYTES, stat.size - start);
-      const buffer = Buffer.allocUnsafe(length);
-      const handle = await fs.open(appPackagePath, 'r');
-      try {
-        await handle.read(buffer, 0, length, start);
-      } finally {
-        await handle.close();
-      }
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Length', String(length));
-      res.setHeader('Cache-Control', 'no-store');
-      return res.send(buffer);
-    } catch {
-      return res.status(500).json({ error: 'Falha ao ler chunk do pacote compilado.' });
-    }
-  });
-
   // Local server IPC latency check (explicitly distinguished from external internet ping)
   app.get('/api/network/ping', (_req: Request, res: Response) => {
     res.json({
@@ -127,9 +72,17 @@ async function startServer() {
     const targets: TargetConfig[] = selectedGameIds.length
       ? selectedGameIds.map((id) => gameReferenceTargets[id]).filter((target): target is TargetConfig => !!target)
       : defaultTargets;
+    const ignoredGameIds = selectedGameIds.filter((id) => !gameReferenceTargets[id]);
 
-    const measureHost = (target: TargetConfig) => {
-      return new Promise<{
+    if (targets.length === 0) {
+      return res.status(400).json({
+        error: 'Nenhum identificador de jogo válido foi informado para o diagnóstico.',
+        ignoredGameIds,
+        results: [],
+      });
+    }
+
+    const measureHost = async (target: TargetConfig): Promise<{
         id: string;
         server: string;
         location: string;
@@ -141,7 +94,7 @@ async function startServer() {
         tcpHandshakeState: 'Connected' | 'Timeout' | 'ConnectionRefused' | 'FilteredPort';
         samples: number[];
         isSuccess: boolean;
-      }>(async (resolve) => {
+      }> => {
         const samples: number[] = [];
         let failedCount = 0;
         let lastErrorState: 'Connected' | 'Timeout' | 'ConnectionRefused' | 'FilteredPort' = 'Connected';
@@ -181,8 +134,8 @@ async function startServer() {
         }
 
         if (samples.length === 0) {
-          // Do not conflate a blocked/refused TCP port with 100% network packet loss if other targets succeed
-          return resolve({
+          // Report failed TCP handshakes separately; this is not ICMP or UDP packet loss.
+          return {
             id: target.id,
             server: target.server,
             location: target.location,
@@ -190,11 +143,11 @@ async function startServer() {
             protocol: `TCP:${target.port} Handshake`,
             pingMs: null,
             jitterMs: null,
-            tcpFailurePercent: 0,
+            tcpFailurePercent: Math.round((failedCount / totalProbes) * 100),
             tcpHandshakeState: lastErrorState,
             samples: [],
             isSuccess: false,
-          });
+          };
         }
 
         const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
@@ -202,7 +155,7 @@ async function startServer() {
         const jitter = Math.sqrt(variance);
         const lossPercent = Math.round((failedCount / totalProbes) * 100);
 
-        resolve({
+        return {
           id: target.id,
           server: target.server,
           location: target.location,
@@ -214,8 +167,7 @@ async function startServer() {
           tcpHandshakeState: 'Connected',
           samples: samples.map((s) => Math.round(s)),
           isSuccess: true,
-        });
-      });
+        };
     };
 
     try {
@@ -225,13 +177,14 @@ async function startServer() {
         measurementMethod: 'TCP_HANDSHAKE_RTT_SEPARATED_FROM_ICMP',
         tcpReachabilityPercent: Math.round((connectedCount / targets.length) * 100),
         structuredDiagnostic: {
-          whatWasTested: 'Handshake TCP:443 multi-amostra em 6 endpoints globais verificados (Valve, Riot, Epic, Cloudflare, 1.1.1.1, 8.8.8.8)',
+          whatWasTested: `Handshake TCP multi-amostra em ${targets.length} endpoint(s) de referência: ${targets.map((target) => target.server).join(', ')}.`,
           whatFailed: connectedCount === targets.length ? 'Nenhuma falha (0 anomalias)' : `${targets.length - connectedCount} alvo(s) com porta filtrada/timeout`,
           evidenceFound: `${connectedCount}/${targets.length} endpoints TCP:443 aceitaram conexão; falhas representam handshakes TCP não concluídos, não perda de pacotes ICMP/UDP.`,
           probableCause: connectedCount > 0 ? 'Há conectividade com pelo menos um endpoint de referência; falhas individuais podem indicar filtro, timeout ou indisponibilidade do serviço.' : 'Nenhum endpoint de referência aceitou conexão TCP neste ambiente; isso não identifica sozinho a causa.',
           recommendedSolution: 'Use estes dados apenas como referência de conectividade TCP; eles não medem perda ICMP nem latência UDP do jogo.',
           verificationSteps: 'Compare o RTT e o Jitter no Network Lab e no Game Network Accelerator.',
         },
+        ignoredGameIds,
         results,
       });
     } catch {

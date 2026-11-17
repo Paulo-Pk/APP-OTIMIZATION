@@ -1,12 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Gamepad2,
   X,
   Check,
-  Cpu,
-  Flame,
-  Zap,
-  Activity,
 } from 'lucide-react';
 import { GameProfile } from '../../types';
 import { useI18n } from '../../i18n';
@@ -26,13 +22,18 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
 }) => {
   const { t } = useI18n();
 
-  if (!isOpen || !game) return null;
+  const [priority, setPriority] = useState<GameProfile['processPriority']>('Normal');
+  const [affinity, setAffinity] = useState<GameProfile['cpuAffinity']>('Todos');
+  const [powerProfile, setPowerProfile] = useState<GameProfile['powerProfile']>('Equilibrado');
 
-  const [priority, setPriority] = useState(game.processPriority);
-  const [affinity, setAffinity] = useState(game.cpuAffinity);
-  const [powerProfile, setPowerProfile] = useState(game.powerProfile);
-  const [monitorFps, setMonitorFps] = useState(game.monitorFps);
-  const [boostEnabled, setBoostEnabled] = useState(game.boostEnabled);
+  useEffect(() => {
+    if (!game) return;
+    setPriority(game.processPriority);
+    setAffinity(game.cpuAffinity);
+    setPowerProfile(game.powerProfile);
+  }, [game]);
+
+  if (!isOpen || !game) return null;
 
   const handleSave = () => {
     onSave({
@@ -40,8 +41,6 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
       processPriority: priority,
       cpuAffinity: affinity,
       powerProfile,
-      monitorFps,
-      boostEnabled,
     });
     onClose();
   };
@@ -55,7 +54,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
             <Gamepad2 className="w-5 h-5 text-purple-400" />
             <div>
               <h2 className="text-sm font-black text-white uppercase tracking-wider">
-                {t.gameCenter.modalTitle}
+                Preferências locais do jogo
               </h2>
               <span className="text-xs text-purple-300 font-semibold">{game.title}</span>
             </div>
@@ -117,26 +116,8 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
             </select>
           </div>
 
-          <div className="space-y-2 pt-2 border-t border-slate-800/80">
-            <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-              <input
-                type="checkbox"
-                checked={monitorFps}
-                onChange={(e) => setMonitorFps(e.target.checked)}
-                className="w-4 h-4 rounded text-purple-600 bg-[#0a0c13] border-slate-700"
-              />
-              <span>{t.gameCenter.autoCapturePresentMon}</span>
-            </label>
-
-            <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-              <input
-                type="checkbox"
-                checked={boostEnabled}
-                onChange={(e) => setBoostEnabled(e.target.checked)}
-                className="w-4 h-4 rounded text-purple-600 bg-[#0a0c13] border-slate-700"
-              />
-              <span>{t.gameCenter.autoGameBoost}</span>
-            </label>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[11px] leading-relaxed text-amber-200">
+            Estas opções são apenas anotações locais nesta versão. Ainda não alteram prioridade, afinidade de CPU ou plano de energia do Windows.
           </div>
         </div>
 
@@ -152,7 +133,7 @@ export const GameProfileModal: React.FC<GameProfileModalProps> = ({
             className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider cursor-pointer flex items-center gap-1.5"
           >
             <Check className="w-4 h-4" />
-            <span>{t.gameCenter.saveProfile}</span>
+            <span>Salvar preferências locais</span>
           </button>
         </div>
       </div>

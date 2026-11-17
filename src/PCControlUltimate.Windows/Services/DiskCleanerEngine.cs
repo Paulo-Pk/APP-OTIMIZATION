@@ -163,14 +163,20 @@ public static class DiskCleanerEngine
                 }
             }
 
-            // Block any personal directory subtree
+            // Block personal folders, including Downloads, and every descendant.
+            string userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string downloadsPath = string.IsNullOrWhiteSpace(userProfilePath)
+                ? string.Empty
+                : Path.Combine(userProfilePath, "Downloads");
+
             var personalSubtrees = new[]
             {
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
                 Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
-                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                downloadsPath
             };
 
             foreach (var personal in personalSubtrees)
@@ -317,10 +323,19 @@ public static class DiskCleanerEngine
             return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
         }
 
-        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase) && !confirmServiceStop)
+        if (string.Equals(categoryKey, "update-cache", StringComparison.OrdinalIgnoreCase))
         {
-            errors.Add("A limpeza do cache do Windows Update exige confirmação explícita do usuário.");
-            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors);
+            if (!confirmServiceStop)
+            {
+                errors.Add("A limpeza do cache do Windows Update exige confirmação explícita do usuário.");
+                return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors, Status: "Blocked");
+            }
+
+            // The privileged-agent flow currently forwards user confirmation but does not
+            // stop and restart the Windows Update services. Never delete this live cache
+            // while the service lifecycle is unverified.
+            errors.Add("Limpeza bloqueada: esta versão ainda não interrompe e reinicia com segurança os serviços do Windows Update. Nenhum arquivo foi removido.");
+            return new DiskPurgeReport(false, false, categoryKey, 0, 0, 0, 0, affectedItems, errors, Status: "Blocked");
         }
 
         return PurgeAuthorizedDirectory(categoryKey, targetDir);
