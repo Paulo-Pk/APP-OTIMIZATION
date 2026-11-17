@@ -735,8 +735,8 @@ export default function App() {
   const handleSaveGameProfile = (updated: GameProfile) => {
     setGames((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
     setNotification({
-      type: 'success',
-      message: `${updated.title}: Perfil de afinidade e prioridade salvo com sucesso.`,
+      type: 'warning',
+      message: `${updated.title}: preferências guardadas apenas nesta sessão. Elas ainda não foram aplicadas ao processo do jogo ou ao plano de energia do Windows.`,
     });
   };
 
@@ -842,28 +842,6 @@ export default function App() {
             <GameCenterView
               games={games}
               onOpenProfileModal={setGameProfileToEdit}
-              onToggleGameBoost={(id) => {
-                setGames((prev) =>
-                  prev.map((g) => (g.id === id ? { ...g, boostEnabled: !g.boostEnabled } : g))
-                );
-              }}
-              onAddCustomGame={() => {
-                const newGame: GameProfile = {
-                  id: `game-${Date.now()}`,
-                  title: 'Custom Game Process',
-                  platform: 'Manual',
-                  executablePath: 'C:\\Games\\Game.exe',
-                  coverImage: '',
-                  processPriority: 'Alta',
-                  cpuAffinity: 'P-Cores Apenas',
-                  gpuPreference: 'Alto Desempenho',
-                  powerProfile: 'Desempenho Máximo PC Control',
-                  monitorFps: true,
-                  monitorTemps: true,
-                  boostEnabled: true,
-                };
-                setGames((prev) => [newGame, ...prev]);
-              }}
             />
           )}
 
