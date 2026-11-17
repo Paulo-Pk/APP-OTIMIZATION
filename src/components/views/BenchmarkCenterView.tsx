@@ -115,6 +115,88 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
     }
   };
 
+  const handleRunAll = async () => {
+    setActiveTest('CPU + GPU + RAM');
+    setTestError(null);
+    const completed: BenchmarkRecord[] = [];
+    const errors: string[] = [];
+    const now = () => t.benchmarks.justNow;
+    const cpuTemp = telemetry.cpu.temperature > 0 ? Math.round(telemetry.cpu.temperature) : 0;
+    const gpuTemp = telemetry.gpu.temperature > 0 ? Math.round(telemetry.gpu.temperature) : 0;
+
+    try {
+      try {
+        const result = await runCpuBenchmark(setProgressState);
+        completed.push({
+          id: `bm-cpu-${Date.now()}`,
+          type: 'CPU',
+          score: result.score,
+          metric: t.benchmarks.metricIpc,
+          date: now(),
+          hardware: telemetry.cpu.name || t.common.sensorNotAvailable,
+          durationMs: Math.round(result.durationMs),
+          cpuTempPeak: cpuTemp,
+          gpuTempPeak: gpuTemp,
+          notes: `${result.details} (Teste Sintético JavaScript/V8)`,
+        });
+      } catch (error) {
+        errors.push(`CPU: ${error instanceof Error ? error.message : 'falha no teste'}`);
+      }
+
+      try {
+        const result = await runGpuBenchmark(setProgressState);
+        completed.push({
+          id: `bm-gpu-${Date.now()}`,
+          type: 'GPU',
+          score: result.score,
+          metric: 'FPS de renderização',
+          date: now(),
+          hardware: telemetry.gpu.name || t.common.sensorNotAvailable,
+          durationMs: Math.round(result.durationMs),
+          cpuTempPeak: cpuTemp,
+          gpuTempPeak: gpuTemp,
+          notes: result.details,
+        });
+      } catch (error) {
+        errors.push(`GPU: ${error instanceof Error ? error.message : 'falha no teste'}`);
+      }
+
+      try {
+        const result = await runRamBenchmark(setProgressState);
+        completed.push({
+          id: `bm-ram-${Date.now()}`,
+          type: 'RAM',
+          score: result.score,
+          metric: 'MB/s Throughput',
+          date: now(),
+          hardware: telemetry.ram.totalGB > 0
+            ? `${telemetry.ram.totalGB}GB ${telemetry.ram.type}`
+            : t.common.sensorNotAvailable,
+          durationMs: Math.round(result.durationMs),
+          cpuTempPeak: cpuTemp,
+          gpuTempPeak: gpuTemp,
+          notes: `${result.details} (Teste Sintético ArrayBuffer)`,
+        });
+      } catch (error) {
+        errors.push(`RAM: ${error instanceof Error ? error.message : 'falha no teste'}`);
+      }
+
+      if (completed.length > 0) {
+        setRecords((previous) => [...completed, ...previous]);
+      }
+      if (errors.length > 0) {
+        setTestError(`Bateria parcial: ${completed.length}/3 testes concluídos. ${errors.join(' | ')}`);
+      }
+      setProgressState({
+        status: completed.length === 3 ? 'completed' : 'idle',
+        progress: completed.length === 3 ? 100 : 0,
+        currentTest: completed.length === 3 ? 'Bateria CPU, GPU e RAM concluída' : 'Bateria finalizada com limitações',
+      });
+    } finally {
+      setActiveTest(null);
+    }
+  };
+
   const isRunning = activeTest !== null;
 
   return (
@@ -133,12 +215,12 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => handleRunCpu()}
+            onClick={() => void handleRunAll()}
             disabled={isRunning}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer border border-purple-400/40 disabled:opacity-50"
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>{t.benchmarks.runBenchmark}</span>
+            <span>Executar bateria completa</span>
           </button>
         </div>
       </div>
@@ -151,7 +233,7 @@ export const BenchmarkCenterView: React.FC<BenchmarkCenterViewProps> = ({
             Como os testes funcionam
           </div>
           <p className="text-slate-400 leading-relaxed text-[11px]">
-            O teste de GPU renderiza uma cena gráfica usando a aceleração disponível no navegador e mede os quadros por segundo. O resultado é uma comparação sintética, não substitui um benchmark profissional de jogos ou 3D.
+            A bateria executa testes sintéticos separados de CPU, GPU (WebGL) e RAM (ArrayBuffer). Não grava no disco nem altera configurações do Windows. Os resultados dependem do navegador e não substituem benchmarks profissionais.
           </p>
         </div>
       </div>
